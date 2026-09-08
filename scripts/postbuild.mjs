@@ -1,0 +1,23 @@
+import { readdir, writeFile, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+async function walk(dir) {
+  const out = [];
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.name === 'downloads') continue;
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...(await walk(p)));
+    else if (!['sw.js', '_headers'].includes(e.name)) out.push(p);
+  }
+  return out;
+}
+const files = await walk('build');
+const hash = createHash('sha256');
+for (const f of files) hash.update(await readFile(f));
+const version = 'osbb-' + hash.digest('hex').slice(0, 12);
+const urls = files.map((f) => '/' + f.replaceAll('\\', '/').slice(6));
+await writeFile(
+  'build/sw.js',
+  `const CACHE=${JSON.stringify(version)};const ASSETS=${JSON.stringify(urls)};self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)));});self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('osbb-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});self.addEventListener('fetch',event=>{if(event.request.method!=='GET'||new URL(event.request.url).origin!==self.location.origin||new URL(event.request.url).pathname.startsWith('/downloads/'))return;if(event.request.mode==='navigate'){event.respondWith(fetch(event.request).catch(()=>caches.match('/index.html')));return;}event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request)));});`,
+);
+console.log(`Offline cache: ${urls.length} assets (${version})`);

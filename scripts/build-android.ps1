@@ -24,6 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Java compilation failed' }
 & (Join-Path $JdkPath 'bin\jar.exe') --create --file (Join-Path $work 'classes.jar') -C (Join-Path $work 'classes') .
 & (Join-Path $buildTools 'd8.bat') --lib $androidJar --min-api 24 --output (Join-Path $work 'dex') (Join-Path $work 'classes.jar')
 if ($LASTEXITCODE -ne 0) { throw 'Dex compilation failed' }
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::Open((Join-Path $work 'unsigned.apk'),[IO.Compression.ZipArchiveMode]::Update)
 try { [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,(Join-Path $work 'dex\classes.dex'),'classes.dex') | Out-Null } finally { $archive.Dispose() }

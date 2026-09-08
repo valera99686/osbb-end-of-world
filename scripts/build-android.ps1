@@ -16,7 +16,7 @@ foreach ($dir in @($work,$releases,$keys,(Join-Path $work 'classes'),(Join-Path 
 Get-ChildItem -LiteralPath (Join-Path $projectRoot 'build') | Where-Object { $_.Name -ne 'downloads' } | Copy-Item -Destination (Join-Path $work 'assets\game') -Recurse -Force
 & (Join-Path $buildTools 'aapt2.exe') compile --dir 'android/res' -o '.android-build/resources.zip'
 if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed' }
-& (Join-Path $buildTools 'aapt2.exe') link -o '.android-build/unsigned.apk' -I ([IO.Path]::GetRelativePath($projectRoot,$androidJar)) --manifest 'android/AndroidManifest.xml' -A '.android-build/assets' --java '.android-build/generated' '.android-build/resources.zip' --auto-add-overlay
+& (Join-Path $buildTools 'aapt2.exe') link -o '.android-build/unsigned.apk' -I (Resolve-Path -LiteralPath $androidJar -Relative) --manifest 'android/AndroidManifest.xml' -A '.android-build/assets' --java '.android-build/generated' '.android-build/resources.zip' --auto-add-overlay
 if ($LASTEXITCODE -ne 0) { throw 'Resource linking failed' }
 $sources = Get-ChildItem -LiteralPath (Join-Path $projectRoot 'android\src') -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
 & (Join-Path $JdkPath 'bin\javac.exe') -encoding UTF-8 -source 8 -target 8 -classpath $androidJar -d (Join-Path $work 'classes') $sources

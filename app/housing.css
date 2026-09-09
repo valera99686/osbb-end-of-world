@@ -309,11 +309,23 @@
   position: absolute;
   right: 30px;
   top: 22px;
-  font-size: clamp(25px, 4vw, 46px);
+  font-size: clamp(18px, 2.7vw, 34px);
   letter-spacing: 0.12em;
   color: #e8e3cf;
   text-shadow: 0 3px 15px #000;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  max-width: calc(100% - 60px);
+}
+.cinema-stamp > small {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  margin-bottom: 6px;
+  color: #edcc99;
+}
+.cinema-stamp > span {
+  display: block;
 }
 .cinema-controls {
   display: flex;

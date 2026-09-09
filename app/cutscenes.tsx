@@ -6,18 +6,33 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { CUTSCENES, SCENE_BY_ID, sceneUnlocked } from '@/lib/game/cutscenes';
+import {
+  CUTSCENES,
+  SCENE_BY_ID,
+  sceneUnlocked,
+  STORY_YEAR,
+} from '@/lib/game/cutscenes';
 import type { Meta } from '@/lib/game/model';
 
 export function SceneArt({ art }: { art: number }) {
   return (
     <svg
       className="scene-art"
-      viewBox={`${(art % 3) * 512} ${Math.floor(art / 3) * 512} 512 512`}
+      viewBox={
+        art === 6
+          ? '0 0 1536 1024'
+          : `${(art % 3) * 512} ${Math.floor(art / 3) * 512} 512 512`
+      }
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
     >
-      <image href="/art/cutscenes-v1.png" width="1536" height="1024" />
+      <image
+        href={
+          art === 6 ? '/art/future-city-2086-v1.png' : '/art/cutscenes-v1.png'
+        }
+        width="1536"
+        height="1024"
+      />
     </svg>
   );
 }
@@ -80,7 +95,10 @@ export function CutscenePlayer({
         <div className="cinema-stage" key={`${scene.id}-${progress.index}`}>
           <SceneArt art={shot.art} />
           <div className="cinema-haze" />
-          <div className="cinema-stamp">{shot.time}</div>
+          <div className="cinema-stamp">
+            <small>УКРАЇНА · {STORY_YEAR} РІК</small>
+            <span>{shot.time}</span>
+          </div>
           <div className="cinema-caption">
             <span className="eyebrow">{shot.speaker}</span>
             <p>{shot.text}</p>
@@ -134,7 +152,9 @@ export function StoryLibrary({
       <button className="text-button" onClick={onBack}>
         <ArrowLeft size={16} /> До притулку
       </button>
-      <p className="eyebrow">ЩО СТАЛОСЯ З МІСТОМ</p>
+      <p className="eyebrow">
+        УКРАЇНА · {STORY_YEAR} РІК · ІСТОРІЯ БУДИНКУ №17
+      </p>
       <h2>Ніч о 04:17</h2>
       <p className="lead">
         Історія відкривається через рейди. Переглянуті сцени можна відтворити

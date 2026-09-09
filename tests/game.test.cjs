@@ -160,6 +160,7 @@ test('v0.2 save migration preserves module identities, route, economy and resear
   delete meta.residents;
   delete meta.scenesSeen;
   delete meta.sceneProgress;
+  delete meta.storyRevision;
   const restored = M.readSave(M.saveData(meta, run));
   for (const key of [
     'items',
@@ -202,8 +203,26 @@ test('Cutscenes resume safely, preserve watched progress and lock the ending unt
   );
   assert.equal(
     Scenes.restoreSceneProgress({ id: 'prologue', index: 99 }, 0).index,
-    4,
+    Scenes.SCENE_BY_ID.prologue.shots.length - 1,
   );
+});
+test('Rewritten story restarts only the introduction once and preserves the active expedition', () => {
+  const meta = M.initialMeta(),
+    run = M.makeRun(meta, 'mechanic', 0, 55);
+  delete meta.storyRevision;
+  meta.scenesSeen = ['prologue', 'arrival-0'];
+  meta.sceneProgress = { id: 'prologue', index: 2 };
+  run.coins = 117;
+  run.hp = 63;
+  const migrated = M.readSave(M.saveData(meta, run));
+  assert.deepEqual(migrated.run, run);
+  assert.equal(migrated.meta.storyRevision, Scenes.STORY_REVISION);
+  assert.deepEqual(migrated.meta.sceneProgress, { id: 'prologue', index: 0 });
+  assert.deepEqual(migrated.meta.scenesSeen, ['arrival-0']);
+  migrated.meta.scenesSeen.push('prologue');
+  migrated.meta.sceneProgress = null;
+  const next = M.readSave(M.saveData(migrated.meta, migrated.run));
+  assert.deepEqual(next, migrated);
 });
 test('Prototype property names and unsafe module IDs cannot corrupt a run', () => {
   for (const id of ['constructor', 'toString', '__proto__']) {

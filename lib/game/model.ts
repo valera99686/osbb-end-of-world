@@ -10,7 +10,11 @@ import {
   residentSpace,
   type ResidentRoom,
 } from './residents';
-import { sceneUnlocked, restoreSceneProgress } from './cutscenes';
+import {
+  sceneUnlocked,
+  restoreSceneProgress,
+  STORY_REVISION,
+} from './cutscenes';
 export interface Meta {
   version: 1;
   wins: number;
@@ -27,6 +31,7 @@ export interface Meta {
   lore: string[];
   residents: string[];
   scenesSeen: string[];
+  storyRevision: number;
   sceneProgress: { id: string; index: number } | null;
 }
 export type NodeKind = 'battle' | 'elite' | 'shop' | 'event' | 'rest' | 'boss';
@@ -81,6 +86,7 @@ export function initialMeta(): Meta {
     lore: loreForProgress([], 0),
     residents: residentRoster([], 0),
     scenesSeen: [],
+    storyRevision: STORY_REVISION,
     sceneProgress: null,
   };
 }
@@ -583,6 +589,10 @@ export function readSave(raw: string | null): {
         ]
       : [];
     base.sceneProgress = restoreSceneProgress(m.sceneProgress, base.wins);
+    if (m.storyRevision !== STORY_REVISION) {
+      base.scenesSeen = base.scenesSeen.filter((id) => id !== 'prologue');
+      base.sceneProgress = { id: 'prologue', index: 0 };
+    }
     let run: Run | null = null;
     const r = o.run;
     if (

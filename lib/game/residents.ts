@@ -95,7 +95,7 @@ export const RESIDENTS: Resident[] = [
   },
   {
     id: 'lev',
-    name: 'Лев',
+    name: 'Микола',
     job: 'Вартовий',
     portrait: 5,
     color: '#93acbd',

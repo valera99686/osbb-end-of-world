@@ -1181,7 +1181,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.3.0 · Прогрес зберігається на цьому пристрої.
+              v0.3.1 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1805,7 +1805,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.3.0 · 9 мешканців, фігурні кімнати, 5 босів і
+            ОСББ кінця світу · v0.3.1 · 9 мешканців, фігурні кімнати, 5 босів і
             сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">

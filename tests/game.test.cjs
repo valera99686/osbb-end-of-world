@@ -6,6 +6,8 @@ const { Battle, AudioEngine } = require('../.test-build/engine.js');
 const Bag = require('../.test-build/backpack.js');
 const Boss = require('../.test-build/bosses.js');
 const Lore = require('../.test-build/lore.js');
+const R = require('../.test-build/residents.js');
+const Scenes = require('../.test-build/cutscenes.js');
 
 test('Backpack shapes rotate, fill corners, and reject overlap and out-of-bounds moves', () => {
   assert.deepEqual(Bag.itemCells('cannon', 4), Bag.itemCells('cannon', 0));
@@ -44,18 +46,183 @@ test('Backpack transfers conserve modules and cannot heal by repeated installati
   assert.equal(M.packItem(combat, meta, 'cannon'), combat);
   assert.equal(M.installPacked(combat, meta, run.backpack[0].uid, 0), combat);
 });
-test('A full backpack does not lose items during a failed swap; corrupt placements are rejected', () => {
+test('Full module storage rejects acquisitions but allows a lossless equipment swap', () => {
   const meta = M.initialMeta();
   let run = M.makeRun(meta, 'mechanic', 0, 8);
-  for (let i = 0; i < 15; i++) run = M.packItem(run, meta, 'kitchen');
-  assert.equal(run.backpack.length, 15);
+  for (let i = 0; i < 30; i++) run = M.packItem(run, meta, 'kitchen');
+  assert.equal(run.backpack.length, 30);
   assert.equal(M.packItem(run, meta, 'cannon'), run);
-  assert.equal(M.installPacked(run, meta, run.backpack[0].uid, 0), run);
+  const next = M.installPacked(run, meta, run.backpack[0].uid, 0);
+  assert.equal(next.items[0], 'kitchen');
+  assert.equal(next.backpack.length, 30);
+  assert.equal(next.backpack.filter((i) => i.id === 'cannon').length, 1);
+  assert.equal(next.backpack.filter((i) => i.id === 'kitchen').length, 29);
+  assert.deepEqual(M.readSave(M.saveData(meta, next)).run, next);
+});
+
+test('Residents rotate and reject overlap, illegal coordinates, duplicates and unavailable people', () => {
+  const meta = M.initialMeta(),
+    run = M.makeRun(meta, 'mechanic', 0, 18);
+  for (const r of R.RESIDENTS) {
+    assert.deepEqual(R.residentCells(r.id, 4), R.residentCells(r.id));
+    for (let rotation = 0; rotation < 4; rotation++)
+      assert.equal(
+        new Set(R.residentCells(r.id, rotation).map(String)).size,
+        r.shape.length,
+      );
+  }
+  for (const room of [
+    { id: 'nina', x: 0, y: 0, rotation: 0 },
+    { id: 'nina', x: 5, y: 4, rotation: 0 },
+    { id: 'nina', x: 0.5, y: 3, rotation: 0 },
+    { id: 'nina', x: 0, y: 3, rotation: Infinity },
+    { id: 'marta', x: 3, y: 3, rotation: 0 },
+  ])
+    assert.equal(M.houseResident(run, meta, room), run);
+  assert.equal(M.reserveResident(run, meta, 'mechanic'), run);
   const bad = [
-    ...run.backpack,
-    { uid: 999, id: 'cannon', x: 0, y: 0, rotation: 0 },
+    ...run.residents,
+    run.residents[0],
+    { id: 'wat', x: 1, y: 1, rotation: 0 },
+    { id: 'nina', x: NaN, y: 2, rotation: 0 },
   ];
-  assert.deepEqual(Bag.restoreBag(bad, meta.unlocked), run.backpack);
+  assert.deepEqual(
+    R.restoreResidents(bad, meta.residents, run.character),
+    run.residents,
+  );
+  const combat = { ...run, page: 'combat' };
+  assert.equal(M.reserveResident(combat, meta, 'nina'), combat);
+});
+test('Household arrangement changes adjacency bonuses without duplicating residents or farming health', () => {
+  const meta = M.initialMeta();
+  meta.wins = 5;
+  meta.residents = R.residentRoster(['marta'], 5);
+  let run = M.makeRun(meta, 'mechanic', 0, 19);
+  run.hp = 61;
+  const hp = run.hp,
+    room = run.residents.find((r) => r.id === 'nina');
+  for (let i = 0; i < 12; i++) {
+    run = M.reserveResident(run, meta, 'nina');
+    run = M.houseResident(run, meta, room);
+  }
+  assert.ok(Math.abs(run.hp - hp) < 1e-8);
+  assert.equal(run.residents.filter((r) => r.id === 'nina').length, 1);
+  const near = [
+    { id: 'mechanic', x: 0, y: 0, rotation: 0 },
+    { id: 'spark', x: 1, y: 0, rotation: 0 },
+  ];
+  const far = [near[0], { id: 'spark', x: 3, y: 3, rotation: 0 }];
+  const a = M.statsFor({ ...run, residents: near }, meta),
+    b = M.statsFor({ ...run, residents: far }, meta);
+  assert.ok(a.rate > b.rate);
+  assert.equal(a.damage, b.damage);
+  assert.equal(a.synergies.filter((s) => s.startsWith('Спільна')).length, 1);
+});
+test('Rescue is an event choice and persists after defeat; reserve removal persists', () => {
+  let meta = M.initialMeta(),
+    run = M.makeRun(meta, 'mechanic', 0, 22);
+  assert.equal(M.rescueResident(run, meta), null);
+  run = { ...run, page: 'event', kind: 'event', path: [0, 0, 1], step: 2 };
+  const rescue = M.rescueResident(run, meta);
+  assert.equal(rescue.id, 'marta');
+  assert.equal(M.rescueResident(rescue.run, rescue.meta), null);
+  run = M.reserveResident(rescue.run, rescue.meta, 'marta');
+  const saved = M.readSave(M.saveData(rescue.meta, run));
+  assert.ok(saved.meta.residents.includes('marta'));
+  assert.ok(!saved.run.residents.some((r) => r.id === 'marta'));
+  assert.ok(
+    M.finishRun(rescue.meta, run, false).meta.residents.includes('marta'),
+  );
+});
+test('v0.2 save migration preserves module identities, route, economy and research snapshots', () => {
+  const meta = M.initialMeta();
+  meta.wins = 2;
+  M.unlock(meta);
+  const run = M.makeRun(meta, 'mechanic', 2, 88);
+  Object.assign(run, {
+    step: 2,
+    page: 'shop',
+    kind: 'shop',
+    path: [0, 0, 0],
+    coins: 117,
+    scrap: 2,
+    hp: 63,
+    offers: ['cannon'],
+    bought: [0],
+    rerolls: 2,
+    backpack: [
+      { uid: 7, id: 'armor', x: 0, y: 0, rotation: 0 },
+      { uid: 19, id: 'cannon', x: 5, y: 0, rotation: 1 },
+    ],
+    nextBagId: 20,
+  });
+  delete run.residents;
+  delete meta.residents;
+  delete meta.scenesSeen;
+  delete meta.sceneProgress;
+  const restored = M.readSave(M.saveData(meta, run));
+  for (const key of [
+    'items',
+    'backpack',
+    'nextBagId',
+    'coins',
+    'scrap',
+    'hp',
+    'offers',
+    'bought',
+    'rerolls',
+    'path',
+    'research',
+    'page',
+  ])
+    assert.deepEqual(restored.run[key], run[key], key);
+  assert.equal(restored.run.residents.length, 3);
+  assert.deepEqual(restored.meta.scenesSeen, []);
+  assert.deepEqual(
+    M.readSave(M.saveData(restored.meta, restored.run)),
+    restored,
+  );
+});
+test('Cutscenes resume safely, preserve watched progress and lock the ending until chapter five', () => {
+  const meta = M.initialMeta();
+  meta.scenesSeen = ['prologue', 'victory-4', 'missing'];
+  meta.sceneProgress = { id: 'prologue', index: 3 };
+  let saved = M.readSave(M.saveData(meta, null));
+  assert.deepEqual(saved.meta.scenesSeen, ['prologue']);
+  assert.deepEqual(saved.meta.sceneProgress, { id: 'prologue', index: 3 });
+  assert.equal(Scenes.sceneUnlocked('victory-4', 4), false);
+  assert.equal(Scenes.sceneUnlocked('victory-4', 5), true);
+  assert.equal(
+    Scenes.restoreSceneProgress({ id: 'victory-4', index: 0 }, 0),
+    null,
+  );
+  assert.equal(
+    Scenes.restoreSceneProgress({ id: 'prologue', index: NaN }, 0),
+    null,
+  );
+  assert.equal(
+    Scenes.restoreSceneProgress({ id: 'prologue', index: 99 }, 0).index,
+    4,
+  );
+});
+test('Prototype property names and unsafe module IDs cannot corrupt a run', () => {
+  for (const id of ['constructor', 'toString', '__proto__']) {
+    const meta = M.initialMeta(),
+      run = M.makeRun(meta, 'mechanic', 0, 35);
+    meta.residents.push(id);
+    meta.scenesSeen.push(id);
+    meta.sceneProgress = { id, index: 0 };
+    run.residents.push({ id, x: 3, y: 3, rotation: 0 });
+    run.backpack = [{ id: 'cannon', uid: 2 ** 53, x: 0, y: 0, rotation: 0 }];
+    const saved = M.readSave(M.saveData(meta, run));
+    assert.ok(saved.run);
+    assert.equal(saved.error, undefined);
+    assert.ok(!saved.meta.residents.includes(id));
+    assert.equal(saved.meta.sceneProgress, null);
+    assert.equal(saved.run.backpack.length, 0);
+    assert.ok(M.packItem(saved.run, saved.meta, 'cannon').nextBagId <= 1e8 + 1);
+    assert.equal(Scenes.sceneUnlocked(id, 0), false);
+  }
 });
 test('Each boss has its own attacks; warning zones are harmless until armed', () => {
   const signatures = [];

@@ -63,10 +63,12 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { RouteTree, NODE_INFO } from './route-tree';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
-import { Backpack, ShapePreview } from './backpack';
-import { LoreJournal, LoreFragment } from './lore-journal';
-import { itemCells, findSpace } from '@/lib/game/backpack';
-import { LORE, loreForProgress } from '@/lib/game/lore';
+import { Backpack } from './backpack';
+import { Residents, HousePreview } from './residents';
+import { CutscenePlayer, StoryLibrary } from './cutscenes';
+import { CUTSCENES, SCENE_BY_ID, MISSIONS } from '@/lib/game/cutscenes';
+import { residentCells, RESIDENT_BY_ID } from '@/lib/game/residents';
+import { loreForProgress } from '@/lib/game/lore';
 import {
   ITEMS,
   ITEM_BY_ID,
@@ -90,6 +92,7 @@ import {
   packItem,
   stowModule,
   installPacked,
+  rescueResident,
   finishRun,
   readSave,
   saveData,
@@ -204,10 +207,7 @@ function ItemCard({
       <h3>{item.name}</h3>
       <span className="family-label">{FAMILY[item.family].name}</span>
       <p>{item.desc}</p>
-      <span className="item-shape-label">
-        <ShapePreview id={item.id} /> {itemCells(item.id).length} клітинки в
-        рюкзаку
-      </span>
+
       {footer && <div className="item-footer">{footer}</div>}
     </>
   );
@@ -518,6 +518,7 @@ export default function Game() {
     [chapter, setChapter] = useState(0),
     [help, setHelp] = useState(false),
     [bagOpen, setBagOpen] = useState(false),
+    [housingOpen, setHousingOpen] = useState(false),
     [notice, setNotice] = useState(''),
     [selectedSlot, setSelectedSlot] = useState<number | null>(null),
     [pending, setPending] = useState<{
@@ -537,7 +538,14 @@ export default function Game() {
     preloadEnemyArt();
     try {
       const s = readSave(localStorage.getItem(SAVE_KEY));
-      setMeta(s.meta);
+      setMeta({
+        ...s.meta,
+        sceneProgress:
+          s.meta.sceneProgress ??
+          (!s.meta.scenesSeen.includes('prologue')
+            ? { id: 'prologue', index: 0 }
+            : null),
+      });
       setRun(s.run);
       setChapter(Math.min(4, s.meta.wins));
       if (s.error) setNotice('Збереження пошкоджено. Створено новий профіль.');
@@ -567,6 +575,16 @@ export default function Game() {
   }, [meta, run, ready]);
   useEffect(() => {
     const back = (e: Event) => {
+      if (meta.sceneProgress) {
+        e.preventDefault();
+        closeScene();
+        return;
+      }
+      if (housingOpen) {
+        e.preventDefault();
+        setHousingOpen(false);
+        return;
+      }
       if (run?.page === 'combat' && screen === 'play') return;
       if (bagOpen) {
         e.preventDefault();
@@ -590,26 +608,58 @@ export default function Game() {
     };
     document.addEventListener('osbb-back', back);
     return () => document.removeEventListener('osbb-back', back);
-  }, [run?.page, screen, help, bagOpen, result, pending, abandon]);
+  }, [
+    run?.page,
+    screen,
+    help,
+    bagOpen,
+    housingOpen,
+    meta.sceneProgress,
+    result,
+    pending,
+    abandon,
+  ]);
   function ping(message: string) {
     setNotice(message);
     audio.current!.play('coin');
+  }
+  function closeScene() {
+    setMeta((m) => ({
+      ...m,
+      scenesSeen: m.sceneProgress
+        ? [...new Set([...m.scenesSeen, m.sceneProgress.id])]
+        : m.scenesSeen,
+      sceneProgress: null,
+    }));
+  }
+  function playScene(id: string) {
+    if (SCENE_BY_ID[id])
+      setMeta((m) => ({ ...m, sceneProgress: { id, index: 0 } }));
   }
   function start() {
     if (!ready) return;
     audio.current!.unlock();
     if (run) {
       setScreen('play');
+      if (!meta.scenesSeen.includes(`arrival-${run.chapter}`))
+        playScene(`arrival-${run.chapter}`);
       return;
     }
     setRun(makeRun(meta, character, chapter));
-    setMeta({ ...meta, lore: loreForProgress(meta.lore, meta.wins, chapter) });
+    setMeta({
+      ...meta,
+      lore: loreForProgress(meta.lore, meta.wins, chapter),
+      sceneProgress: !meta.scenesSeen.includes(`arrival-${chapter}`)
+        ? { id: `arrival-${chapter}`, index: 0 }
+        : null,
+    });
     setScreen('play');
     setResult(null);
     setNotice('');
     setSelectedSlot(null);
   }
   function back() {
+    setHousingOpen(false);
     setBagOpen(false);
     setScreen('hub');
     setSelectedSlot(null);
@@ -618,7 +668,13 @@ export default function Game() {
   function ended(b: BattleResult) {
     if (!b.won || b.boss) {
       const f = finishRun(meta, b.run, b.won);
-      setMeta(f.meta);
+      setMeta({
+        ...f.meta,
+        sceneProgress:
+          b.won && !meta.scenesSeen.includes(`victory-${b.run.chapter}`)
+            ? { id: `victory-${b.run.chapter}`, index: 0 }
+            : null,
+      });
       setRun(null);
       setResult({
         won: b.won,
@@ -652,9 +708,7 @@ export default function Game() {
       return;
     let next = packItem(run, meta, id);
     if (next === run) {
-      ping(
-        'У рюкзаку немає місця для цієї фігури. Перестав предмети або встанови модуль.',
-      );
+      ping('Склад заповнений. Встанови або розбери запасний модуль.');
       return;
     }
     next = {
@@ -666,7 +720,7 @@ export default function Game() {
     setRun(next);
     setPending(null);
     setMeta({ ...meta, seen: [...new Set([...meta.seen, id])] });
-    ping(`${ITEM_BY_ID[id].name} у рюкзаку.`);
+    ping(`${ITEM_BY_ID[id].name} на складі.`);
   }
   function acquire(
     id: string,
@@ -827,43 +881,60 @@ export default function Game() {
     <aside className="inventory">
       <div className="section-kicker">
         <Home size={16} /> БУДИНОК № 17{' '}
-        <span>{run.items.filter(Boolean).length}/9</span>
+        <span>{run.residents.length} мешканців</span>
       </div>
-      {board()}
-      <p className="board-help">
-        Обери дві кімнати, щоб поміняти їх місцями. Сусідство створює
-        комбінації.
-      </p>
-      {selectedSlot !== null && run.items[selectedSlot] && (
-        <div className="selected-room">
-          <b>{ITEM_BY_ID[run.items[selectedSlot]!].name}</b>
-          <p>{ITEM_BY_ID[run.items[selectedSlot]!].desc}</p>
-          <button
-            className="text-button"
-            onClick={() => {
-              const next = stowModule(run, meta, selectedSlot);
-              if (next === run) {
-                ping('Для цього модуля немає місця в рюкзаку.');
-                return;
-              }
-              setRun(next);
-              setSelectedSlot(null);
-              ping('Модуль перенесено до рюкзака.');
-            }}
-          >
-            <Package size={15} /> Зняти до рюкзака
-          </button>
-          <button className="text-button danger" onClick={scrap}>
-            <Recycle size={15} /> Розібрати · +2 брухту
-          </button>
-        </div>
-      )}
-      <button className="secondary bag-open" onClick={() => setBagOpen(true)}>
-        <Package size={18} /> Рюкзак{' '}
+      <HousePreview run={run} onOpen={() => setHousingOpen(true)} />
+      <button
+        className="primary housing-open"
+        onClick={() => setHousingOpen(true)}
+      >
+        <Home size={18} /> Розселити мешканців{' '}
         <span>
-          {run.backpack.reduce((n, i) => n + itemCells(i.id).length, 0)}/30
+          {run.residents.reduce((n, r) => n + residentCells(r.id).length, 0)}/30
         </span>
       </button>
+      <p className="board-help">
+        Кожен мешканець займає фігуру. Спільні стіни відкривають бонуси
+        сусідства.
+      </p>
+      <details className="equipment-panel">
+        <summary>
+          Обладнання <span>{run.items.filter(Boolean).length}/9</span>
+        </summary>
+        {board()}
+        <p className="board-help">
+          Обери два модулі, щоб поміняти їх місцями. Обладнання має власні
+          комбінації.
+        </p>
+        {selectedSlot !== null && run.items[selectedSlot] && (
+          <div className="selected-room">
+            <b>{ITEM_BY_ID[run.items[selectedSlot]!].name}</b>
+            <p>{ITEM_BY_ID[run.items[selectedSlot]!].desc}</p>
+            <button
+              className="text-button"
+              onClick={() => {
+                const next = stowModule(run, meta, selectedSlot);
+                if (next === run) {
+                  ping('Склад модулів заповнений.');
+                  return;
+                }
+                setRun(next);
+                setSelectedSlot(null);
+                ping('Модуль перенесено на склад.');
+              }}
+            >
+              <Package size={15} /> Зняти на склад
+            </button>
+            <button className="text-button danger" onClick={scrap}>
+              <Recycle size={15} /> Розібрати · +2 брухту
+            </button>
+          </div>
+        )}
+        <button className="secondary bag-open" onClick={() => setBagOpen(true)}>
+          <Package size={18} /> Склад модулів{' '}
+          <span>{run.backpack.length}/30</span>
+        </button>
+      </details>
       <div className="stat-grid">
         <div>
           <Heart size={16} />
@@ -1007,9 +1078,8 @@ export default function Game() {
               <em>кінця світу</em>
             </h1>
             <p className="intro">
-              Твій дім. Твоя фортеця.
-              <br />
-              Твої трохи дивні сусіди.
+              Поверни світанок. Врятуй мешканців і виведи будинок із міста, де
+              час застряг о 04:17.
             </p>
             <div className="crew-select" aria-label="Вибір мешканця">
               {CHARACTERS.map((c) => (
@@ -1063,9 +1133,9 @@ export default function Game() {
                 </span>
               </button>
               <button className="text-button" onClick={() => setScreen('lore')}>
-                <ScrollText size={18} /> Літопис{' '}
+                <ScrollText size={18} /> Історія{' '}
                 <span className="tiny-count">
-                  {meta.lore.length}/{LORE.length}
+                  {meta.scenesSeen.length}/{CUTSCENES.length}
                 </span>
               </button>
             </div>
@@ -1111,7 +1181,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.2.0 · Прогрес зберігається на цьому пристрої.
+              v0.3.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1152,7 +1222,20 @@ export default function Game() {
                     </p>
                     <h2>{CHAPTERS[run.chapter].name}</h2>
                     <p className="lead">{CHAPTERS[run.chapter].story}</p>
-                    <LoreFragment chapter={run.chapter} />
+                    <div className="mission-banner">
+                      <Target size={22} />
+                      <div>
+                        <small>МЕТА РЕЙДУ · {run.chapter + 1}/5</small>
+                        <p>{MISSIONS[run.chapter]}</p>
+                      </div>
+                      <button
+                        className="text-button"
+                        onClick={() => playScene(`arrival-${run.chapter}`)}
+                        aria-label="Переглянути сюжет району"
+                      >
+                        <Play size={19} />
+                      </button>
+                    </div>
                     <RouteTree
                       key={`${run.seed}-${run.step}`}
                       run={run}
@@ -1166,10 +1249,11 @@ export default function Game() {
                     <div className="map-note">
                       <Target size={20} />
                       <span>
-                        <b>Поверни світло в район.</b>
+                        <b>Поверни світанок.</b>
                         <br />
-                        Перемога над босом відкриває наступний розділ і нові
-                        системи.
+                        Рятуй людей у невідомих сигналах. Перемагай босів, щоб
+                        відкрити шлях до диспетчера. Після поразки мешканці,
+                        ядра й креслення залишаються з тобою.
                       </span>
                     </div>
                   </>
@@ -1326,6 +1410,30 @@ export default function Game() {
                     </p>
                     {!run.eventDone ? (
                       <div className="event-options">
+                        {run.kind === 'event' &&
+                          ['marta', 'danilo', 'solomia'].some(
+                            (id) => !meta.residents.includes(id),
+                          ) && (
+                            <button
+                              className="event-option rescue-option"
+                              onClick={() => {
+                                const saved = rescueResident(run, meta);
+                                if (!saved) return;
+                                setMeta(saved.meta);
+                                setRun(saved.run);
+                                ping(
+                                  `${RESIDENT_BY_ID[saved.id].name} врятовано! ${saved.run.residents.some((r) => r.id === saved.id) ? 'Кімнату облаштовано в будинку.' : 'Мешканець чекає у притулку — звільни місце в будинку.'}`,
+                                );
+                              }}
+                            >
+                              <b>Відгукнутися на сигнал порятунку</b>
+                              <span>
+                                Новий мешканець назавжди · замість пошуку
+                                ресурсів
+                              </span>
+                              <Home size={20} />
+                            </button>
+                          )}
                         <button
                           className="event-option"
                           disabled={
@@ -1342,7 +1450,7 @@ export default function Game() {
                                 ? 'Замовити ремонт'
                                 : run.step % 3 === 1
                                   ? 'Витягнути сейф'
-                                  : 'Узяти сусіда'}
+                                  : 'Забрати креслення'}
                           </b>
                           <span>
                             {run.kind === 'rest'
@@ -1551,22 +1659,34 @@ export default function Game() {
           </div>
         </section>
       )}
-      {screen === 'lore' && <LoreJournal unlocked={meta.lore} onBack={back} />}
+      {screen === 'lore' && (
+        <StoryLibrary meta={meta} onBack={back} onPlay={playScene} />
+      )}
+      <Dialog open={housingOpen && !!run} onOpenChange={setHousingOpen}>
+        <DialogContent className="game-modal housing-modal">
+          <DialogTitle>Будинок №17 / Розселення</DialogTitle>
+          <DialogDescription>
+            Розмісти кімнати мешканців фігурами на плані 6×5. Їхні вміння
+            працюють уже в наступному бою.
+          </DialogDescription>
+          {run && <Residents run={run} meta={meta} onChange={setRun} />}
+        </DialogContent>
+      </Dialog>
       <Dialog open={bagOpen && !!run} onOpenChange={setBagOpen}>
         <DialogContent className="game-modal backpack-modal">
-          <DialogTitle>Експедиційний рюкзак</DialogTitle>
+          <DialogTitle>Склад модулів</DialogTitle>
           <DialogDescription>
-            Запасні модулі мають різну форму. Повертай і складай їх у сітку 6×5.
+            Збережене обладнання для цього рейду. Встанови модуль у вільне або
+            зайняте кріплення.
           </DialogDescription>
           {run && (
             <Backpack
               run={run}
-              onChange={setRun}
               onInstall={(uid, slot) => {
                 const next = installPacked(run, meta, uid, slot);
                 if (next === run) {
                   ping(
-                    'Старий модуль не вміщується в рюкзак. Обери вільну кімнату або звільни місце.',
+                    'Не вдалося встановити модуль. Перевір доступне кріплення.',
                   );
                   return;
                 }
@@ -1595,28 +1715,26 @@ export default function Game() {
         <DialogContent className="game-modal">
           <DialogTitle>{pending && ITEM_BY_ID[pending.id].name}</DialogTitle>
           <DialogDescription>
-            Встанови модуль у кімнату або залиш у рюкзаку. Заміна зайнятої
-            кімнати розбирає старий модуль на 1 брухт.
+            Встанови модуль у кріплення або залиш на складі. Заміна
+            встановленого обладнання розбирає старий модуль на 1 брухт.
           </DialogDescription>
           {board(true)}
           <button
             className="secondary"
-            disabled={!run || !pending || !findSpace(run.backpack, pending.id)}
+            disabled={!run || !pending || run.backpack.length >= 30}
             onClick={acquireToBag}
           >
-            <Package size={18} /> У рюкзак{' '}
-            {pending && <ShapePreview id={pending.id} />}
+            <Package size={18} /> На склад
           </button>
-          {run && pending && !findSpace(run.backpack, pending.id) && (
+          {run && pending && run.backpack.length >= 30 && (
             <p className="muted">
-              Ця фігура зараз не вміщується. Закрий вибір і перестав предмети в
-              рюкзаку.
+              Склад заповнений. Встанови або розбери один із запасних модулів.
             </p>
           )}
         </DialogContent>
       </Dialog>
       <Dialog
-        open={!!result}
+        open={!!result && !meta.sceneProgress}
         onOpenChange={(open) => {
           if (!open) setResult(null);
         }}
@@ -1658,7 +1776,12 @@ export default function Game() {
                 <Currency amount={result.cores} cores />
               </div>
               {result.won && (
-                <LoreFragment chapter={result.run.chapter} victory />
+                <button
+                  className="secondary"
+                  onClick={() => playScene(`victory-${result.run.chapter}`)}
+                >
+                  <Play size={17} /> Переглянути сюжет перемоги
+                </button>
               )}
               {result.unlocks.length > 0 && (
                 <div className="unlock-list">
@@ -1682,8 +1805,8 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.2.0 · 5 різних босів, 36 модулів і рюкзак із
-            фігурами.
+            ОСББ кінця світу · v0.3.0 · 9 мешканців, фігурні кімнати, 5 босів і
+            сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">
             <p>
@@ -1710,13 +1833,15 @@ export default function Game() {
               назавжди.
             </p>
             <p>
-              <b>Рюкзак.</b> Після нагороди або покупки обери кімнату чи «У
-              рюкзак». У рюкзаку перетягуй і повертай фігури. Запасні модулі не
-              дають бонусів, доки не встановлені в будинку.
+              <b>Мешканці.</b> Відкрий «Розселити мешканців». Повертай і
+              перетягуй їхні фігурні кімнати. Сумісні сусіди дають додаткові
+              бонуси. Нових людей рятуй під час подій; вони залишаться після
+              рейду.
             </p>
             <p>
-              <b>Літопис.</b> Відвідування районів і перемоги відкривають записи
-              про місто. Читай їх у притулку — вони зберігаються після поразки.
+              <b>Історія.</b> Катсцени показують катастрофу, евакуацію й причину
+              часової петлі. Вони відкриваються на початку районів та після
+              босів. Повторний перегляд — у «Історії» в притулку.
             </p>
             <p>
               <b>06 / Заверши історію.</b> Кожна перемога відкриває новий район
@@ -1761,6 +1886,20 @@ export default function Game() {
           </button>
         </DialogContent>
       </Dialog>
+      {ready && meta.sceneProgress && (
+        <CutscenePlayer
+          progress={meta.sceneProgress}
+          onAdvance={(index) =>
+            setMeta((m) => ({
+              ...m,
+              sceneProgress: m.sceneProgress
+                ? { ...m.sceneProgress, index }
+                : null,
+            }))
+          }
+          onClose={closeScene}
+        />
+      )}
     </main>
   );
 }

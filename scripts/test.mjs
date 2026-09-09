@@ -8,6 +8,8 @@ for (const name of [
   'backpack',
   'bosses',
   'lore',
+  'residents',
+  'cutscenes',
   'model',
   'enemy-art',
   'engine',

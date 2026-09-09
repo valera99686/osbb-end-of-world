@@ -1,6 +1,16 @@
 import { ITEMS, ITEM_BY_ID, CHARACTERS, type Stat, type Item } from './data';
-import { findSpace, restoreBag, type PackedItem } from './backpack';
+import { type PackedItem } from './backpack';
 import { loreForProgress } from './lore';
+import {
+  residentRoster,
+  initialHouse,
+  restoreResidents,
+  residentBonuses,
+  canHouse,
+  residentSpace,
+  type ResidentRoom,
+} from './residents';
+import { sceneUnlocked, restoreSceneProgress } from './cutscenes';
 export interface Meta {
   version: 1;
   wins: number;
@@ -15,6 +25,9 @@ export interface Meta {
   research: Record<string, number>;
   sound: boolean;
   lore: string[];
+  residents: string[];
+  scenesSeen: string[];
+  sceneProgress: { id: string; index: number } | null;
 }
 export type NodeKind = 'battle' | 'elite' | 'shop' | 'event' | 'rest' | 'boss';
 export interface Run {
@@ -30,6 +43,7 @@ export interface Run {
   items: (string | null)[];
   backpack: PackedItem[];
   nextBagId: number;
+  residents: ResidentRoom[];
   coins: number;
   scrap: number;
   hp: number;
@@ -65,6 +79,9 @@ export function initialMeta(): Meta {
     research: { hull: 0, supplies: 0, garage: 0 },
     sound: true,
     lore: loreForProgress([], 0),
+    residents: residentRoster([], 0),
+    scenesSeen: [],
+    sceneProgress: null,
   };
 }
 export function seeded(seed: number) {
@@ -136,6 +153,7 @@ export function makeRun(
     items: ['cannon', 'engine', c.start, null, null, null, null, null, null],
     backpack: [],
     nextBagId: 1,
+    residents: initialHouse(c.id),
     coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
     scrap: 0,
     hp: 100,
@@ -179,6 +197,14 @@ export function statsFor(run: Run, meta: Meta): Stats {
     synergies: [],
   };
   let rate = run.character === 'spark' ? 0.15 : 0;
+  const household = residentBonuses(
+    run.residents ?? initialHouse(run.character),
+  );
+  for (const [key, val] of Object.entries(household.stats)) {
+    if (key === 'rate') rate += val;
+    else s[key as Stat] += val;
+  }
+  s.synergies.push(...household.synergies);
   for (const id of run.items) {
     if (!id || !ITEM_BY_ID[id]) continue;
     for (const [key, val] of Object.entries(ITEM_BY_ID[id].stats)) {
@@ -355,8 +381,8 @@ export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
 }
 export function packItem(run: Run, meta: Meta, id: string): Run {
   if (run.page === 'combat' || !meta.unlocked.includes(id)) return run;
-  const space = findSpace(run.backpack, id);
-  if (!space) return run;
+  if (!ITEM_BY_ID[id] || run.backpack.length >= 30) return run;
+  const space = { x: 0, y: 0, rotation: 0 };
   return {
     ...run,
     backpack: [...run.backpack, { uid: run.nextBagId, id, ...space }],
@@ -398,6 +424,48 @@ export function installPacked(
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
+export function houseResident(run: Run, meta: Meta, room: ResidentRoom): Run {
+  if (
+    run.page === 'combat' ||
+    !meta.residents.includes(room.id) ||
+    !canHouse(run.residents, room)
+  )
+    return run;
+  const next = {
+    ...run,
+    residents: run.residents.some((r) => r.id === room.id)
+      ? run.residents.map((r) => (r.id === room.id ? room : r))
+      : [...run.residents, room],
+  };
+  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
+  return next;
+}
+export function reserveResident(run: Run, meta: Meta, id: string): Run {
+  if (
+    run.page === 'combat' ||
+    id === run.character ||
+    !run.residents.some((r) => r.id === id)
+  )
+    return run;
+  const next = { ...run, residents: run.residents.filter((r) => r.id !== id) };
+  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
+  return next;
+}
+export function rescueResident(
+  run: Run,
+  meta: Meta,
+): { run: Run; meta: Meta; id: string } | null {
+  if (run.page !== 'event' || run.kind !== 'event' || run.eventDone)
+    return null;
+  const id = ['marta', 'danilo', 'solomia'].find(
+    (id) => !meta.residents.includes(id),
+  );
+  if (!id) return null;
+  const nextMeta = { ...meta, residents: [...meta.residents, id] };
+  const room = residentSpace(run.residents, id);
+  const next = room ? houseResident(run, nextMeta, room) : run;
+  return { run: { ...next, eventDone: true }, meta: nextMeta, id };
+}
 export function finishRun(
   meta: Meta,
   run: Run,
@@ -424,6 +492,7 @@ export function finishRun(
   const cores = Math.floor(run.kills / 18) + (won ? 6 + run.chapter * 2 : 0);
   n.cores += cores;
   n.lore = loreForProgress(meta.lore, n.wins, run.chapter);
+  n.residents = residentRoster(meta.residents, n.wins);
   return { meta: n, unlocks: unlock(n), cores };
 }
 function finite(n: unknown, min: number, max: number, fallback: number) {
@@ -502,6 +571,18 @@ export function readSave(raw: string | null): {
       base.research[k] = Math.floor(finite(m.research?.[k], 0, 5, 0));
     unlock(base);
     base.lore = loreForProgress(Array.isArray(m.lore) ? m.lore : [], base.wins);
+    base.residents = residentRoster(m.residents, base.wins);
+    base.scenesSeen = Array.isArray(m.scenesSeen)
+      ? [
+          ...new Set<string>(
+            m.scenesSeen.filter(
+              (id: unknown) =>
+                typeof id === 'string' && sceneUnlocked(id, base.wins),
+            ),
+          ),
+        ]
+      : [];
+    base.sceneProgress = restoreSceneProgress(m.sceneProgress, base.wins);
     let run: Run | null = null;
     const r = o.run;
     if (
@@ -528,7 +609,33 @@ export function readSave(raw: string | null): {
       run.items = r.items.map((id: unknown) =>
         typeof id === 'string' && base.unlocked.includes(id) ? id : null,
       );
-      run.backpack = restoreBag(r.backpack, base.unlocked);
+      // v0.2 module shapes remain readable; the storage list no longer uses geometry.
+      const bag = Array.isArray(r.backpack) ? r.backpack : [];
+      const uids = new Set<number>();
+      run.backpack = bag
+        .filter(
+          (i: PackedItem) =>
+            i &&
+            base.unlocked.includes(i.id) &&
+            Number.isInteger(i.uid) &&
+            i.uid <= 1e8 &&
+            i.uid > 0 &&
+            !uids.has(i.uid) &&
+            (uids.add(i.uid), true),
+        )
+        .slice(0, 30)
+        .map((i: PackedItem) => ({
+          uid: i.uid,
+          id: i.id,
+          x: finite(i.x, 0, 5, 0),
+          y: finite(i.y, 0, 4, 0),
+          rotation: Math.floor(finite(i.rotation, 0, 3, 0)),
+        }));
+      run.residents = restoreResidents(
+        r.residents,
+        base.residents,
+        run.character,
+      );
       run.nextBagId = Math.max(
         Math.floor(finite(r.nextBagId, 1, 1e8, 1)),
         ...run.backpack.map((i) => i.uid + 1),

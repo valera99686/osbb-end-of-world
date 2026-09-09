@@ -1,0 +1,534 @@
+.resident-portrait {
+  display: block;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background-image: url('/art/residents-v1.png');
+  background-size: 300% 300%;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px #ffffff20;
+}
+.resident-shape {
+  flex-shrink: 0;
+  color: var(--shape-color, #d3b17e);
+}
+.house-preview {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 3px;
+  padding: 8px;
+  width: 100%;
+  background: #0a141b;
+  border: 1px solid #334b55;
+  border-top: 5px solid #72858a;
+  border-radius: 9px;
+  margin-top: 22px;
+}
+.house-preview > span {
+  aspect-ratio: 1;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  background: #192b34;
+  border: 1px dashed #304b58;
+  border-radius: 3px;
+  color: #456474;
+}
+.house-preview > span.occupied {
+  background: color-mix(in srgb, var(--shape-color) 32%, #15232a);
+  border: 1px solid color-mix(in srgb, var(--shape-color) 65%, #15232a);
+}
+.house-preview .resident-portrait {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+.housing-open.primary {
+  width: 100%;
+  padding: 12px 9px;
+  font-size: 12px;
+  gap: 7px;
+  margin-top: 14px;
+}
+.housing-open > span {
+  margin-left: auto;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+.equipment-panel {
+  border-block: 1px solid #2a414b;
+  padding: 15px 0;
+  margin: 20px 0;
+}
+.equipment-panel > summary {
+  cursor: pointer;
+  color: #b9cbd0;
+  font-size: 13px;
+  font-weight: 650;
+}
+.equipment-panel > summary > span {
+  float: right;
+  color: #839faa;
+}
+.housing-modal.game-modal[data-slot='dialog-content'] {
+  width: 880px !important;
+  max-width: calc(100vw - 24px) !important;
+  padding: 28px !important;
+}
+.housing-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 255px;
+  gap: 24px;
+  margin-top: 18px;
+}
+.resident-grid.bag-grid {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.resident-grid .bag-cell {
+  min-width: 0;
+  padding: 2px;
+  overflow: hidden;
+}
+.resident-grid .bag-cell .resident-portrait {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.resident-grid .bag-cell.chosen {
+  border-color: var(--shape-color);
+  box-shadow: inset 0 0 0 1px var(--shape-color);
+}
+.resident-grid .bag-cell.preview-invalid {
+  box-shadow: inset 0 0 0 3px #ec8175;
+}
+.resident-grid .bag-cell.preview-valid {
+  box-shadow: inset 0 0 0 3px #a6edc6;
+}
+.resident-details {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid #30434d;
+}
+.resident-details > div {
+  flex: 1;
+  min-width: 0;
+}
+.resident-details h3 {
+  font-size: 19px;
+  margin: 3px 0 5px;
+  color: #edf0df;
+}
+.resident-details small {
+  font-size: 11px;
+  color: var(--shape-color);
+}
+.resident-details p {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #b2c7cc;
+  margin: 0;
+}
+.resident-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.resident-roster > .micro {
+  margin: 0 0 8px;
+  color: #83a8b3;
+}
+.resident-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid #2c4652;
+  border-radius: 8px;
+  background: #11212a;
+  text-align: left;
+}
+.resident-card.active {
+  border-color: #d4b47b;
+  background: #25333a;
+}
+.resident-card:disabled {
+  opacity: 0.42;
+}
+.resident-card > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.resident-card b {
+  display: block;
+  font-size: 13px;
+  color: #e1e6df;
+}
+.resident-card small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: #8fafba;
+  line-height: 1.5;
+}
+.resident-card .resident-portrait {
+  width: 42px;
+  height: 42px;
+}
+.mission-banner {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 18px 20px;
+  margin: 20px 0 24px;
+  border: 1px solid #4b584c;
+  border-left: 3px solid #d9b272;
+  background: linear-gradient(110deg, #26322e, #111f27);
+  border-radius: 9px;
+}
+.mission-banner > svg {
+  color: #e2b979;
+  flex-shrink: 0;
+}
+.mission-banner > div {
+  flex: 1;
+}
+.mission-banner small {
+  letter-spacing: 0.13em;
+  font-size: 10px;
+  color: #d5b880;
+}
+.mission-banner p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #d5ded6;
+  margin: 6px 0 0;
+}
+.rescue-option.event-option {
+  border-color: #688e7e;
+  background: #1c352d;
+  grid-column: 1/-1;
+}
+.storage-list > div {
+  padding: 10px 0;
+  border-bottom: 1px solid #29404a;
+}
+.storage-list > div > .secondary {
+  margin-right: 10px;
+}
+.cinema-dialog[data-slot='dialog-content'] {
+  width: 1100px !important;
+  max-width: calc(100vw - 32px) !important;
+  max-height: 96dvh !important;
+  overflow: auto;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: 1px solid #384750;
+  border-radius: 12px;
+  background: #080e13;
+  color: #e5e8df;
+}
+.cinema-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  min-height: 54px;
+  gap: 15px;
+}
+.cinema-top > span {
+  color: #7f9da8;
+  letter-spacing: 0.19em;
+  font-size: 10px;
+}
+.cinema-top .text-button {
+  color: #a2b7bd;
+  font-size: 12px;
+}
+.cinema-stage {
+  height: min(65dvh, 620px);
+  min-height: 340px;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: #101e26;
+}
+.scene-art {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.cinema-stage > .scene-art {
+  animation: cinema-drift 18s ease-out both;
+}
+.cinema-haze {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      0deg,
+      #050c12f7 0%,
+      #050c12d9 14%,
+      #050c1266 40%,
+      transparent 65%
+    ),
+    linear-gradient(90deg, #11242e40, transparent, #e6b06e12);
+}
+.cinema-caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 30px 6% 34px;
+  animation: cinema-caption-in 0.55s ease-out both;
+}
+.cinema-caption .eyebrow {
+  color: #edc18a;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+}
+.cinema-caption p {
+  font-size: clamp(17px, 2vw, 24px);
+  line-height: 1.65;
+  max-width: 860px;
+  color: #f3f0e7;
+  margin: 12px 0 0;
+  text-shadow: 0 2px 14px #000;
+}
+.cinema-stamp {
+  position: absolute;
+  right: 30px;
+  top: 22px;
+  font-size: clamp(25px, 4vw, 46px);
+  letter-spacing: 0.12em;
+  color: #e8e3cf;
+  text-shadow: 0 3px 15px #000;
+  font-variant-numeric: tabular-nums;
+}
+.cinema-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 19px 24px;
+  background: #0b141b;
+}
+.cinema-progress {
+  flex: 1;
+  min-width: 0;
+}
+.cinema-progress b {
+  display: block;
+  font-size: 13px;
+  color: #bfcfd1;
+}
+.cinema-progress > span {
+  display: block;
+  color: #6f949e;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.cinema-controls .primary {
+  min-height: 44px;
+  padding: 12px 18px;
+}
+.story-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 32px;
+}
+.story-card {
+  text-align: left;
+  background: #11212a;
+  border: 1px solid #2d4650;
+  border-radius: 11px;
+  overflow: hidden;
+  padding: 0 0 19px;
+  transition:
+    border-color 0.2s,
+    transform 0.2s;
+}
+.story-card:hover:not(:disabled) {
+  border-color: #bfab80;
+  transform: translateY(-3px);
+}
+.story-card:disabled {
+  opacity: 0.45;
+}
+.story-thumb {
+  position: relative;
+  height: 170px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse, #27414b, #0b1820);
+  color: #b3aaa0;
+}
+.story-thumb > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #08101826;
+}
+.story-card small,
+.story-card h3,
+.story-card p {
+  display: block;
+  margin-inline: 19px;
+}
+.story-card small {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: #799faa;
+  margin-top: 16px;
+}
+.story-card h3 {
+  margin-top: 8px;
+  font-size: 19px;
+  color: #e6e8dc;
+}
+.story-card p {
+  font-size: 12px;
+  color: #c9af81;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+@keyframes cinema-drift {
+  from {
+    transform: scale(1.04) translate(-0.5%, 0.5%);
+  }
+  to {
+    transform: scale(1.16) translate(0.8%, -1%);
+  }
+}
+@keyframes cinema-caption-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 690px) {
+  .housing-modal.game-modal[data-slot='dialog-content'] {
+    padding: 20px !important;
+  }
+  .housing-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .resident-roster {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .resident-roster > .micro {
+    grid-column: 1/-1;
+  }
+  .resident-card {
+    gap: 7px;
+    padding: 6px;
+  }
+  .resident-card .resident-shape {
+    display: none;
+  }
+  .resident-card .resident-portrait {
+    width: 36px;
+    height: 36px;
+  }
+  .house-preview {
+    max-width: 340px;
+    margin-inline: auto;
+  }
+  .story-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .story-thumb {
+    height: 130px;
+  }
+  .story-card h3 {
+    font-size: 16px;
+  }
+  .cinema-dialog[data-slot='dialog-content'] {
+    max-width: 100vw !important;
+    width: 100vw !important;
+    max-height: 100dvh !important;
+    border-radius: 0;
+  }
+  .cinema-stage {
+    height: 70dvh;
+    min-height: 350px;
+  }
+  .cinema-top {
+    padding: 10px 16px;
+  }
+  .cinema-top > span {
+    font-size: 8px;
+    letter-spacing: 0.12em;
+  }
+  .cinema-caption {
+    padding: 24px 22px;
+  }
+  .cinema-caption p {
+    font-size: 18px;
+    line-height: 1.6;
+  }
+  .cinema-controls {
+    padding: 14px 15px;
+    gap: 10px;
+  }
+  .cinema-auto {
+    font-size: 0 !important;
+  }
+  .cinema-progress b {
+    font-size: 11px;
+  }
+  .mission-banner {
+    padding: 14px;
+    gap: 10px;
+  }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .cinema-stage {
+    height: 63dvh;
+    min-height: 180px;
+  }
+  .cinema-caption {
+    padding: 14px 5%;
+  }
+  .cinema-caption p {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .cinema-top,
+  .cinema-controls {
+    padding: 8px 20px;
+    min-height: 38px;
+  }
+  .cinema-controls .primary {
+    min-height: 36px;
+    padding: 7px 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cinema-stage > .scene-art,
+  .cinema-caption {
+    animation: none;
+  }
+  .story-card {
+    transition: none;
+  }
+}

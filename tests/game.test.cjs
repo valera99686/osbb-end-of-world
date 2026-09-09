@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('../.test-build/model.js');
-const { ITEMS, ITEM_BY_ID } = require('../.test-build/data.js');
+const { ITEM_BY_ID } = require('../.test-build/data.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
 
 test('An abandoned empty run cannot farm permanent currency', () => {
@@ -121,11 +121,12 @@ test('Shop and reward offers never contain locked items or duplicates; elite dro
   );
 });
 test('Blocked map nodes cannot be entered and shop economics persist through reload', () => {
-  const meta = M.initialMeta(),
-    r = M.makeRun(meta, 'mechanic', 0, 1);
-  assert.equal(M.enterNode(r, meta, 'boss'), r);
-  r.step = 2;
-  const shop = M.enterNode(r, meta, 'shop');
+  const meta = M.initialMeta();
+  let r = M.makeRun(meta, 'mechanic', 0, 1);
+  assert.equal(M.enterNode(r, meta, '7:0'), r);
+  r = completeRoom(M.enterNode(r, meta, '0:0'));
+  r = completeRoom(M.enterNode(r, meta, '1:0'));
+  const shop = M.enterNode(r, meta, '2:0');
   assert.equal(shop.page, 'shop');
   assert.equal(shop.offers.length, 4);
   shop.bought = [0];
@@ -135,6 +136,129 @@ test('Blocked map nodes cannot be entered and shop economics persist through rel
   assert.deepEqual(saved.run.bought, [0]);
   assert.equal(saved.run.coins, 7);
   assert.equal(saved.run.rerolls, 2);
+  assert.deepEqual(saved.run.path, [0, 0, 0]);
+  assert.equal(M.enterNode(shop, meta, '2:0'), shop);
+});
+function completeRoom(run) {
+  return M.nextNode({
+    ...run,
+    page: run.page === 'combat' ? 'reward' : run.page,
+  });
+}
+test('Every branch has a legal continuation and every full route ends at the boss', () => {
+  const meta = M.initialMeta();
+  for (const seed of [0, 1, 23, 900, 123456]) {
+    let frontier = [M.makeRun(meta, 'mechanic', 0, seed)];
+    const seen = new Set();
+    for (let step = 0; step < 8; step++) {
+      const next = [];
+      for (const run of frontier) {
+        const choices = M.availableColumns(run);
+        assert.ok(choices.length > 0);
+        for (const column of choices) {
+          seen.add(`${step}:${column}`);
+          const entered = M.enterNode(run, meta, `${step}:${column}`);
+          assert.notEqual(entered, run);
+          assert.equal(entered.path.length, step + 1);
+          if (step === 7) {
+            assert.equal(entered.kind, 'boss');
+            assert.equal(M.nextNode(entered), entered);
+          } else next.push(completeRoom(entered));
+        }
+      }
+      frontier = next;
+    }
+    assert.equal(
+      seen.size,
+      M.makeRun(meta, 'mechanic', 0, seed).nodes.flat().length,
+    );
+  }
+});
+test('A branch choice excludes unconnected rooms and survives the combat checkpoint', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 7);
+  assert.equal(M.nextNode(run), run);
+  run = completeRoom(M.enterNode(run, meta, '0:0'));
+  run = M.enterNode(run, meta, '1:1');
+  const restored = M.readSave(M.saveData(meta, run)).run;
+  assert.equal(restored.page, 'map');
+  assert.deepEqual(M.availableColumns(restored), [1]);
+  assert.equal(M.enterNode(restored, meta, '1:0'), restored);
+  run = completeRoom(M.enterNode(restored, meta, '1:1'));
+  assert.deepEqual(M.availableColumns(run), [1, 2]);
+  assert.equal(M.enterNode(run, meta, '2:0'), run);
+  assert.equal(M.enterNode(run, meta, '3:1'), run);
+  assert.equal(M.enterNode(run, meta, '1:1'), run);
+  assert.deepEqual(M.reachableColumns(run)[7], [0]);
+});
+test('Legacy maps, stores, events, rewards and combat retain their progress during migration', () => {
+  const meta = M.initialMeta();
+  for (let seed = 0; seed < 20; seed++) {
+    for (const [step, page, kind] of [
+      [1, 'map', 'battle'],
+      [2, 'shop', 'shop'],
+      [4, 'event', 'event'],
+      [3, 'reward', 'elite'],
+      [5, 'combat', 'elite'],
+    ]) {
+      const old = M.makeRun(meta, 'mechanic', 0, seed);
+      delete old.path;
+      delete old.routeVersion;
+      delete old.historyStart;
+      Object.assign(old, {
+        step,
+        page,
+        kind,
+        coins: 117,
+        scrap: 2,
+        hp: 63,
+        offers: ['cannon'],
+        bought: [0],
+        reward: ['engine'],
+        eventDone: true,
+        rerolls: 2,
+      });
+      const { run } = M.readSave(M.saveData(meta, old));
+      assert.equal(run.coins, 117);
+      assert.equal(run.hp, 63);
+      assert.equal(run.scrap, 2);
+      assert.equal(run.step, step);
+      assert.equal(run.kind, kind);
+      assert.deepEqual(run.items, old.items);
+      assert.deepEqual(run.offers, old.offers);
+      assert.deepEqual(run.bought, old.bought);
+      assert.deepEqual(run.reward, old.reward);
+      assert.equal(run.eventDone, true);
+      assert.equal(run.historyStart, step);
+      assert.equal(run.page, page === 'combat' ? 'map' : page);
+      assert.ok(M.availableColumns(run).length > 0);
+      for (let i = 1; i < run.path.length; i++)
+        assert.ok(M.routeTargets(i - 1, run.path[i - 1]).includes(run.path[i]));
+      assert.deepEqual(M.readSave(M.saveData(meta, run)).run, run);
+    }
+  }
+});
+test('Invalid saved route indices recover to a connected path without erasing the run', () => {
+  const meta = M.initialMeta();
+  for (const path of [[99], [0, -1, 300], [0, 0, 2], 'bad']) {
+    const run = M.makeRun(meta, 'mechanic', 0, 1);
+    Object.assign(run, {
+      step: 2,
+      page: 'shop',
+      kind: 'shop',
+      path,
+      coins: 71,
+    });
+    const restored = M.readSave(M.saveData(meta, run)).run;
+    assert.equal(restored.coins, 71);
+    assert.equal(restored.page, 'shop');
+    assert.equal(restored.kind, 'shop');
+    assert.equal(restored.path.length, 3);
+    for (let i = 1; i < restored.path.length; i++)
+      assert.ok(
+        M.routeTargets(i - 1, restored.path[i - 1]).includes(restored.path[i]),
+      );
+  }
 });
 test('Diagonal, cardinal and analog dashes have the same speed', () => {
   const meta = M.initialMeta();

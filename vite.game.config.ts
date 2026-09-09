@@ -7,5 +7,17 @@ export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
   css: { postcss: { plugins: [tailwindcss()] } },
   build: { outDir: 'build', sourcemap: false },
-  server: { host: '127.0.0.1', port: 5173, strictPort: true },
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
+    watch: {
+      ignored: [
+        '**/.tools/**',
+        '**/.android-build/**',
+        '**/.test-build/**',
+        '**/releases/**',
+      ],
+    },
+  },
 });

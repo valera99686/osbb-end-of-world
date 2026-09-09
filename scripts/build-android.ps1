@@ -13,6 +13,11 @@ $releases = Join-Path $projectRoot 'releases'
 $keys = Join-Path $projectRoot '.localkeys'
 foreach ($dir in @($work,$releases,$keys,(Join-Path $work 'classes'),(Join-Path $work 'dex'),(Join-Path $work 'generated'),(Join-Path $work 'assets\game'))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 # Copy only the static game, never the downloadable APK back into itself.
+$assetRoot = [IO.Path]::GetFullPath((Join-Path $work 'assets\game'))
+$expectedAssetRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot '.android-build\assets\game'))
+if ($assetRoot -ne $expectedAssetRoot -or !$assetRoot.StartsWith($projectRoot + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe asset staging path' }
+if (Get-ChildItem -LiteralPath $assetRoot -Force -Recurse | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Asset staging contains a link' }
+Get-ChildItem -LiteralPath $assetRoot -Force | Remove-Item -Recurse -Force
 Get-ChildItem -LiteralPath (Join-Path $projectRoot 'build') | Where-Object { $_.Name -ne 'downloads' } | Copy-Item -Destination (Join-Path $work 'assets\game') -Recurse -Force
 & (Join-Path $buildTools 'aapt2.exe') compile --dir 'android/res' -o '.android-build/resources.zip'
 if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed' }

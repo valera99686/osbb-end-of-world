@@ -21,6 +21,9 @@ export interface Run {
   character: string;
   step: number;
   nodes: NodeKind[][];
+  routeVersion: 2;
+  path: number[];
+  historyStart: number;
   items: (string | null)[];
   coins: number;
   scrap: number;
@@ -99,14 +102,14 @@ export function makeRun(
   const nodes: NodeKind[][] = [
     ['battle'],
     ['battle', 'elite'],
-    ['shop', 'event'],
+    ['shop', 'event', 'rest'],
     ['battle', 'elite'],
-    ['event', 'rest'],
+    ['event', 'rest', 'shop'],
     ['battle', 'elite'],
     ['shop', 'rest'],
     ['boss'],
   ];
-  if (r() > 0.5) nodes[4] = ['event', 'shop'];
+  if (r() > 0.5) nodes[4] = ['event', 'shop', 'rest'];
   const run: Run = {
     research: { ...meta.research },
     seed: Number.isFinite(seed) ? seed : Date.now(),
@@ -121,6 +124,9 @@ export function makeRun(
     character: c.id,
     step: 0,
     nodes,
+    routeVersion: 2,
+    path: [],
+    historyStart: 0,
     items: ['cannon', 'engine', c.start, null, null, null, null, null, null],
     coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
     scrap: 0,
@@ -245,9 +251,59 @@ export function priceFor(item: Item, run: Run) {
     item.price * (run.chapter >= 2 ? 0.95 : 1) * (1 + run.step * 0.035),
   );
 }
-export function enterNode(run: Run, meta: Meta, kind: NodeKind): Run {
-  if (!run.nodes[run.step]?.includes(kind)) return run;
-  const next = { ...run, kind, bought: [], rerolls: 0, eventDone: false };
+// Each entry contains the next row's columns reachable from this column.
+// Branches split and merge without crossings; every route reaches the boss.
+const ROUTE_CONNECTIONS: number[][][] = [
+  [[0, 1]],
+  [
+    [0, 1],
+    [1, 2],
+  ],
+  [[0], [0, 1], [1]],
+  [
+    [0, 1],
+    [1, 2],
+  ],
+  [[0], [0, 1], [1]],
+  [[0, 1], [1]],
+  [[0], [0]],
+];
+export function routeTargets(step: number, column: number): readonly number[] {
+  return ROUTE_CONNECTIONS[step]?.[column] ?? [];
+}
+export function availableColumns(run: Run): readonly number[] {
+  if (run.path.length > run.step) return [run.path[run.step]];
+  if (run.step === 0) return [0];
+  if (run.path.length !== run.step) return [];
+  return routeTargets(run.step - 1, run.path[run.step - 1]);
+}
+export function reachableColumns(run: Run): number[][] {
+  const reachable = run.nodes.map(() => [] as number[]);
+  reachable[run.step] = [...availableColumns(run)];
+  for (let step = run.step + 1; step < run.nodes.length; step++)
+    reachable[step] = [
+      ...new Set(
+        reachable[step - 1].flatMap((col) => [...routeTargets(step - 1, col)]),
+      ),
+    ];
+  return reachable;
+}
+export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
+  const match = /^(\d+):(\d+)$/.exec(nodeId);
+  if (!match || run.page !== 'map') return run;
+  const step = Number(match[1]),
+    column = Number(match[2]);
+  if (step !== run.step || !availableColumns(run).includes(column)) return run;
+  const kind = run.nodes[step]?.[column];
+  if (!kind) return run;
+  const next: Run = {
+    ...run,
+    kind,
+    path: [...run.path.slice(0, step), column],
+    bought: [],
+    rerolls: 0,
+    eventDone: false,
+  };
   if (kind === 'shop') {
     next.page = 'shop';
     next.offers = offers(meta, run, 4, 41);
@@ -257,6 +313,13 @@ export function enterNode(run: Run, meta: Meta, kind: NodeKind): Run {
   return next;
 }
 export function nextNode(run: Run): Run {
+  if (
+    run.page === 'map' ||
+    run.page === 'combat' ||
+    run.path.length !== run.step + 1 ||
+    run.step >= run.nodes.length - 1
+  )
+    return run;
   return {
     ...run,
     step: run.step + 1,
@@ -309,6 +372,48 @@ function finite(n: unknown, min: number, max: number, fallback: number) {
   return typeof n === 'number' && Number.isFinite(n)
     ? Math.max(min, Math.min(max, n))
     : fallback;
+}
+function restoreRoute(run: Run, saved: Record<string, unknown>) {
+  const path = saved.path;
+  const active =
+    saved.page !== 'map' ||
+    (Array.isArray(path) && path.length === run.step + 1);
+  const count = run.step + (active ? 1 : 0);
+  const valid =
+    saved.routeVersion === 2 &&
+    Array.isArray(path) &&
+    path.length === count &&
+    path.every(
+      (col, step) =>
+        Number.isInteger(col) &&
+        !!run.nodes[step]?.[col] &&
+        (step === 0
+          ? col === 0
+          : routeTargets(step - 1, path[step - 1]).includes(col)),
+    ) &&
+    (!active || run.nodes[run.step][path[run.step]] === saved.kind);
+  if (valid) {
+    run.path = [...path];
+    run.historyStart = Math.floor(finite(saved.historyStart, 0, run.step, 0));
+  } else {
+    // Old saves did not record choices. Reconstruct a legal prefix ending at
+    // the saved room, but do not present inferred past rooms as visited.
+    let candidates: number[][] = [[]];
+    for (let step = 0; step < count; step++)
+      candidates = candidates.flatMap((prefix) =>
+        (step === 0 ? [0] : routeTargets(step - 1, prefix[step - 1])).map(
+          (col) => [...prefix, col],
+        ),
+      );
+    run.path =
+      candidates.find(
+        (p) => run.nodes[count - 1]?.[p[count - 1]] === saved.kind,
+      ) ??
+      candidates[0] ??
+      [];
+    run.historyStart = run.step;
+  }
+  if (count) run.kind = run.nodes[count - 1][run.path[count - 1]];
 }
 export function readSave(raw: string | null): {
   meta: Meta;
@@ -381,9 +486,7 @@ export function readSave(raw: string | null): {
         statsFor(run, base).health,
       );
       run.step = r.step;
-      run.kind = run.nodes[r.step].includes(r.kind)
-        ? r.kind
-        : run.nodes[r.step][0];
+      restoreRoute(run, r);
       run.page = ['map', 'shop', 'event', 'reward'].includes(r.page)
         ? r.page
         : 'map';

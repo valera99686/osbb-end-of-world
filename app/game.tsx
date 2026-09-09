@@ -44,9 +44,7 @@ import {
   Lock,
   Check,
   Skull,
-  Swords,
   MapPin,
-  Flame,
   Plus,
   RefreshCw,
   HelpCircle,
@@ -63,6 +61,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { RouteTree, NODE_INFO } from './route-tree';
 import {
   ITEMS,
   ITEM_BY_ID,
@@ -89,7 +88,6 @@ import {
   SAVE_KEY,
   type Meta,
   type Run,
-  type NodeKind,
 } from '@/lib/game/model';
 import {
   Battle,
@@ -167,47 +165,6 @@ function Meter({
     />
   );
 }
-const NODE_INFO: Record<
-  NodeKind,
-  { name: string; desc: string; icon: LucideIcon; color: string }
-> = {
-  battle: {
-    name: 'Вулиці',
-    desc: 'Переживи хвилю. Модуль і брухт.',
-    icon: Swords,
-    color: '#82bba9',
-  },
-  elite: {
-    name: 'Небезпечна зона',
-    desc: 'Більше ворогів, цінніший лут.',
-    icon: Flame,
-    color: '#e99477',
-  },
-  shop: {
-    name: 'Нічний ринок',
-    desc: 'Модулі, ремонт і нові комбінації.',
-    icon: Coins,
-    color: '#e8b666',
-  },
-  event: {
-    name: 'Невідомий сигнал',
-    desc: 'Зустріч, угода або знахідка.',
-    icon: MapPin,
-    color: '#b59acb',
-  },
-  rest: {
-    name: 'Тихе подвір’я',
-    desc: 'Віднови дім або збери ресурси.',
-    icon: Heart,
-    color: '#90cbb5',
-  },
-  boss: {
-    name: 'Бос району',
-    desc: 'Переможи, щоб відкрити новий шар гри.',
-    icon: Skull,
-    color: '#eea28b',
-  },
-};
 type Result = {
   won: boolean;
   run: Run;
@@ -1123,63 +1080,16 @@ export default function Game() {
                     </p>
                     <h2>{CHAPTERS[run.chapter].name}</h2>
                     <p className="lead">{CHAPTERS[run.chapter].story}</p>
-                    <div className="route-map">
-                      {run.nodes.map((row, i) => (
-                        <div
-                          key={i}
-                          className={`route-row ${i < run.step ? 'passed' : i === run.step ? 'current' : 'locked'}`}
-                        >
-                          <span className="route-step">
-                            {i < run.step ? (
-                              <Check size={15} />
-                            ) : (
-                              String(i + 1).padStart(2, '0')
-                            )}
-                          </span>
-                          <div className="route-choices">
-                            {row.map((kind) => {
-                              const node = NODE_INFO[kind];
-                              const C = node.icon;
-                              return (
-                                <button
-                                  key={kind}
-                                  className="route-node"
-                                  style={
-                                    {
-                                      '--node-color': node.color,
-                                    } as CSSProperties
-                                  }
-                                  disabled={i !== run.step}
-                                  onClick={() => {
-                                    audio.current!.unlock();
-                                    setNotice('');
-                                    setRun(enterNode(run, meta, kind));
-                                    setSelectedSlot(null);
-                                  }}
-                                >
-                                  <C size={24} />
-                                  <span>
-                                    <b>
-                                      {kind === 'boss'
-                                        ? CHAPTERS[run.chapter].boss
-                                        : node.name}
-                                    </b>
-                                    <small>
-                                      {i === run.step
-                                        ? node.desc
-                                        : i < run.step
-                                          ? 'Пройдено'
-                                          : 'Попереду'}
-                                    </small>
-                                  </span>
-                                  {i === run.step && <ArrowUpRight size={18} />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <RouteTree
+                      key={`${run.seed}-${run.step}`}
+                      run={run}
+                      onEnter={(id) => {
+                        audio.current!.unlock();
+                        setNotice('');
+                        setRun(enterNode(run, meta, id));
+                        setSelectedSlot(null);
+                      }}
+                    />
                     <div className="map-note">
                       <Target size={20} />
                       <span>

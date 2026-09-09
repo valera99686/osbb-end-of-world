@@ -1,4 +1,6 @@
 import { ITEMS, ITEM_BY_ID, CHARACTERS, type Stat, type Item } from './data';
+import { findSpace, restoreBag, type PackedItem } from './backpack';
+import { loreForProgress } from './lore';
 export interface Meta {
   version: 1;
   wins: number;
@@ -12,6 +14,7 @@ export interface Meta {
   seen: string[];
   research: Record<string, number>;
   sound: boolean;
+  lore: string[];
 }
 export type NodeKind = 'battle' | 'elite' | 'shop' | 'event' | 'rest' | 'boss';
 export interface Run {
@@ -25,6 +28,8 @@ export interface Run {
   path: number[];
   historyStart: number;
   items: (string | null)[];
+  backpack: PackedItem[];
+  nextBagId: number;
   coins: number;
   scrap: number;
   hp: number;
@@ -59,6 +64,7 @@ export function initialMeta(): Meta {
     seen: [],
     research: { hull: 0, supplies: 0, garage: 0 },
     sound: true,
+    lore: loreForProgress([], 0),
   };
 }
 export function seeded(seed: number) {
@@ -128,6 +134,8 @@ export function makeRun(
     path: [],
     historyStart: 0,
     items: ['cannon', 'engine', c.start, null, null, null, null, null, null],
+    backpack: [],
+    nextBagId: 1,
     coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
     scrap: 0,
     hp: 100,
@@ -345,6 +353,51 @@ export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
   next.hp = Math.max(1, Math.min(health, run.hp + Math.max(0, health - old)));
   return next;
 }
+export function packItem(run: Run, meta: Meta, id: string): Run {
+  if (run.page === 'combat' || !meta.unlocked.includes(id)) return run;
+  const space = findSpace(run.backpack, id);
+  if (!space) return run;
+  return {
+    ...run,
+    backpack: [...run.backpack, { uid: run.nextBagId, id, ...space }],
+    nextBagId: run.nextBagId + 1,
+  };
+}
+export function stowModule(run: Run, meta: Meta, slot: number): Run {
+  const id = run.items[slot];
+  if (!id || !Number.isInteger(slot)) return run;
+  const packed = packItem(run, meta, id);
+  if (packed === run) return run;
+  const next = { ...packed, items: [...run.items] };
+  next.items[slot] = null;
+  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
+  return next;
+}
+export function installPacked(
+  run: Run,
+  meta: Meta,
+  uid: number,
+  slot: number,
+): Run {
+  if (run.page === 'combat' || !Number.isInteger(slot) || slot < 0 || slot >= 9)
+    return run;
+  const packed = run.backpack.find((i) => i.uid === uid);
+  if (!packed) return run;
+  let next = {
+    ...run,
+    backpack: run.backpack.filter((i) => i.uid !== uid),
+    items: [...run.items],
+  };
+  const old = run.items[slot];
+  if (old) {
+    const stored = packItem(next, meta, old);
+    if (stored === next) return run;
+    next = stored;
+  }
+  next.items[slot] = packed.id;
+  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
+  return next;
+}
 export function finishRun(
   meta: Meta,
   run: Run,
@@ -355,7 +408,11 @@ export function finishRun(
     unlocked: [...meta.unlocked],
     research: { ...meta.research },
     seen: [
-      ...new Set([...meta.seen, ...run.items.filter((x): x is string => !!x)]),
+      ...new Set([
+        ...meta.seen,
+        ...run.items.filter((x): x is string => !!x),
+        ...run.backpack.map((i) => i.id),
+      ]),
     ],
   };
   n.runs++;
@@ -366,6 +423,7 @@ export function finishRun(
     n.wins = Math.min(5, n.wins + 1);
   const cores = Math.floor(run.kills / 18) + (won ? 6 + run.chapter * 2 : 0);
   n.cores += cores;
+  n.lore = loreForProgress(meta.lore, n.wins, run.chapter);
   return { meta: n, unlocks: unlock(n), cores };
 }
 function finite(n: unknown, min: number, max: number, fallback: number) {
@@ -443,6 +501,7 @@ export function readSave(raw: string | null): {
     for (const k of ['hull', 'supplies', 'garage'])
       base.research[k] = Math.floor(finite(m.research?.[k], 0, 5, 0));
     unlock(base);
+    base.lore = loreForProgress(Array.isArray(m.lore) ? m.lore : [], base.wins);
     let run: Run | null = null;
     const r = o.run;
     if (
@@ -468,6 +527,11 @@ export function readSave(raw: string | null): {
           );
       run.items = r.items.map((id: unknown) =>
         typeof id === 'string' && base.unlocked.includes(id) ? id : null,
+      );
+      run.backpack = restoreBag(r.backpack, base.unlocked);
+      run.nextBagId = Math.max(
+        Math.floor(finite(r.nextBagId, 1, 1e8, 1)),
+        ...run.backpack.map((i) => i.uid + 1),
       );
       for (const k of [
         'coins',
@@ -505,6 +569,7 @@ export function readSave(raw: string | null): {
         : [];
       run.rerolls = finite(r.rerolls, 0, 50, 0);
       run.eventDone = !!r.eventDone;
+      base.lore = loreForProgress(base.lore, base.wins, run.chapter);
     }
     return { meta: base, run };
   } catch {

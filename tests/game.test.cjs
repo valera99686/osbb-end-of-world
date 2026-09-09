@@ -3,6 +3,107 @@ const assert = require('node:assert/strict');
 const M = require('../.test-build/model.js');
 const { ITEM_BY_ID } = require('../.test-build/data.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
+const Bag = require('../.test-build/backpack.js');
+const Boss = require('../.test-build/bosses.js');
+const Lore = require('../.test-build/lore.js');
+
+test('Backpack shapes rotate, fill corners, and reject overlap and out-of-bounds moves', () => {
+  assert.deepEqual(Bag.itemCells('cannon', 4), Bag.itemCells('cannon', 0));
+  assert.equal(new Set(Bag.itemCells('engine', 1).map(String)).size, 4);
+  const bag = [{ uid: 1, id: 'cannon', x: 0, y: 0, rotation: 0 }];
+  assert.equal(Bag.canPack(bag, 'armor', 0, 0, 0), false);
+  assert.equal(Bag.canPack(bag, 'armor', 4, 3, 0), true);
+  assert.equal(Bag.canPack(bag, 'armor', 5, 3, 0), false);
+  assert.equal(Bag.movePacked(bag, 1, 5, 0, 0), bag);
+  const vertical = Bag.movePacked(bag, 1, 5, 0, 1);
+  assert.notEqual(vertical, bag);
+  assert.equal(vertical[0].rotation, 1);
+});
+test('Backpack transfers conserve modules and cannot heal by repeated installation', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 7);
+  run = M.equip(run, 'armor', 3, meta);
+  run.hp = M.statsFor(run, meta).health * 0.4;
+  const health = run.hp;
+  const items = [...run.items];
+  for (let i = 0; i < 12; i++) {
+    run = M.stowModule(run, meta, 3);
+    assert.equal(run.backpack.length, 1);
+    run = M.installPacked(run, meta, run.backpack[0].uid, 3);
+    assert.equal(run.backpack.length, 0);
+    assert.deepEqual(run.items, items);
+    assert.ok(Math.abs(run.hp - health) < 1e-8);
+  }
+  run = M.packItem(run, meta, 'cannon');
+  const moved = {
+    ...run,
+    backpack: Bag.movePacked(run.backpack, run.backpack[0].uid, 5, 1, 1),
+  };
+  assert.deepEqual(M.readSave(M.saveData(meta, moved)).run, moved);
+  const combat = { ...run, page: 'combat' };
+  assert.equal(M.packItem(combat, meta, 'cannon'), combat);
+  assert.equal(M.installPacked(combat, meta, run.backpack[0].uid, 0), combat);
+});
+test('A full backpack does not lose items during a failed swap; corrupt placements are rejected', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 8);
+  for (let i = 0; i < 15; i++) run = M.packItem(run, meta, 'kitchen');
+  assert.equal(run.backpack.length, 15);
+  assert.equal(M.packItem(run, meta, 'cannon'), run);
+  assert.equal(M.installPacked(run, meta, run.backpack[0].uid, 0), run);
+  const bad = [
+    ...run.backpack,
+    { uid: 999, id: 'cannon', x: 0, y: 0, rotation: 0 },
+  ];
+  assert.deepEqual(Bag.restoreBag(bad, meta.unlocked), run.backpack);
+});
+test('Each boss has its own attacks; warning zones are harmless until armed', () => {
+  const signatures = [];
+  for (let chapter = 0; chapter < 5; chapter++) {
+    const attacks = Array.from({ length: 4 }, (_, beat) =>
+      Boss.bossPattern(chapter, 0, beat, 600, 400, 800, 500),
+    );
+    signatures.push(
+      JSON.stringify(
+        attacks.map((a) => [
+          a.shots.length,
+          a.hazards.length,
+          a.summons.length,
+        ]),
+      ),
+    );
+    for (const a of attacks) {
+      assert.ok(a.cooldown > 0);
+      assert.ok(a.shots.every((s) => Number.isFinite(s.angle) && s.speed > 0));
+      assert.ok(a.hazards.every((h) => !Boss.hazardContains(h, h.x, h.y)));
+    }
+  }
+  assert.equal(new Set(signatures).size, 5);
+  const laser = Boss.bossPattern(3, 1, 0, 600, 400, 800, 500).hazards[0];
+  assert.equal(Boss.hazardContains({ ...laser, age: 0.1 }, 800, 500), true);
+  assert.equal(Boss.hazardContains({ ...laser, age: 0.1 }, 800, 700), false);
+  assert.equal(
+    Boss.hazardContains({ ...laser, age: laser.duration }, 800, 500),
+    false,
+  );
+});
+test('Lore records survive a defeat and disclose the resolution only after the final victory', () => {
+  const meta = M.initialMeta();
+  assert.equal(meta.lore.length, 2);
+  const afterLoss = M.finishRun(
+    meta,
+    M.makeRun(meta, 'mechanic', 0, 1),
+    false,
+  ).meta;
+  assert.ok(afterLoss.lore.includes('rust-arrival'));
+  assert.equal(afterLoss.lore.includes('rust-cleared'), false);
+  assert.equal(Lore.loreForProgress([], 4, 4).includes('dawn'), false);
+  assert.equal(Lore.loreForProgress([], 5).length, 12);
+  assert.deepEqual(
+    M.readSave(M.saveData(afterLoss, null)).meta.lore,
+    afterLoss.lore,
+  );
+});
 
 test('An abandoned empty run cannot farm permanent currency', () => {
   let meta = M.initialMeta();

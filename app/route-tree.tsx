@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { CHAPTERS } from '@/lib/game/data';
+import { BOSS_GUIDES } from '@/lib/game/bosses';
 import {
   availableColumns,
   reachableColumns,
@@ -274,7 +275,7 @@ export function RouteTree({
             {canEnter ? 'ТВІЙ НАСТУПНИЙ КРОК' : 'ОГЛЯД МАРШРУТУ'}
           </small>
           <h3>{title}</h3>
-          <p>{info.desc}</p>
+          <p>{kind === 'boss' ? BOSS_GUIDES[run.chapter] : info.desc}</p>
         </div>
         <button
           type="button"

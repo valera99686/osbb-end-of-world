@@ -3,7 +3,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 await mkdir('.test-build', { recursive: true });
 await writeFile('.test-build/package.json', '{"type":"commonjs"}');
-for (const name of ['data', 'model', 'engine']) {
+for (const name of [
+  'data',
+  'backpack',
+  'bosses',
+  'lore',
+  'model',
+  'enemy-art',
+  'engine',
+]) {
   const source = await readFile(`lib/game/${name}.ts`, 'utf8');
   const result = ts.transpileModule(source, {
     compilerOptions: {

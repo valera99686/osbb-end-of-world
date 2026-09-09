@@ -62,6 +62,11 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { RouteTree, NODE_INFO } from './route-tree';
+import { preloadEnemyArt } from '@/lib/game/enemy-art';
+import { Backpack, ShapePreview } from './backpack';
+import { LoreJournal, LoreFragment } from './lore-journal';
+import { itemCells, findSpace } from '@/lib/game/backpack';
+import { LORE, loreForProgress } from '@/lib/game/lore';
 import {
   ITEMS,
   ITEM_BY_ID,
@@ -82,6 +87,9 @@ import {
   enterNode,
   nextNode,
   equip,
+  packItem,
+  stowModule,
+  installPacked,
   finishRun,
   readSave,
   saveData,
@@ -196,6 +204,10 @@ function ItemCard({
       <h3>{item.name}</h3>
       <span className="family-label">{FAMILY[item.family].name}</span>
       <p>{item.desc}</p>
+      <span className="item-shape-label">
+        <ShapePreview id={item.id} /> {itemCells(item.id).length} клітинки в
+        рюкзаку
+      </span>
       {footer && <div className="item-footer">{footer}</div>}
     </>
   );
@@ -251,6 +263,8 @@ function Combat({
     boss: 0,
     bossMax: 0,
     enemies: 0,
+    bossAttack: '',
+    bossPhase: 0,
   });
   const [paused, setPaused] = useState(false),
     [stick, setStick] = useState({ x: 0, y: 0 });
@@ -388,6 +402,9 @@ function Combat({
           <span>
             {CHAPTERS[run.chapter].boss} · {Math.ceil(hud.boss)} / {hud.bossMax}
           </span>
+          <small className="boss-attack-cue">
+            ФАЗА {hud.bossPhase + 1} · {hud.bossAttack || 'Готується до атаки'}
+          </small>
           <Meter
             value={hud.boss}
             max={hud.bossMax}
@@ -494,12 +511,13 @@ export default function Game() {
   const [meta, setMeta] = useState<Meta>(initialMeta),
     [run, setRun] = useState<Run | null>(null),
     [ready, setReady] = useState(false),
-    [screen, setScreen] = useState<'hub' | 'play' | 'workshop' | 'codex'>(
-      'hub',
-    );
+    [screen, setScreen] = useState<
+      'hub' | 'play' | 'workshop' | 'codex' | 'lore'
+    >('hub');
   const [character, setCharacter] = useState('mechanic'),
     [chapter, setChapter] = useState(0),
     [help, setHelp] = useState(false),
+    [bagOpen, setBagOpen] = useState(false),
     [notice, setNotice] = useState(''),
     [selectedSlot, setSelectedSlot] = useState<number | null>(null),
     [pending, setPending] = useState<{
@@ -516,6 +534,7 @@ export default function Game() {
   if (!audio.current) audio.current = new AudioEngine();
   useEffect(() => {
     setNative(navigator.userAgent.includes('OSBBAndroid'));
+    preloadEnemyArt();
     try {
       const s = readSave(localStorage.getItem(SAVE_KEY));
       setMeta(s.meta);
@@ -549,7 +568,10 @@ export default function Game() {
   useEffect(() => {
     const back = (e: Event) => {
       if (run?.page === 'combat' && screen === 'play') return;
-      if (help) {
+      if (bagOpen) {
+        e.preventDefault();
+        setBagOpen(false);
+      } else if (help) {
         e.preventDefault();
         setHelp(false);
       } else if (result) {
@@ -568,7 +590,7 @@ export default function Game() {
     };
     document.addEventListener('osbb-back', back);
     return () => document.removeEventListener('osbb-back', back);
-  }, [run?.page, screen, help, result, pending, abandon]);
+  }, [run?.page, screen, help, bagOpen, result, pending, abandon]);
   function ping(message: string) {
     setNotice(message);
     audio.current!.play('coin');
@@ -581,12 +603,14 @@ export default function Game() {
       return;
     }
     setRun(makeRun(meta, character, chapter));
+    setMeta({ ...meta, lore: loreForProgress(meta.lore, meta.wins, chapter) });
     setScreen('play');
     setResult(null);
     setNotice('');
     setSelectedSlot(null);
   }
   function back() {
+    setBagOpen(false);
     setScreen('hub');
     setSelectedSlot(null);
     setNotice('');
@@ -618,12 +642,31 @@ export default function Game() {
       (run.bought.includes(index) || run.coins < priceFor(ITEM_BY_ID[id], run))
     )
       return;
-    const empty = run.items.indexOf(null);
-    if (empty < 0) {
-      setPending({ id, source, index });
+    setPending({ id, source, index });
+  }
+  function acquireToBag() {
+    if (!run || !pending) return;
+    const { id, source, index } = pending;
+    const cost = source === 'shop' ? priceFor(ITEM_BY_ID[id], run) : 0;
+    if (source === 'shop' && (run.coins < cost || run.bought.includes(index)))
+      return;
+    let next = packItem(run, meta, id);
+    if (next === run) {
+      ping(
+        'У рюкзаку немає місця для цієї фігури. Перестав предмети або встанови модуль.',
+      );
       return;
     }
-    acquire(id, source, index, empty);
+    next = {
+      ...next,
+      coins: next.coins - cost,
+      bought: source === 'shop' ? [...next.bought, index] : next.bought,
+    };
+    if (source === 'reward') next = nextNode(next);
+    setRun(next);
+    setPending(null);
+    setMeta({ ...meta, seen: [...new Set([...meta.seen, id])] });
+    ping(`${ITEM_BY_ID[id].name} у рюкзаку.`);
   }
   function acquire(
     id: string,
@@ -795,11 +838,32 @@ export default function Game() {
         <div className="selected-room">
           <b>{ITEM_BY_ID[run.items[selectedSlot]!].name}</b>
           <p>{ITEM_BY_ID[run.items[selectedSlot]!].desc}</p>
+          <button
+            className="text-button"
+            onClick={() => {
+              const next = stowModule(run, meta, selectedSlot);
+              if (next === run) {
+                ping('Для цього модуля немає місця в рюкзаку.');
+                return;
+              }
+              setRun(next);
+              setSelectedSlot(null);
+              ping('Модуль перенесено до рюкзака.');
+            }}
+          >
+            <Package size={15} /> Зняти до рюкзака
+          </button>
           <button className="text-button danger" onClick={scrap}>
             <Recycle size={15} /> Розібрати · +2 брухту
           </button>
         </div>
       )}
+      <button className="secondary bag-open" onClick={() => setBagOpen(true)}>
+        <Package size={18} /> Рюкзак{' '}
+        <span>
+          {run.backpack.reduce((n, i) => n + itemCells(i.id).length, 0)}/30
+        </span>
+      </button>
       <div className="stat-grid">
         <div>
           <Heart size={16} />
@@ -891,7 +955,9 @@ export default function Game() {
               ? 'МАЙСТЕРНЯ'
               : screen === 'codex'
                 ? 'КОДЕКС ЗНАХІДОК'
-                : CHAPTERS[run?.chapter ?? 0].name}
+                : screen === 'lore'
+                  ? 'АРХІВ БУДИНКУ'
+                  : CHAPTERS[run?.chapter ?? 0].name}
         </span>
         <div className="top-actions">
           {screen !== 'play' && <Currency amount={meta.cores} cores />}
@@ -996,6 +1062,12 @@ export default function Game() {
                   {meta.unlocked.length}/{ITEMS.length}
                 </span>
               </button>
+              <button className="text-button" onClick={() => setScreen('lore')}>
+                <ScrollText size={18} /> Літопис{' '}
+                <span className="tiny-count">
+                  {meta.lore.length}/{LORE.length}
+                </span>
+              </button>
             </div>
             {run && (
               <button
@@ -1039,7 +1111,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              Прогрес зберігається на цьому пристрої.
+              v0.2.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1080,6 +1152,7 @@ export default function Game() {
                     </p>
                     <h2>{CHAPTERS[run.chapter].name}</h2>
                     <p className="lead">{CHAPTERS[run.chapter].story}</p>
+                    <LoreFragment chapter={run.chapter} />
                     <RouteTree
                       key={`${run.seed}-${run.step}`}
                       run={run}
@@ -1478,6 +1551,41 @@ export default function Game() {
           </div>
         </section>
       )}
+      {screen === 'lore' && <LoreJournal unlocked={meta.lore} onBack={back} />}
+      <Dialog open={bagOpen && !!run} onOpenChange={setBagOpen}>
+        <DialogContent className="game-modal backpack-modal">
+          <DialogTitle>Експедиційний рюкзак</DialogTitle>
+          <DialogDescription>
+            Запасні модулі мають різну форму. Повертай і складай їх у сітку 6×5.
+          </DialogDescription>
+          {run && (
+            <Backpack
+              run={run}
+              onChange={setRun}
+              onInstall={(uid, slot) => {
+                const next = installPacked(run, meta, uid, slot);
+                if (next === run) {
+                  ping(
+                    'Старий модуль не вміщується в рюкзак. Обери вільну кімнату або звільни місце.',
+                  );
+                  return;
+                }
+                setRun(next);
+                ping('Модуль встановлено.');
+              }}
+              onScrap={(uid) => {
+                if (!run.backpack.some((i) => i.uid === uid)) return;
+                setRun({
+                  ...run,
+                  backpack: run.backpack.filter((i) => i.uid !== uid),
+                  scrap: run.scrap + 2,
+                });
+                setMeta({ ...meta, scrapped: meta.scrapped + 1 });
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!pending}
         onOpenChange={(open) => {
@@ -1485,13 +1593,26 @@ export default function Game() {
         }}
       >
         <DialogContent className="game-modal">
-          <DialogTitle>Усі квартири зайняті</DialogTitle>
+          <DialogTitle>{pending && ITEM_BY_ID[pending.id].name}</DialogTitle>
           <DialogDescription>
-            Вибери кімнату для заміни на «
-            {pending && ITEM_BY_ID[pending.id].name}». Старий модуль дасть 1
-            брухту.
+            Встанови модуль у кімнату або залиш у рюкзаку. Заміна зайнятої
+            кімнати розбирає старий модуль на 1 брухт.
           </DialogDescription>
           {board(true)}
+          <button
+            className="secondary"
+            disabled={!run || !pending || !findSpace(run.backpack, pending.id)}
+            onClick={acquireToBag}
+          >
+            <Package size={18} /> У рюкзак{' '}
+            {pending && <ShapePreview id={pending.id} />}
+          </button>
+          {run && pending && !findSpace(run.backpack, pending.id) && (
+            <p className="muted">
+              Ця фігура зараз не вміщується. Закрий вибір і перестав предмети в
+              рюкзаку.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
       <Dialog
@@ -1536,6 +1657,9 @@ export default function Game() {
                 </span>
                 <Currency amount={result.cores} cores />
               </div>
+              {result.won && (
+                <LoreFragment chapter={result.run.chapter} victory />
+              )}
               {result.unlocks.length > 0 && (
                 <div className="unlock-list">
                   <b>НОВІ КРЕСЛЕННЯ · {result.unlocks.length}</b>
@@ -1558,8 +1682,8 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · 5 сюжетних рейдів, 36 модулів і сотні можливих
-            комбінацій.
+            ОСББ кінця світу · v0.2.0 · 5 різних босів, 36 модулів і рюкзак із
+            фігурами.
           </DialogDescription>
           <div className="help-list">
             <p>
@@ -1584,6 +1708,15 @@ export default function Game() {
               <b>05 / Повертайся.</b> Предмети й монети належать одному рейду.
               Ядра, дослідження, відкриті креслення та сюжет зберігаються
               назавжди.
+            </p>
+            <p>
+              <b>Рюкзак.</b> Після нагороди або покупки обери кімнату чи «У
+              рюкзак». У рюкзаку перетягуй і повертай фігури. Запасні модулі не
+              дають бонусів, доки не встановлені в будинку.
+            </p>
+            <p>
+              <b>Літопис.</b> Відвідування районів і перемоги відкривають записи
+              про місто. Читай їх у притулку — вони зберігаються після поразки.
             </p>
             <p>
               <b>06 / Заверши історію.</b> Кожна перемога відкриває новий район

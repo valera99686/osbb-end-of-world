@@ -1,5 +1,7 @@
 import { CHAPTERS, ITEM_BY_ID, FAMILY } from './data';
 import { seeded, statsFor, type Run, type Meta, type Stats } from './model';
+import { drawEnemy, preloadEnemyArt, ENEMY_PALETTES } from './enemy-art';
+import { bossPattern, hazardContains, drawHazard, type Hazard } from './bosses';
 export interface Enemy {
   x: number;
   y: number;
@@ -11,6 +13,12 @@ export interface Enemy {
   hit: number;
   timer: number;
   phase: number;
+  walk: number;
+  facing: number;
+  aim: number;
+  attack: number;
+  visualSeed: number;
+  pattern: number;
 }
 interface Bullet {
   x: number;
@@ -54,6 +62,8 @@ export interface Hud {
   boss: number;
   bossMax: number;
   enemies: number;
+  bossAttack: string;
+  bossPhase: number;
 }
 export type BattleResult = { run: Run; won: boolean; boss: boolean };
 export class AudioEngine {
@@ -104,6 +114,10 @@ export class Battle {
   keys = new Set<string>();
   stick = { x: 0, y: 0 };
   enemies: Enemy[] = [];
+  defeated: (Enemy & { life: number })[] = [];
+  spawnCount = 0;
+  hazards: Hazard[] = [];
+  bossAttack = '';
   bullets: Bullet[] = [];
   drops: Drop[] = [];
   particles: Particle[] = [];
@@ -138,6 +152,7 @@ export class Battle {
   ) {
     this.canvas = canvas;
     this.ctx = canvas?.getContext('2d') ?? null;
+    if (canvas) preloadEnemyArt();
     this.run = { ...run, items: [...run.items] };
     this.stats = statsFor(run, meta);
     this.audio = audio;
@@ -245,6 +260,12 @@ export class Battle {
       hit: 0,
       timer: 1 + this.rng() * 2,
       phase: 0,
+      walk: 0,
+      facing: Math.cos(angle) > 0 ? -1 : 1,
+      aim: Math.atan2(-Math.sin(angle), -Math.cos(angle)),
+      attack: 0,
+      visualSeed: this.spawnCount++,
+      pattern: 0,
     });
   }
   damage(e: Enemy, amount: number, crit = false) {
@@ -255,18 +276,13 @@ export class Battle {
     if (crit) this.label(e.x, e.y - 10, Math.round(amount) + '!', '#ffd38a');
     if (e.hp <= 0) {
       this.run.kills++;
+      this.defeated.push({ ...e, life: 0.48 });
       this.burst(
         e.x,
         e.y,
-        [
-          '#d69765',
-          '#7db8dd',
-          '#b497cc',
-          '#81c496',
-          '#75b7c7',
-          '#c68fad',
-          '#edbb70',
-        ][e.type],
+        e.type === 6
+          ? CHAPTERS[this.run.chapter].color
+          : ENEMY_PALETTES[e.type],
         e.type === 6 ? 55 : 12,
       );
       this.drops.push({
@@ -421,31 +437,46 @@ export class Battle {
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.hit = Math.max(0, e.hit - dt);
+      e.attack = Math.max(0, e.attack - dt);
       const dist = Math.hypot(this.x - e.x, this.y - e.y) || 1;
       const ex = (this.x - e.x) / dist,
         ey = (this.y - e.y) / dist;
+      if (Math.abs(ex) > 0.08) e.facing = ex < 0 ? -1 : 1;
+      e.aim = Math.atan2(ey, ex);
       e.timer -= dt;
       if (e.type === 6) {
-        e.phase = e.hp < e.max * 0.45 ? 1 : 0;
+        e.phase = e.hp < e.max * (this.run.chapter === 4 ? 0.5 : 0.45) ? 1 : 0;
         if (e.timer <= 0) {
-          const n = 8 + this.run.chapter * 2 + e.phase * 4;
-          for (let i = 0; i < n; i++) {
-            const a = (i * Math.PI * 2) / n + this.elapsed * 0.25;
+          e.attack = 0.18;
+          const pattern = bossPattern(
+            this.run.chapter,
+            e.phase,
+            e.pattern++,
+            e.x,
+            e.y,
+            this.x,
+            this.y,
+          );
+          this.bossAttack = pattern.name;
+          for (const shot of pattern.shots)
             this.bullets.push({
               x: e.x,
               y: e.y,
-              vx: Math.cos(a) * (140 + e.phase * 45),
-              vy: Math.sin(a) * (140 + e.phase * 45),
-              life: 5,
-              damage: 12 + this.run.chapter * 3,
+              vx: Math.cos(shot.angle) * shot.speed,
+              vy: Math.sin(shot.angle) * shot.speed,
+              life: 6,
+              damage: shot.damage,
               enemy: true,
               crit: false,
             });
-          }
-          e.timer = e.phase ? 1.7 : 2.8;
-          this.burst(e.x, e.y, '#ef9680', 15);
+          this.hazards.push(...pattern.hazards);
+          for (const type of pattern.summons)
+            if (this.enemies.length < 90) this.spawn(type);
+          e.timer = pattern.cooldown;
+          this.burst(e.x, e.y, CHAPTERS[this.run.chapter].color, 10);
         }
       } else if (e.type === 4 && e.timer <= 0) {
+        e.attack = 0.18;
         this.bullets.push({
           x: e.x,
           y: e.y,
@@ -460,10 +491,12 @@ export class Battle {
       }
       const moving = e.type !== 4 || dist > 260;
       if (moving) {
+        e.walk += (dt * e.speed) / (e.type === 2 || e.type === 6 ? 13 : 9);
         e.x += ex * e.speed * dt;
         e.y += ey * e.speed * dt;
       }
       if (dist < e.r + 24 && this.invincible <= 0) {
+        e.attack = 0.18;
         const hit = Math.max(
           2,
           (e.type === 6 ? 22 : e.type === 2 ? 17 : 9) +
@@ -489,6 +522,17 @@ export class Battle {
           this.damage(e, this.stats.damage * 2 * dt);
       }
     }
+    for (const hazard of this.hazards) {
+      hazard.age += dt;
+      if (this.invincible <= 0 && hazardContains(hazard, this.x, this.y)) {
+        this.run.hp -= Math.max(2, hazard.damage - this.stats.armor);
+        this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
+        this.invincible = 0.7;
+        this.shake = 5;
+        this.audio.play('hit');
+      }
+    }
+    this.hazards = this.hazards.filter((h) => h.age < h.duration).slice(-40);
     for (const b of this.bullets) {
       if (b.life <= 0) continue;
       b.x += b.vx * dt;
@@ -573,6 +617,8 @@ export class Battle {
       this.audio.play('win');
     }
     this.enemies = this.enemies.filter((e) => e.hp > 0);
+    for (const e of this.defeated) e.life -= dt;
+    this.defeated = this.defeated.filter((e) => e.life > 0).slice(-32);
     this.bullets = this.bullets.filter((b) => b.life > 0).slice(-450);
     this.drops = this.drops.filter((d) => d.value > 0).slice(-400);
     for (const p of this.particles) {
@@ -617,6 +663,8 @@ export class Battle {
         boss: boss?.hp ?? 0,
         bossMax: boss?.max ?? 0,
         enemies: this.enemies.length,
+        bossAttack: this.bossAttack,
+        bossPhase: boss?.phase ?? 0,
       });
     }
   }
@@ -756,6 +804,7 @@ export class Battle {
     c.setLineDash([16, 12]);
     c.strokeRect(25, 25, 1550, 950);
     c.setLineDash([]);
+    for (const hazard of this.hazards) drawHazard(c, hazard);
     for (const d of this.drops) {
       c.fillStyle =
         d.kind === 'coin'
@@ -775,83 +824,26 @@ export class Battle {
       c.fill();
       c.shadowBlur = 0;
     }
-    for (const e of [...this.enemies].sort((a, b) => a.y - b.y)) {
-      c.save();
-      c.translate(e.x, e.y);
-      const col = [
-        '#d9996b',
-        '#88b9da',
-        '#b296c7',
-        '#90c590',
-        '#81beca',
-        '#d594b3',
-        CHAPTERS[this.run.chapter].color,
-      ][e.type];
-      c.fillStyle = '#0005';
-      c.beginPath();
-      c.ellipse(0, e.r * 0.8, e.r * 1.2, e.r * 0.55, 0, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = e.hit > 0 ? '#f4e7d2' : col;
-      c.strokeStyle = '#091219';
-      c.lineWidth = 3;
-      if (e.type === 6) {
-        const bob = Math.sin(this.elapsed * 3) * 3;
-        c.translate(0, bob);
-        for (let i = 0; i < 4; i++) {
-          c.fillStyle = '#75828b';
-          c.fillRect(-55 + i * 28, 20, 10, 24);
-        }
-        c.fillStyle = e.hit > 0 ? '#eee5cd' : col;
-        c.fillRect(-45, -45, 90, 72);
-        c.strokeRect(-45, -45, 90, 72);
-        c.fillStyle = '#172530';
-        c.fillRect(-32, -31, 64, 35);
-        for (let i = 0; i < 4; i++) {
-          c.fillStyle = e.phase ? '#fa7469' : '#efc079';
-          c.fillRect(-26 + i * 15, -25, 8, 20);
-        }
-        c.fillStyle = '#354652';
-        c.fillRect(-57, 0, 22, 12);
-        c.fillRect(35, 0, 22, 12);
-        c.fillStyle = '#f1a471';
-        c.fillRect(-10, -60, 20, 15);
-      } else if (e.type === 1 || e.type === 4) {
-        c.beginPath();
-        c.moveTo(0, -e.r);
-        c.lineTo(e.r + 4, 0);
-        c.lineTo(0, e.r);
-        c.lineTo(-e.r - 4, 0);
-        c.closePath();
-        c.fill();
-        c.stroke();
-        c.strokeStyle = col;
-        c.beginPath();
-        c.moveTo(-20, -6);
-        c.lineTo(20, -6);
-        c.stroke();
-      } else if (e.type === 2) {
-        c.fillRect(-20, -23, 40, 41);
-        c.strokeRect(-20, -23, 40, 41);
-        c.fillStyle = '#21303a';
-        c.fillRect(-12, -13, 24, 13);
-      } else {
-        c.beginPath();
-        c.ellipse(0, 0, e.r, e.r * (e.type === 3 ? 0.7 : 1), 0, 0, Math.PI * 2);
-        c.fill();
-        c.stroke();
+    const actors = [
+      ...this.enemies.map((enemy) => ({ y: enemy.y, enemy, dying: 0 })),
+      ...this.defeated.map((enemy) => ({
+        y: enemy.y,
+        enemy,
+        dying: 1 - enemy.life / 0.48,
+      })),
+      { y: this.y, enemy: null, dying: 0 },
+    ].sort((a, b) => a.y - b.y);
+    for (const actor of actors) {
+      const e = actor.enemy;
+      if (!e) {
+        this.drawHouse(c, this.x, this.y);
+      } else if (
+        Math.abs(e.x - cameraX) < w / zoom / 2 + 130 &&
+        Math.abs(e.y - cameraY) < h / zoom / 2 + 130
+      ) {
+        drawEnemy(c, e, this.run.chapter, this.elapsed, actor.dying);
       }
-      c.fillStyle = '#ffe5ac';
-      c.fillRect(-6, -4, 3, 3);
-      c.fillRect(3, -4, 3, 3);
-      if (e.hp < e.max && e.type !== 6) {
-        c.fillStyle = '#091218';
-        c.fillRect(-e.r, -e.r - 10, e.r * 2, 3);
-        c.fillStyle = col;
-        c.fillRect(-e.r, -e.r - 10, e.r * 2 * Math.max(0, e.hp / e.max), 3);
-      }
-      c.restore();
     }
-    this.drawHouse(c, this.x, this.y);
     for (let i = 0; i < this.stats.drones; i++) {
       const a = this.elapsed * 0.8 + (i * Math.PI * 2) / this.stats.drones;
       const x = this.x + Math.cos(a) * 85,

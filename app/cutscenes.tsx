@@ -87,7 +87,11 @@ export function CutscenePlayer({
           Історія міста. Стрілки перемикають кадри, Escape пропускає сцену.
         </DialogDescription>
         <div className="cinema-top">
-          <span>ОСББ / ХРОНІКА ЕВАКУАЦІЇ</span>
+          <span>
+            {scene.id === 'prologue' || scene.id === 'origins'
+              ? 'ОСББ / ХРОНІКА ЕВАКУАЦІЇ'
+              : 'РАДІОКАНАЛ ЕВАКУАЦІЇ · БУДИНОК ↔ ПРИТУЛОК'}
+          </span>
           <button className="text-button" onClick={onClose}>
             Пропустити
           </button>
@@ -160,6 +164,9 @@ export function StoryLibrary({
         Історія відкривається через рейди. Переглянуті сцени можна відтворити
         знову.
       </p>
+      <button className="secondary" onClick={() => onPlay('origins')}>
+        <Play size={16} /> Звідки взялися монстри
+      </button>
       <div className="story-grid">
         {CUTSCENES.map((s) => {
           const unlocked = sceneUnlocked(s.id, meta.wins);
@@ -179,9 +186,11 @@ export function StoryLibrary({
                 <span>{unlocked ? <Play size={22} /> : null}</span>
               </div>
               <small>
-                {s.id === 'prologue'
-                  ? 'ПРОЛОГ'
-                  : `РОЗДІЛ ${s.chapter + 1} · ${s.victory ? 'ПІСЛЯ ПЕРЕМОГИ' : 'ПРИБУТТЯ'}`}
+                {s.id === 'origins'
+                  ? 'ПОХОДЖЕННЯ ВОРОГІВ'
+                  : s.id === 'prologue'
+                    ? 'ПРОЛОГ'
+                    : `РОЗДІЛ ${s.chapter + 1} · ${s.victory ? 'ПІСЛЯ ПЕРЕМОГИ' : 'ПРИБУТТЯ'}`}
               </small>
               <h3>{unlocked ? s.title : 'Невідома сторінка'}</h3>
               <p>

@@ -18,6 +18,43 @@ export interface ResidentRoom {
 }
 export const HOUSE_WIDTH = 6,
   HOUSE_HEIGHT = 5;
+
+// Ownership is permanent; presence belongs to this expedition only.
+export function residentGroups(roster: string[], rooms: ResidentRoom[]) {
+  const aboard = new Set(rooms.map((room) => room.id));
+  const owned = new Set(roster);
+  return {
+    aboard: RESIDENTS.filter((resident) => aboard.has(resident.id)),
+    reserve: RESIDENTS.filter(
+      (resident) => owned.has(resident.id) && !aboard.has(resident.id),
+    ),
+    missing: RESIDENTS.filter(
+      (resident) => !owned.has(resident.id) && !aboard.has(resident.id),
+    ),
+  };
+}
+
+// Adjacent cells share a floor, but only exposed edges become room walls.
+export function roomGeometry(id: string, rotation = 0, unit = 100) {
+  const cells = residentCells(id, rotation);
+  const occupied = new Set(cells.map(([x, y]) => `${x}:${y}`));
+  const edges: string[] = [];
+  const floor = cells
+    .map(([x, y]) => {
+      const left = x * unit,
+        top = y * unit;
+      if (!occupied.has(`${x}:${y - 1}`)) edges.push(`M${left},${top}h${unit}`);
+      if (!occupied.has(`${x + 1}:${y}`))
+        edges.push(`M${left + unit},${top}v${unit}`);
+      if (!occupied.has(`${x}:${y + 1}`))
+        edges.push(`M${left + unit},${top + unit}h${-unit}`);
+      if (!occupied.has(`${x - 1}:${y}`))
+        edges.push(`M${left},${top + unit}v${-unit}`);
+      return `M${left},${top}h${unit}v${unit}h${-unit}Z`;
+    })
+    .join(' ');
+  return { floor, walls: edges.join(' '), edgeCount: edges.length };
+}
 export const RESIDENTS: Resident[] = [
   {
     id: 'mechanic',

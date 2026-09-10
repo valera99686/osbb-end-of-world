@@ -547,7 +547,8 @@ export default function Game() {
             : null),
       });
       setRun(s.run);
-      setChapter(Math.min(4, s.meta.wins));
+      setCharacter(s.run?.character ?? 'mechanic');
+      setChapter(s.run?.chapter ?? Math.min(4, s.meta.wins));
       if (s.error) setNotice('Збереження пошкоджено. Створено новий профіль.');
     } catch {
       setNotice(
@@ -1081,11 +1082,11 @@ export default function Game() {
               Україна, 2086 рік. Врятуй мешканців будинку №17 і зупини систему,
               яка щоразу повертає місто до початку катастрофи о 04:17.
             </p>
-            <div className="crew-select" aria-label="Вибір мешканця">
+            <div className="crew-select" aria-label="Голова ОСББ для рейду">
               {CHARACTERS.map((c) => (
                 <button
                   key={c.id}
-                  className={`crew-option ${character === c.id ? 'active' : ''}`}
+                  className={`crew-option ${(run?.character ?? character) === c.id ? 'active' : ''}`}
                   disabled={c.win > meta.wins || !!run}
                   onClick={() => setCharacter(c.id)}
                   title={
@@ -1105,7 +1106,7 @@ export default function Game() {
             </div>
             <p className="crew-description">
               {run
-                ? 'Незавершений рейд збережено.'
+                ? `Голова ОСББ: ${RESIDENT_BY_ID[run.character].name}. На борту — ${run.residents.length}. Решта врятованих мешканців чекають у притулку.`
                 : CHARACTERS.find((c) => c.id === character)?.desc}
             </p>
             <button
@@ -1150,14 +1151,14 @@ export default function Game() {
           </div>
           <div className="chapter-plaque">
             <span className="micro">НАСТУПНА ЗУПИНКА</span>
-            <h3>{CHAPTERS[chapter].name}</h3>
-            <p>{CHAPTERS[chapter].story}</p>
+            <h3>{CHAPTERS[run?.chapter ?? chapter].name}</h3>
+            <p>{CHAPTERS[run?.chapter ?? chapter].story}</p>
             <div className="chapter-dots">
               {CHAPTERS.map((c, i) => (
                 <button
                   key={i}
                   disabled={i > meta.wins || !!run}
-                  className={chapter === i ? 'active' : ''}
+                  className={(run?.chapter ?? chapter) === i ? 'active' : ''}
                   onClick={() => setChapter(i)}
                   title={`${i + 1}. ${c.name}${i > meta.wins ? ' · ще закрито' : ''}`}
                   aria-label={`Розділ ${i + 1}: ${c.name}`}
@@ -1181,7 +1182,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.3.2 · Прогрес зберігається на цьому пристрої.
+              v0.3.3 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1666,8 +1667,9 @@ export default function Game() {
         <DialogContent className="game-modal housing-modal">
           <DialogTitle>Будинок №17 / Розселення</DialogTitle>
           <DialogDescription>
-            Розмісти кімнати мешканців фігурами на плані 6×5. Їхні вміння
-            працюють уже в наступному бою.
+            Розселяй людей у кімнатах різної форми. Бонуси дають лише ті, хто
+            зараз перебуває в будинку; сусідні кімнати можуть підсилювати одна
+            одну.
           </DialogDescription>
           {run && <Residents run={run} meta={meta} onChange={setRun} />}
         </DialogContent>
@@ -1805,7 +1807,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.3.2 · 9 мешканців, фігурні кімнати, 5 босів і
+            ОСББ кінця світу · v0.3.3 · 9 мешканців, фігурні кімнати, 5 босів і
             сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">

@@ -93,6 +93,68 @@ test('Residents rotate and reject overlap, illegal coordinates, duplicates and u
   const combat = { ...run, page: 'combat' };
   assert.equal(M.reserveResident(combat, meta, 'nina'), combat);
 });
+test('Resident lists separate the expedition from refuge and undiscovered people after reloading', () => {
+  const meta = M.initialMeta();
+  meta.wins = 2;
+  meta.residents = R.residentRoster([], 2);
+  let run = M.makeRun(meta, 'flora', 1, 19);
+  const ids = (people) => people.map((person) => person.id).sort();
+  let groups = R.residentGroups(meta.residents, run.residents);
+  assert.deepEqual(ids(groups.aboard), ['flora', 'lev', 'nina']);
+  assert.deepEqual(ids(groups.reserve), ['mechanic', 'spark']);
+  assert.deepEqual(ids(groups.missing), [
+    'boris',
+    'danilo',
+    'marta',
+    'solomia',
+  ]);
+  const before = M.statsFor(run, meta);
+  run = M.reserveResident(run, meta, 'lev');
+  const restored = M.readSave(M.saveData(meta, run));
+  assert.equal(restored.run.character, 'flora');
+  assert.equal(restored.run.chapter, 1);
+  groups = R.residentGroups(restored.meta.residents, restored.run.residents);
+  assert.deepEqual(ids(groups.aboard), ['flora', 'nina']);
+  assert.deepEqual(ids(groups.reserve), ['lev', 'mechanic', 'spark']);
+  assert.equal(
+    M.statsFor(restored.run, restored.meta).damage,
+    before.damage - 3,
+  );
+  const room = R.residentSpace(restored.run.residents, 'lev');
+  const returned = M.houseResident(restored.run, restored.meta, room);
+  assert.equal(
+    R.residentGroups(meta.residents, returned.residents).aboard.length,
+    3,
+  );
+  assert.equal(M.statsFor(returned, meta).damage, before.damage);
+});
+
+test('Room drawings omit internal walls and preserve the shape through four rotations', () => {
+  for (const [id, perimeter] of [
+    ['flora', 8],
+    ['mechanic', 10],
+    ['nina', 8],
+    ['lev', 8],
+    ['danilo', 6],
+    ['solomia', 10],
+  ]) {
+    for (let rotation = 0; rotation < 4; rotation++) {
+      const geometry = R.roomGeometry(id, rotation);
+      assert.equal(
+        geometry.edgeCount,
+        perimeter,
+        `${id}, rotation ${rotation}`,
+      );
+      assert.equal(
+        (geometry.floor.match(/Z/g) || []).length,
+        R.RESIDENT_BY_ID[id].shape.length,
+      );
+    }
+  }
+  assert.equal(R.roomGeometry('flora').walls.includes('M100,0v100'), false);
+  assert.equal(R.roomGeometry('flora').walls.includes('M100,100h-100'), false);
+});
+
 test('Household arrangement changes adjacency bonuses without duplicating residents or farming health', () => {
   const meta = M.initialMeta();
   meta.wins = 5;
@@ -193,6 +255,11 @@ test('Cutscenes resume safely, preserve watched progress and lock the ending unt
   assert.deepEqual(saved.meta.sceneProgress, { id: 'prologue', index: 3 });
   assert.equal(Scenes.sceneUnlocked('victory-4', 4), false);
   assert.equal(Scenes.sceneUnlocked('victory-4', 5), true);
+  assert.equal(Scenes.sceneUnlocked('origins', 0), true);
+  assert.deepEqual(
+    Scenes.restoreSceneProgress({ id: 'origins', index: 3 }, 0),
+    { id: 'origins', index: 3 },
+  );
   assert.equal(
     Scenes.restoreSceneProgress({ id: 'victory-4', index: 0 }, 0),
     null,
@@ -209,7 +276,7 @@ test('Cutscenes resume safely, preserve watched progress and lock the ending unt
 test('Rewritten story restarts only the introduction once and preserves the active expedition', () => {
   const meta = M.initialMeta(),
     run = M.makeRun(meta, 'mechanic', 0, 55);
-  delete meta.storyRevision;
+  meta.storyRevision = 2;
   meta.scenesSeen = ['prologue', 'arrival-0'];
   meta.sceneProgress = { id: 'prologue', index: 2 };
   run.coins = 117;

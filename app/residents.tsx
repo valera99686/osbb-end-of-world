@@ -14,14 +14,24 @@ import {
   residentSpace,
   residentGroups,
   roomGeometry,
+  houseSize,
+  HOUSE_EXPANSION_COSTS,
   type ResidentRoom,
 } from '@/lib/game/residents';
 import {
   houseResident,
   reserveResident,
+  installFurniture,
+  expandHouse,
   type Meta,
   type Run,
 } from '@/lib/game/model';
+import { ApartmentFurniture, FurnitureIcon } from './furniture';
+import {
+  FURNITURE_BY_ID,
+  furnitureEffect,
+  type Furnishing,
+} from '@/lib/game/furniture';
 
 export function Portrait({ id }: { id: string }) {
   const r = RESIDENT_BY_ID[id];
@@ -69,20 +79,29 @@ export function ResidentShape({
 
 function HousePlan({
   rooms,
+  level = 0,
+  furniture = [],
   selected,
   target,
   valid,
   compact = false,
 }: {
   rooms: ResidentRoom[];
+  level?: number;
+  furniture?: Furnishing[];
   selected?: string;
   target?: ResidentRoom | null;
   valid?: boolean;
   compact?: boolean;
 }) {
   const uid = useId().replace(/:/g, '');
+  const size = houseSize(level);
   return (
-    <svg className="house-plan" viewBox="0 0 600 500" aria-hidden="true">
+    <svg
+      className="house-plan"
+      viewBox={`0 0 ${size.width * 100} ${size.height * 100}`}
+      aria-hidden="true"
+    >
       <defs>
         <pattern
           id={`${uid}-grid`}
@@ -118,8 +137,17 @@ function HousePlan({
           </linearGradient>
         ))}
       </defs>
-      <rect width="600" height="500" fill="#0d1a20" rx="3" />
-      <rect width="600" height="500" fill={`url(#${uid}-grid)`} />
+      <rect
+        width={size.width * 100}
+        height={size.height * 100}
+        fill="#0d1a20"
+        rx="3"
+      />
+      <rect
+        width={size.width * 100}
+        height={size.height * 100}
+        fill={`url(#${uid}-grid)`}
+      />
       {rooms.map((room) => {
         const person = RESIDENT_BY_ID[room.id],
           cells = residentCells(room.id, room.rotation);
@@ -142,25 +170,54 @@ function HousePlan({
               strokeLinejoin="round"
               strokeLinecap="round"
             />
-            {cells.slice(1).map(([cx, cy]) => (
-              <g
-                key={`${cx}:${cy}`}
-                opacity="0.32"
-                stroke={person.color}
-                fill="none"
-              >
-                <rect
-                  x={cx * 100 + 29}
-                  y={cy * 100 + 26}
-                  width="42"
-                  height="48"
-                  rx="5"
-                />
-                <path
-                  d={`M${cx * 100 + 34} ${cy * 100 + 39}h32M${cx * 100 + 34} ${cy * 100 + 65}h32`}
-                />
-              </g>
-            ))}
+            {cells.slice(1).map(([cx, cy], index) => {
+              const item = furniture.find(
+                (item) => item.resident === room.id && item.cell === index + 1,
+              );
+              return (
+                <g
+                  key={`${cx}:${cy}`}
+                  opacity={item ? 1 : 0.4}
+                  stroke={item ? '#efd4a1' : person.color}
+                  fill="none"
+                >
+                  {item ? (
+                    <FurnitureIcon
+                      id={item.id}
+                      size={42}
+                      x={cx * 100 + 29}
+                      y={cy * 100 + 25}
+                    />
+                  ) : (
+                    <>
+                      <rect
+                        x={cx * 100 + 26}
+                        y={cy * 100 + 24}
+                        width="48"
+                        height="48"
+                        rx="5"
+                        strokeDasharray="4 4"
+                      />
+                      <path
+                        d={`M${cx * 100 + 41} ${cy * 100 + 48}h18M${cx * 100 + 50} ${cy * 100 + 39}v18`}
+                      />
+                    </>
+                  )}
+                  {!compact && (
+                    <text
+                      x={cx * 100 + 50}
+                      y={cy * 100 + 88}
+                      textAnchor="middle"
+                      stroke="none"
+                      fill={item ? '#efd4a1' : person.color}
+                      fontSize="11"
+                    >
+                      {item ? FURNITURE_BY_ID[item.id].name : 'МЕБЛІ'}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
             <svg
               x={x * 100 + 18}
               y={y * 100 + 7}
@@ -203,8 +260,8 @@ function HousePlan({
         </g>
       )}
       <rect
-        width="600"
-        height="500"
+        width={size.width * 100}
+        height={size.height * 100}
         rx="3"
         fill="none"
         stroke="#6c8384"
@@ -216,9 +273,11 @@ function HousePlan({
 
 export function HousePreview({
   run,
+  level = 0,
   onOpen,
 }: {
   run: Run;
+  level?: number;
   onOpen: () => void;
 }) {
   return (
@@ -227,7 +286,12 @@ export function HousePreview({
       onClick={onOpen}
       aria-label={`План будинку: ${run.residents.length} мешканців. Відкрити розселення`}
     >
-      <HousePlan rooms={run.residents} compact />
+      <HousePlan
+        rooms={run.residents}
+        level={level}
+        furniture={run.furniture}
+        compact
+      />
     </button>
   );
 }
@@ -236,10 +300,12 @@ export function Residents({
   run,
   meta,
   onChange,
+  onMetaChange,
 }: {
   run: Run;
   meta: Meta;
   onChange: (r: Run) => void;
+  onMetaChange: (meta: Meta) => void;
 }) {
   const [selected, setSelected] = useState(run.character);
   const [rotation, setRotation] = useState(
@@ -249,6 +315,10 @@ export function Residents({
   const [placing, setPlacing] = useState(false);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [message, setMessage] = useState('');
+  const [pickedFurniture, setPickedFurniture] = useState<number | null>(null);
+  const size = houseSize(meta.houseLevel),
+    nextSize = houseSize(meta.houseLevel + 1),
+    expansionCost = HOUSE_EXPANSION_COSTS[meta.houseLevel];
   const grid = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     pointerId: number;
@@ -272,7 +342,7 @@ export function Residents({
     ),
   );
   const target = placing && ghost ? { id: selected, ...ghost, rotation } : null;
-  const valid = !!target && canHouse(run.residents, target);
+  const valid = !!target && canHouse(run.residents, target, meta.houseLevel);
 
   function stopDrag() {
     const active = drag.current;
@@ -283,6 +353,7 @@ export function Residents({
   }
   function choose(id: string) {
     stopDrag();
+    setPickedFurniture(null);
     const current = run.residents.find((r) => r.id === id);
     setSelected(id);
     setRotation(current?.rotation ?? 0);
@@ -293,6 +364,7 @@ export function Residents({
   }
   function switchTab(next: 'aboard' | 'reserve') {
     stopDrag();
+    setPickedFurniture(null);
     const first = groups[next][0];
     if (first) choose(first.id);
     else {
@@ -321,7 +393,9 @@ export function Residents({
   }
   function beginPlacement() {
     stopDrag();
-    const candidate = room ?? residentSpace(run.residents, selected);
+    setPickedFurniture(null);
+    const candidate =
+      room ?? residentSpace(run.residents, selected, meta.houseLevel);
     setRotation(candidate?.rotation ?? 0);
     setGhost(candidate ? { x: candidate.x, y: candidate.y } : { x: 0, y: 0 });
     setPlacing(true);
@@ -332,8 +406,8 @@ export function Residents({
   function position(x: number, y: number) {
     const bounds = grid.current!.getBoundingClientRect();
     return {
-      x: Math.floor(((x - bounds.left) / bounds.width) * 6),
-      y: Math.floor(((y - bounds.top) / bounds.height) * 5),
+      x: Math.floor(((x - bounds.left) / bounds.width) * size.width),
+      y: Math.floor(((y - bounds.top) / bounds.height) * size.height),
     };
   }
   function cancelPlacement() {
@@ -350,7 +424,8 @@ export function Residents({
           <Home size={16} /> На борту <b>{groups.aboard.length}</b>
         </span>
         <span>
-          Вільно <b>{30 - occupied.size}</b> / 30 клітинок
+          Вільно <b>{size.width * size.height - occupied.size}</b> /{' '}
+          {size.width * size.height} клітинок
         </span>
       </div>
       <div className="housing-layout">
@@ -358,11 +433,18 @@ export function Residents({
           <div className="house-blueprint">
             <div className="plan-heading">
               <span>ПЛАН ЖИТЛОВОГО ПОВЕРХУ</span>
-              <span>6 × 5</span>
+              <span>
+                {size.width} × {size.height}
+              </span>
             </div>
-            <div className="housing-canvas">
+            <div
+              className="housing-canvas"
+              style={{ aspectRatio: `${size.width} / ${size.height}` }}
+            >
               <HousePlan
                 rooms={run.residents}
+                level={meta.houseLevel}
+                furniture={run.furniture}
                 selected={selected}
                 target={target}
                 valid={valid}
@@ -370,6 +452,10 @@ export function Residents({
               <div
                 className={`housing-hit-grid ${placing ? 'is-placing' : ''}`}
                 ref={grid}
+                style={{
+                  gridTemplateColumns: `repeat(${size.width}, minmax(0,1fr))`,
+                  gridTemplateRows: `repeat(${size.height}, minmax(0,1fr))`,
+                }}
                 onPointerMove={(e) => {
                   const d = drag.current;
                   if (!d || d.pointerId !== e.pointerId) return;
@@ -410,9 +496,9 @@ export function Residents({
                   }
                 }}
               >
-                {Array.from({ length: 30 }, (_, i) => {
-                  const x = i % 6,
-                    y = Math.floor(i / 6),
+                {Array.from({ length: size.width * size.height }, (_, i) => {
+                  const x = i % size.width,
+                    y = Math.floor(i / size.width),
                     current = occupied.get(`${x}:${y}`);
                   return (
                     <button
@@ -423,7 +509,8 @@ export function Residents({
                       onPointerDown={(e) => {
                         if (drag.current || e.button !== 0) return;
                         suppress.current = false;
-                        if (!current || placing) return;
+                        if (!current || placing || pickedFurniture !== null)
+                          return;
                         choose(current.id);
                         drag.current = {
                           pointerId: e.pointerId,
@@ -442,6 +529,41 @@ export function Residents({
                           suppress.current = false;
                           return;
                         }
+                        if (pickedFurniture !== null) {
+                          const cell = current
+                            ? residentCells(
+                                current.id,
+                                current.rotation,
+                              ).findIndex(
+                                ([cx, cy]) =>
+                                  cx + current.x === x && cy + current.y === y,
+                              )
+                            : -1;
+                          const next = current
+                            ? installFurniture(
+                                run,
+                                meta,
+                                pickedFurniture,
+                                current.id,
+                                cell,
+                              )
+                            : run;
+                          if (next === run) {
+                            setMessage(
+                              'Меблі ставляться у вільний слот усередині квартири. Портрет і площа поза квартирою не підходять.',
+                            );
+                            return;
+                          }
+                          const item = run.furniture.find(
+                            (item) => item.uid === pickedFurniture,
+                          )!;
+                          onChange(next);
+                          choose(current!.id);
+                          setMessage(
+                            `${RESIDENT_BY_ID[current!.id].name}: ${furnitureEffect(item.id, current!.id).label}.`,
+                          );
+                          return;
+                        }
                         if (placing) setGhost({ x, y });
                         else if (current) choose(current.id);
                       }}
@@ -457,10 +579,44 @@ export function Residents({
               <span>Спільна стіна → бонус сусідства</span>
             </div>
           </div>
+          <div className="house-expansion">
+            <div>
+              <b>Розширення дому</b>
+              <p>
+                {expansionCost === undefined
+                  ? 'Максимальна площа — 48 клітинок.'
+                  : `${size.width}×${size.height} → ${nextSize.width}×${nextSize.height}. Назавжди, для всіх наступних рейдів.`}
+              </p>
+              <small>
+                Ядер у запасі: {meta.cores}. Їх отримуєш після завершення рейду.
+              </small>
+            </div>
+            {expansionCost !== undefined && (
+              <button
+                className="secondary small"
+                disabled={meta.cores < expansionCost}
+                onClick={() => {
+                  const next = expandHouse(meta, run);
+                  if (next === meta) return;
+                  stopDrag();
+                  cancelPlacement();
+                  setPickedFurniture(null);
+                  onMetaChange(next);
+                  setMessage(
+                    `Дім розширено до ${nextSize.width}×${nextSize.height}. Кімнати залишилися на своїх місцях.`,
+                  );
+                }}
+              >
+                Добудувати · {expansionCost} ядер
+              </button>
+            )}
+          </div>
           <p className="housing-hint">
             {placing
               ? 'Верхній лівий кут фігури прив’язується до обраної клітинки. Червоний контур — місця недостатньо.'
-              : 'Натисни кімнату, щоб обрати мешканця. Перетягни її, щоб змінити сусідів.'}
+              : pickedFurniture !== null
+                ? 'Натисни пунктирний слот меблів усередині квартири.'
+                : 'Натисни кімнату, щоб обрати мешканця. Перетягни її, щоб змінити сусідів.'}
           </p>
           <output className="housing-message" aria-live="polite">
             {message}
@@ -489,7 +645,7 @@ export function Residents({
           <p className="roster-explainer">
             {tab === 'aboard'
               ? 'Ці мешканці їдуть із тобою та дають бонуси.'
-              : 'Ці мешканці залишилися у притулку. Їхні бонуси в рейді не діють.'}
+              : 'Притулок — запас врятованих мешканців. Заселяй їх, коли з’явиться місце; поки вони тут, їхні бонуси в рейді не діють.'}
           </p>
           <div className="resident-roster">
             {groups[tab].map((resident) => (
@@ -588,6 +744,23 @@ export function Residents({
               </div>
             </div>
           )}
+          <ApartmentFurniture
+            run={run}
+            meta={meta}
+            resident={
+              groups[tab].some((person) => person.id === selected)
+                ? selected
+                : null
+            }
+            picked={pickedFurniture}
+            onChange={onChange}
+            onMessage={setMessage}
+            onPick={(uid) => {
+              stopDrag();
+              cancelPlacement();
+              setPickedFurniture(uid);
+            }}
+          />
           {groups.missing.length > 0 && (
             <details className="missing-residents">
               <summary>Ще не врятовано · {groups.missing.length}</summary>

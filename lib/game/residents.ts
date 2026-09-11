@@ -18,6 +18,18 @@ export interface ResidentRoom {
 }
 export const HOUSE_WIDTH = 6,
   HOUSE_HEIGHT = 5;
+export const HOUSE_EXPANSION_COSTS = [4, 8, 14];
+export function houseSize(level = 0) {
+  const sizes = [
+    { width: 6, height: 5 },
+    { width: 7, height: 5 },
+    { width: 7, height: 6 },
+    { width: 8, height: 6 },
+  ];
+  return sizes[
+    Number.isFinite(level) ? Math.max(0, Math.min(3, Math.floor(level))) : 0
+  ];
+}
 
 // Ownership is permanent; presence belongs to this expedition only.
 export function residentGroups(roster: string[], rooms: ResidentRoom[]) {
@@ -215,7 +227,12 @@ export function residentCells(id: string, rotation = 0): [number, number][] {
     minY = Math.min(...cells.map((c) => c[1]));
   return cells.map(([x, y]) => [x - minX, y - minY]);
 }
-export function canHouse(rooms: ResidentRoom[], room: ResidentRoom): boolean {
+export function canHouse(
+  rooms: ResidentRoom[],
+  room: ResidentRoom,
+  level = 0,
+): boolean {
+  const size = houseSize(level);
   if (
     !RESIDENT_BY_ID[room.id] ||
     ![room.x, room.y, room.rotation].every(Number.isInteger) ||
@@ -236,20 +253,22 @@ export function canHouse(rooms: ResidentRoom[], room: ResidentRoom): boolean {
     ([x, y]) =>
       x + room.x >= 0 &&
       y + room.y >= 0 &&
-      x + room.x < HOUSE_WIDTH &&
-      y + room.y < HOUSE_HEIGHT &&
+      x + room.x < size.width &&
+      y + room.y < size.height &&
       !occupied.has(`${x + room.x}:${y + room.y}`),
   );
 }
 export function residentSpace(
   rooms: ResidentRoom[],
   id: string,
+  level = 0,
 ): ResidentRoom | null {
+  const size = houseSize(level);
   for (let rotation = 0; rotation < 4; rotation++)
-    for (let y = 0; y < HOUSE_HEIGHT; y++)
-      for (let x = 0; x < HOUSE_WIDTH; x++) {
+    for (let y = 0; y < size.height; y++)
+      for (let x = 0; x < size.width; x++) {
         const r = { id, x, y, rotation };
-        if (canHouse(rooms, r)) return r;
+        if (canHouse(rooms, r, level)) return r;
       }
   return null;
 }
@@ -265,6 +284,7 @@ export function restoreResidents(
   raw: unknown,
   roster: string[],
   captain: string,
+  level = 0,
 ): ResidentRoom[] {
   if (!Array.isArray(raw)) return initialHouse(captain);
   const rooms: ResidentRoom[] = [];
@@ -278,11 +298,11 @@ export function restoreResidents(
       r &&
       roster.includes(r.id) &&
       !rooms.some((p) => p.id === r.id) &&
-      canHouse(rooms, r)
+      canHouse(rooms, r, level)
     )
       rooms.push({ id: r.id, x: r.x, y: r.y, rotation: r.rotation });
   if (!rooms.some((r) => r.id === captain)) {
-    const c = residentSpace(rooms, captain);
+    const c = residentSpace(rooms, captain, level);
     if (c) rooms.push(c);
     else return initialHouse(captain);
   }

@@ -9,6 +9,7 @@ for (const name of [
   'bosses',
   'lore',
   'residents',
+  'furniture',
   'cutscenes',
   'model',
   'enemy-art',

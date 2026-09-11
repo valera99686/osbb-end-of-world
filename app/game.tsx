@@ -67,7 +67,7 @@ import { Backpack } from './backpack';
 import { Residents, HousePreview } from './residents';
 import { CutscenePlayer, StoryLibrary } from './cutscenes';
 import { CUTSCENES, SCENE_BY_ID, MISSIONS } from '@/lib/game/cutscenes';
-import { residentCells, RESIDENT_BY_ID } from '@/lib/game/residents';
+import { residentCells, RESIDENT_BY_ID, houseSize } from '@/lib/game/residents';
 import { loreForProgress } from '@/lib/game/lore';
 import {
   ITEMS,
@@ -884,14 +884,19 @@ export default function Game() {
         <Home size={16} /> БУДИНОК № 17{' '}
         <span>{run.residents.length} мешканців</span>
       </div>
-      <HousePreview run={run} onOpen={() => setHousingOpen(true)} />
+      <HousePreview
+        run={run}
+        level={meta.houseLevel}
+        onOpen={() => setHousingOpen(true)}
+      />
       <button
         className="primary housing-open"
         onClick={() => setHousingOpen(true)}
       >
         <Home size={18} /> Розселити мешканців{' '}
         <span>
-          {run.residents.reduce((n, r) => n + residentCells(r.id).length, 0)}/30
+          {run.residents.reduce((n, r) => n + residentCells(r.id).length, 0)}/
+          {houseSize(meta.houseLevel).width * houseSize(meta.houseLevel).height}
         </span>
       </button>
       <p className="board-help">
@@ -1182,7 +1187,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.3.3 · Прогрес зберігається на цьому пристрої.
+              v0.4.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1671,7 +1676,14 @@ export default function Game() {
             зараз перебуває в будинку; сусідні кімнати можуть підсилювати одна
             одну.
           </DialogDescription>
-          {run && <Residents run={run} meta={meta} onChange={setRun} />}
+          {run && (
+            <Residents
+              run={run}
+              meta={meta}
+              onChange={setRun}
+              onMetaChange={setMeta}
+            />
+          )}
         </DialogContent>
       </Dialog>
       <Dialog open={bagOpen && !!run} onOpenChange={setBagOpen}>
@@ -1807,7 +1819,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.3.3 · 9 мешканців, фігурні кімнати, 5 босів і
+            ОСББ кінця світу · v0.4.0 · 9 мешканців, фігурні кімнати, 5 босів і
             сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">

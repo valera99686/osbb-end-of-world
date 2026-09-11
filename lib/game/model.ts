@@ -9,7 +9,16 @@ import {
   canHouse,
   residentSpace,
   type ResidentRoom,
+  HOUSE_EXPANSION_COSTS,
 } from './residents';
+import {
+  initialFurniture,
+  restoreFurniture,
+  furnitureBonuses,
+  canFurnish,
+  FURNITURE_BY_ID,
+  type Furnishing,
+} from './furniture';
 import {
   sceneUnlocked,
   restoreSceneProgress,
@@ -23,6 +32,7 @@ export interface Meta {
   dashes: number;
   scrapped: number;
   cores: number;
+  houseLevel: number;
   best: number;
   unlocked: string[];
   seen: string[];
@@ -49,6 +59,8 @@ export interface Run {
   backpack: PackedItem[];
   nextBagId: number;
   residents: ResidentRoom[];
+  furniture: Furnishing[];
+  nextFurnitureId: number;
   coins: number;
   scrap: number;
   hp: number;
@@ -78,6 +90,7 @@ export function initialMeta(): Meta {
     dashes: 0,
     scrapped: 0,
     cores: 0,
+    houseLevel: 0,
     best: 0,
     unlocked: ITEMS.filter((i) => i.unlock === 'start').map((i) => i.id),
     seen: [],
@@ -160,6 +173,8 @@ export function makeRun(
     backpack: [],
     nextBagId: 1,
     residents: initialHouse(c.id),
+    furniture: initialFurniture(),
+    nextFurnitureId: 3,
     coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
     scrap: 0,
     hp: 100,
@@ -211,6 +226,18 @@ export function statsFor(run: Run, meta: Meta): Stats {
     else s[key as Stat] += val;
   }
   s.synergies.push(...household.synergies);
+  const furnished = furnitureBonuses(
+    run.furniture ?? [],
+    run.residents ?? initialHouse(run.character),
+  );
+  for (const [key, value] of Object.entries(furnished.stats)) {
+    if (key === 'rate') rate += value;
+    else s[key as Stat] += value;
+  }
+  if (furnished.details.length)
+    s.synergies.push(
+      `Облаштовані квартири: ${furnished.details.length} предметів`,
+    );
   for (const id of run.items) {
     if (!id || !ITEM_BY_ID[id]) continue;
     for (const [key, val] of Object.entries(ITEM_BY_ID[id].stats)) {
@@ -430,11 +457,76 @@ export function installPacked(
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
+export function buyFurniture(run: Run, id: string): Run {
+  const item = FURNITURE_BY_ID[id];
+  if (
+    !item ||
+    run.page === 'combat' ||
+    run.coins < item.cost ||
+    run.furniture.length >= 30 ||
+    !Number.isInteger(run.nextFurnitureId) ||
+    run.nextFurnitureId < 1 ||
+    run.nextFurnitureId > 1e8 ||
+    run.furniture.some((f) => f.uid === run.nextFurnitureId)
+  )
+    return run;
+  return {
+    ...run,
+    coins: run.coins - item.cost,
+    nextFurnitureId: run.nextFurnitureId + 1,
+    furniture: [
+      ...run.furniture,
+      { uid: run.nextFurnitureId, id, resident: null, cell: null },
+    ],
+  };
+}
+export function installFurniture(
+  run: Run,
+  meta: Meta,
+  uid: number,
+  resident: string,
+  cell: number,
+): Run {
+  if (
+    run.page === 'combat' ||
+    !canFurnish(run.furniture, run.residents, uid, resident, cell)
+  )
+    return run;
+  const next = {
+    ...run,
+    furniture: run.furniture.map((item) =>
+      item.uid === uid ? { ...item, resident, cell } : item,
+    ),
+  };
+  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
+  return next;
+}
+export function removeFurniture(run: Run, meta: Meta, uid: number): Run {
+  if (
+    run.page === 'combat' ||
+    !run.furniture.some((item) => item.uid === uid && item.resident !== null)
+  )
+    return run;
+  const next = {
+    ...run,
+    furniture: run.furniture.map((item) =>
+      item.uid === uid ? { ...item, resident: null, cell: null } : item,
+    ),
+  };
+  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
+  return next;
+}
+export function expandHouse(meta: Meta, run: Run | null): Meta {
+  const cost = HOUSE_EXPANSION_COSTS[meta.houseLevel];
+  if (run?.page === 'combat' || cost === undefined || meta.cores < cost)
+    return meta;
+  return { ...meta, cores: meta.cores - cost, houseLevel: meta.houseLevel + 1 };
+}
 export function houseResident(run: Run, meta: Meta, room: ResidentRoom): Run {
   if (
     run.page === 'combat' ||
     !meta.residents.includes(room.id) ||
-    !canHouse(run.residents, room)
+    !canHouse(run.residents, room, meta.houseLevel)
   )
     return run;
   const next = {
@@ -453,7 +545,13 @@ export function reserveResident(run: Run, meta: Meta, id: string): Run {
     !run.residents.some((r) => r.id === id)
   )
     return run;
-  const next = { ...run, residents: run.residents.filter((r) => r.id !== id) };
+  const next = {
+    ...run,
+    residents: run.residents.filter((r) => r.id !== id),
+    furniture: run.furniture.map((item) =>
+      item.resident === id ? { ...item, resident: null, cell: null } : item,
+    ),
+  };
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
@@ -468,7 +566,7 @@ export function rescueResident(
   );
   if (!id) return null;
   const nextMeta = { ...meta, residents: [...meta.residents, id] };
-  const room = residentSpace(run.residents, id);
+  const room = residentSpace(run.residents, id, meta.houseLevel);
   const next = room ? houseResident(run, nextMeta, room) : run;
   return { run: { ...next, eventDone: true }, meta: nextMeta, id };
 }
@@ -570,6 +668,7 @@ export function readSave(raw: string | null): {
     ] as const)
       base[k] = Math.floor(finite(m[k], 0, k === 'wins' ? 5 : 1e8, 0));
     base.sound = m.sound !== false;
+    base.houseLevel = Math.floor(finite(m.houseLevel, 0, 3, 0));
     base.seen = Array.isArray(m.seen)
       ? m.seen.filter((id: unknown) => typeof id === 'string' && ITEM_BY_ID[id])
       : [];
@@ -645,6 +744,12 @@ export function readSave(raw: string | null): {
         r.residents,
         base.residents,
         run.character,
+        base.houseLevel,
+      );
+      run.furniture = restoreFurniture(r.furniture, run.residents);
+      run.nextFurnitureId = Math.max(
+        Math.floor(finite(r.nextFurnitureId, 1, 1e8, 3)),
+        ...run.furniture.map((item) => item.uid + 1),
       );
       run.nextBagId = Math.max(
         Math.floor(finite(r.nextBagId, 1, 1e8, 1)),

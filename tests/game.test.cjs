@@ -8,6 +8,133 @@ const Boss = require('../.test-build/bosses.js');
 const Lore = require('../.test-build/lore.js');
 const R = require('../.test-build/residents.js');
 const Scenes = require('../.test-build/cutscenes.js');
+const F = require('../.test-build/furniture.js');
+
+test('Furniture fills apartment slots, follows rotations and cannot create health by reinstalling', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 91);
+  const initial = M.statsFor(run, meta);
+  run.hp = initial.health * 0.4;
+  run = M.installFurniture(run, meta, 1, 'mechanic', 1);
+  assert.equal(M.statsFor(run, meta).armor, initial.armor + 2);
+  run = M.installFurniture(run, meta, 2, 'nina', 1);
+  assert.equal(M.statsFor(run, meta).health, initial.health + 12);
+  const saved = run.hp;
+  for (let i = 0; i < 10; i++) {
+    run = M.removeFurniture(run, meta, 2);
+    run = M.installFurniture(run, meta, 2, 'nina', 1);
+  }
+  assert.ok(Math.abs(run.hp - saved) < 1e-8);
+  const moved = M.houseResident(run, meta, {
+    id: 'nina',
+    x: 3,
+    y: 3,
+    rotation: 1,
+  });
+  assert.notEqual(moved, run);
+  assert.deepEqual(moved.furniture, run.furniture);
+  assert.equal(M.statsFor(moved, meta).health, initial.health + 12);
+  const reserved = M.reserveResident(moved, meta, 'nina');
+  assert.equal(
+    reserved.furniture.find((item) => item.uid === 2).resident,
+    null,
+  );
+  assert.equal(M.statsFor(reserved, meta).health, initial.health - 12);
+  assert.deepEqual(M.readSave(M.saveData(meta, reserved)).run, reserved);
+});
+
+test('Furniture rejects portrait slots, overlap, absent residents, invalid IDs and combat changes', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 92);
+  for (const [uid, id, cell] of [
+    [1, 'mechanic', 0],
+    [1, 'mechanic', 4],
+    [1, 'mechanic', 1.5],
+    [1, 'flora', 1],
+    [9, 'mechanic', 1],
+    [1, '__proto__', 1],
+  ])
+    assert.equal(M.installFurniture(run, meta, uid, id, cell), run);
+  run = M.installFurniture(run, meta, 1, 'mechanic', 1);
+  assert.equal(M.installFurniture(run, meta, 2, 'mechanic', 1), run);
+  const combat = { ...run, page: 'combat' };
+  assert.equal(M.installFurniture(combat, meta, 2, 'nina', 1), combat);
+  assert.equal(M.removeFurniture(combat, meta, 1), combat);
+  assert.equal(M.buyFurniture(combat, 'radio'), combat);
+  const empty = { ...run, coins: 0 };
+  assert.equal(M.buyFurniture(empty, 'bench'), empty);
+  assert.equal(M.buyFurniture(run, 'constructor'), run);
+  const bought = M.buyFurniture(run, 'bench');
+  assert.equal(bought.coins, run.coins - 25);
+  assert.equal(bought.furniture.length, 3);
+  assert.equal(bought.nextFurnitureId, 4);
+  assert.deepEqual(M.readSave(M.saveData(meta, bought)).run, bought);
+});
+
+test('Permanent house expansions unlock real cells and survive reloads and new expeditions', () => {
+  let meta = M.initialMeta(),
+    run = M.makeRun(meta, 'mechanic', 0, 93);
+  assert.equal(M.expandHouse(meta, run), meta);
+  meta.cores = 26;
+  assert.equal(M.expandHouse(meta, { ...run, page: 'combat' }), meta);
+  const positions = structuredClone(run.residents);
+  const edge = { id: 'nina', x: 5, y: 3, rotation: 0 };
+  assert.equal(M.houseResident(run, meta, edge), run);
+  meta = M.expandHouse(meta, run);
+  assert.deepEqual(R.houseSize(meta.houseLevel), { width: 7, height: 5 });
+  assert.deepEqual(run.residents, positions);
+  run = M.houseResident(run, meta, edge);
+  assert.ok(run.residents.some((room) => room.id === 'nina' && room.x === 5));
+  meta = M.expandHouse(meta, run);
+  run = M.houseResident(run, meta, { id: 'lev', x: 4, y: 5, rotation: 0 });
+  assert.ok(run.residents.some((room) => room.id === 'lev' && room.y === 5));
+  meta = M.expandHouse(meta, run);
+  assert.equal(meta.cores, 0);
+  assert.deepEqual(R.houseSize(meta.houseLevel), { width: 8, height: 6 });
+  assert.equal(M.expandHouse({ ...meta, cores: 100 }, run).houseLevel, 3);
+  const loaded = M.readSave(M.saveData(meta, run));
+  assert.deepEqual(loaded.run, run);
+  assert.equal(loaded.meta.houseLevel, 3);
+  assert.equal(loaded.meta.cores, 0);
+  const afterDefeat = M.finishRun(meta, run, false).meta;
+  assert.equal(afterDefeat.houseLevel, 3);
+  const next = M.makeRun(afterDefeat, 'mechanic', 0, 94);
+  assert.ok(
+    M.houseResident(next, afterDefeat, {
+      id: 'nina',
+      x: 6,
+      y: 4,
+      rotation: 0,
+    }).residents.some((room) => room.x === 6),
+  );
+});
+
+test('Older saves gain starter furniture once; corrupt placements return items to stock', () => {
+  const meta = M.initialMeta(),
+    run = M.makeRun(meta, 'mechanic', 0, 95);
+  delete meta.houseLevel;
+  delete run.furniture;
+  delete run.nextFurnitureId;
+  const saved = M.readSave(M.saveData(meta, run));
+  assert.equal(saved.meta.houseLevel, 0);
+  assert.equal(saved.run.furniture.length, 2);
+  assert.deepEqual(M.readSave(M.saveData(saved.meta, saved.run)), saved);
+  const raw = [
+    { uid: 1, id: 'bench', resident: 'mechanic', cell: 1 },
+    { uid: 1, id: 'bench', resident: 'nina', cell: 1 },
+    { uid: 2, id: 'planter', resident: 'mechanic', cell: 1 },
+    { uid: 3, id: 'radio', resident: 'flora', cell: 1 },
+    { uid: 4, id: '__proto__', resident: null, cell: null },
+  ];
+  const restored = F.restoreFurniture(raw, saved.run.residents);
+  assert.equal(restored.length, 3);
+  assert.equal(restored[0].resident, 'mechanic');
+  assert.equal(restored[1].resident, null);
+  assert.equal(restored[2].resident, null);
+  assert.deepEqual(F.furnitureBonuses(restored, saved.run.residents).stats, {
+    armor: 2,
+  });
+});
 
 test('Backpack shapes rotate, fill corners, and reject overlap and out-of-bounds moves', () => {
   assert.deepEqual(Bag.itemCells('cannon', 4), Bag.itemCells('cannon', 0));

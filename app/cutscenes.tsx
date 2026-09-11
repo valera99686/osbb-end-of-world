@@ -11,10 +11,14 @@ import {
   SCENE_BY_ID,
   sceneUnlocked,
   STORY_YEAR,
+  SCENE_IMAGE_BY_ART,
 } from '@/lib/game/cutscenes';
 import type { Meta } from '@/lib/game/model';
 
 export function SceneArt({ art }: { art: number }) {
+  const image = SCENE_IMAGE_BY_ART[art];
+  if (image)
+    return <img className="scene-art" src={image} alt="" decoding="async" />;
   return (
     <svg
       className="scene-art"
@@ -49,6 +53,12 @@ export function CutscenePlayer({
     scene = SCENE_BY_ID[progress.id],
     shot = scene.shots[progress.index],
     last = progress.index === scene.shots.length - 1;
+  const nextImage = SCENE_IMAGE_BY_ART[scene.shots[progress.index + 1]?.art];
+  useEffect(() => {
+    if (!nextImage) return;
+    const image = new Image();
+    image.src = nextImage;
+  }, [nextImage]);
   useEffect(() => {
     if (!auto) return;
     const timer = window.setTimeout(
@@ -96,7 +106,10 @@ export function CutscenePlayer({
             Пропустити
           </button>
         </div>
-        <div className="cinema-stage" key={`${scene.id}-${progress.index}`}>
+        <div
+          className={`cinema-stage ${SCENE_IMAGE_BY_ART[shot.art] ? 'cinema-illustrated' : ''}`}
+          key={`${scene.id}-${progress.index}`}
+        >
           <SceneArt art={shot.art} />
           <div className="cinema-haze" />
           <div className="cinema-stamp">

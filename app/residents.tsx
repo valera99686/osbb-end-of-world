@@ -1,3 +1,12 @@
+import { ITEM_BY_ID, FAMILY } from '@/lib/game/data';
+import {
+  apartmentSlot,
+  equipmentTargets,
+  canEquipAt,
+} from '@/lib/game/equipment';
+import { installPacked, moveEquipment } from '@/lib/game/model';
+import { Glyph } from './glyph';
+import { ApartmentEquipment } from './equipment';
 import { useId, useRef, useState, type CSSProperties } from 'react';
 import {
   RotateCw,
@@ -81,6 +90,7 @@ function HousePlan({
   rooms,
   level = 0,
   furniture = [],
+  items = [],
   selected,
   target,
   valid,
@@ -89,6 +99,7 @@ function HousePlan({
   rooms: ResidentRoom[];
   level?: number;
   furniture?: Furnishing[];
+  items?: (string | null)[];
   selected?: string;
   target?: ResidentRoom | null;
   valid?: boolean;
@@ -174,14 +185,36 @@ function HousePlan({
               const item = furniture.find(
                 (item) => item.resident === room.id && item.cell === index + 1,
               );
+              const moduleId = items[apartmentSlot(room.id, index + 1)];
+              const module = moduleId ? ITEM_BY_ID[moduleId] : null;
               return (
                 <g
                   key={`${cx}:${cy}`}
-                  opacity={item ? 1 : 0.4}
-                  stroke={item ? '#efd4a1' : person.color}
+                  opacity={item || module ? 1 : 0.55}
+                  stroke={
+                    module
+                      ? FAMILY[module.family].color
+                      : item
+                        ? '#efd4a1'
+                        : person.color
+                  }
+                  color={
+                    module
+                      ? FAMILY[module.family].color
+                      : item
+                        ? '#efd4a1'
+                        : person.color
+                  }
                   fill="none"
                 >
-                  {item ? (
+                  {module ? (
+                    <Glyph
+                      name={module.icon}
+                      size={42}
+                      x={cx * 100 + 29}
+                      y={cy * 100 + 25}
+                    />
+                  ) : item ? (
                     <FurnitureIcon
                       id={item.id}
                       size={42}
@@ -209,10 +242,20 @@ function HousePlan({
                       y={cy * 100 + 88}
                       textAnchor="middle"
                       stroke="none"
-                      fill={item ? '#efd4a1' : person.color}
+                      fill={
+                        module
+                          ? FAMILY[module.family].color
+                          : item
+                            ? '#efd4a1'
+                            : person.color
+                      }
                       fontSize="11"
                     >
-                      {item ? FURNITURE_BY_ID[item.id].name : 'МЕБЛІ'}
+                      {module
+                        ? module.name
+                        : item
+                          ? FURNITURE_BY_ID[item.id].name
+                          : 'ОБЛАДНАННЯ'}
                     </text>
                   )}
                 </g>
@@ -290,9 +333,71 @@ export function HousePreview({
         rooms={run.residents}
         level={level}
         furniture={run.furniture}
+        items={run.items}
         compact
       />
     </button>
+  );
+}
+
+export function EquipmentPlacement({
+  run,
+  level,
+  itemId,
+  onInstall,
+}: {
+  run: Run;
+  level: number;
+  itemId: string;
+  onInstall: (slot: number) => void;
+}) {
+  const size = houseSize(level),
+    targets = equipmentTargets(run);
+  return (
+    <div className="equipment-picker">
+      <p>
+        <b>{ITEM_BY_ID[itemId].name}</b> → натисни місце всередині квартири
+      </p>
+      <div
+        className="housing-canvas"
+        style={{ aspectRatio: `${size.width} / ${size.height}` }}
+      >
+        <HousePlan
+          rooms={run.residents}
+          level={level}
+          furniture={run.furniture}
+          items={run.items}
+        />
+        <div
+          className="housing-hit-grid equipment-target-grid"
+          style={{
+            gridTemplateColumns: `repeat(${size.width}, minmax(0,1fr))`,
+            gridTemplateRows: `repeat(${size.height}, minmax(0,1fr))`,
+          }}
+        >
+          {targets.map((target) => (
+            <button
+              key={target.slot}
+              type="button"
+              disabled={!canEquipAt(run, target.slot)}
+              style={{ gridColumn: target.x + 1, gridRow: target.y + 1 }}
+              className={
+                run.items[target.slot]
+                  ? 'equipment-swap-target'
+                  : 'equipment-free-target'
+              }
+              aria-label={`Встановити ${ITEM_BY_ID[itemId].name}: квартира ${RESIDENT_BY_ID[target.resident].name}, місце ${target.cell}${run.items[target.slot] ? '. Попередній модуль повернеться на склад' : ''}`}
+              title={`Квартира: ${RESIDENT_BY_ID[target.resident].name}`}
+              onClick={() => onInstall(target.slot)}
+            />
+          ))}
+        </div>
+      </div>
+      <p className="housing-hint">
+        Зелений пунктир — вільне місце. Золотий — заміна зі збереженням
+        попереднього модуля на складі. Меблі потрібно спочатку зняти.
+      </p>
+    </div>
   );
 }
 
@@ -316,6 +421,9 @@ export function Residents({
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [message, setMessage] = useState('');
   const [pickedFurniture, setPickedFurniture] = useState<number | null>(null);
+  const [pickedModule, setPickedModule] = useState<number | null>(null);
+  const [movingModule, setMovingModule] = useState<number | null>(null);
+  const [moduleSlot, setModuleSlot] = useState<number | null>(null);
   const size = houseSize(meta.houseLevel),
     nextSize = houseSize(meta.houseLevel + 1),
     expansionCost = HOUSE_EXPANSION_COSTS[meta.houseLevel];
@@ -354,6 +462,9 @@ export function Residents({
   function choose(id: string) {
     stopDrag();
     setPickedFurniture(null);
+    setPickedModule(null);
+    setMovingModule(null);
+    setModuleSlot(null);
     const current = run.residents.find((r) => r.id === id);
     setSelected(id);
     setRotation(current?.rotation ?? 0);
@@ -365,6 +476,9 @@ export function Residents({
   function switchTab(next: 'aboard' | 'reserve') {
     stopDrag();
     setPickedFurniture(null);
+    setPickedModule(null);
+    setMovingModule(null);
+    setModuleSlot(null);
     const first = groups[next][0];
     if (first) choose(first.id);
     else {
@@ -394,6 +508,9 @@ export function Residents({
   function beginPlacement() {
     stopDrag();
     setPickedFurniture(null);
+    setPickedModule(null);
+    setMovingModule(null);
+    setModuleSlot(null);
     const candidate =
       room ?? residentSpace(run.residents, selected, meta.houseLevel);
     setRotation(candidate?.rotation ?? 0);
@@ -445,6 +562,7 @@ export function Residents({
                 rooms={run.residents}
                 level={meta.houseLevel}
                 furniture={run.furniture}
+                items={run.items}
                 selected={selected}
                 target={target}
                 valid={valid}
@@ -461,8 +579,10 @@ export function Residents({
                   if (!d || d.pointerId !== e.pointerId) return;
                   if (
                     Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 5
-                  )
+                  ) {
                     d.moved = true;
+                    grid.current?.setPointerCapture(e.pointerId);
+                  }
                   if (d.moved) {
                     const p = position(e.clientX, e.clientY);
                     setPlacing(true);
@@ -500,16 +620,42 @@ export function Residents({
                   const x = i % size.width,
                     y = Math.floor(i / size.width),
                     current = occupied.get(`${x}:${y}`);
+                  const currentCell = current
+                    ? residentCells(current.id, current.rotation).findIndex(
+                        ([cx, cy]) =>
+                          cx + current.x === x && cy + current.y === y,
+                      )
+                    : -1;
+                  const currentSlot = current
+                    ? apartmentSlot(current.id, currentCell)
+                    : -1;
+                  const moduleMode =
+                    pickedModule !== null || movingModule !== null;
+                  const gearTarget = moduleMode && canEquipAt(run, currentSlot);
                   return (
                     <button
                       type="button"
                       key={i}
-                      className={current ? 'has-room' : ''}
-                      aria-label={`Клітинка ${x + 1}, ${y + 1}: ${current ? RESIDENT_BY_ID[current.id].name : 'вільно'}${placing ? '. Обрати місце для кімнати' : ''}`}
+                      className={
+                        gearTarget
+                          ? run.items[currentSlot]
+                            ? 'equipment-swap-target'
+                            : 'equipment-free-target'
+                          : current
+                            ? 'has-room'
+                            : ''
+                      }
+                      aria-label={`Клітинка ${x + 1}, ${y + 1}: ${current ? 'квартира ' + RESIDENT_BY_ID[current.id].name : 'поза квартирою'}${run.items[currentSlot] ? '. ' + ITEM_BY_ID[run.items[currentSlot]!].name : currentCell > 0 ? '. Місце для обладнання' : current ? '. Портрет мешканця' : ''}${placing ? '. Обрати місце для кімнати' : ''}`}
                       onPointerDown={(e) => {
                         if (drag.current || e.button !== 0) return;
                         suppress.current = false;
-                        if (!current || placing || pickedFurniture !== null)
+                        if (
+                          !current ||
+                          placing ||
+                          pickedFurniture !== null ||
+                          moduleMode ||
+                          currentCell !== 0
+                        )
                           return;
                         choose(current.id);
                         drag.current = {
@@ -522,11 +668,39 @@ export function Residents({
                           rotation: current.rotation,
                           moved: false,
                         };
-                        grid.current?.setPointerCapture(e.pointerId);
                       }}
                       onClick={() => {
                         if (suppress.current) {
                           suppress.current = false;
+                          return;
+                        }
+                        if (moduleMode) {
+                          const next =
+                            pickedModule !== null
+                              ? installPacked(
+                                  run,
+                                  meta,
+                                  pickedModule,
+                                  currentSlot,
+                                )
+                              : moveEquipment(
+                                  run,
+                                  meta,
+                                  movingModule!,
+                                  currentSlot,
+                                );
+                          if (next === run) {
+                            setMessage(
+                              'Обери місце всередині квартири без меблів. Портрет мешканця зайнятий.',
+                            );
+                            return;
+                          }
+                          onChange(next);
+                          choose(current!.id);
+                          setModuleSlot(currentSlot);
+                          setMessage(
+                            'Обладнання встановлено у квартирі. Бонус активний.',
+                          );
                           return;
                         }
                         if (pickedFurniture !== null) {
@@ -565,7 +739,10 @@ export function Residents({
                           return;
                         }
                         if (placing) setGhost({ x, y });
-                        else if (current) choose(current.id);
+                        else if (current) {
+                          choose(current.id);
+                          setModuleSlot(currentSlot >= 0 ? currentSlot : null);
+                        }
                       }}
                     />
                   );
@@ -601,6 +778,9 @@ export function Residents({
                   stopDrag();
                   cancelPlacement();
                   setPickedFurniture(null);
+                  setPickedModule(null);
+                  setMovingModule(null);
+                  setModuleSlot(null);
                   onMetaChange(next);
                   setMessage(
                     `Дім розширено до ${nextSize.width}×${nextSize.height}. Кімнати залишилися на своїх місцях.`,
@@ -612,12 +792,32 @@ export function Residents({
             )}
           </div>
           <p className="housing-hint">
-            {placing
-              ? 'Верхній лівий кут фігури прив’язується до обраної клітинки. Червоний контур — місця недостатньо.'
-              : pickedFurniture !== null
-                ? 'Натисни пунктирний слот меблів усередині квартири.'
-                : 'Натисни кімнату, щоб обрати мешканця. Перетягни її, щоб змінити сусідів.'}
+            Натисни обладнання у квартирі, щоб керувати ним. Для переміщення
+            квартири перетягни портрет мешканця або натисни «Перемістити
+            кімнату».
           </p>
+          <ApartmentEquipment
+            run={run}
+            meta={meta}
+            selectedSlot={moduleSlot}
+            picked={pickedModule}
+            moving={movingModule}
+            onChange={onChange}
+            onMetaChange={onMetaChange}
+            onMessage={setMessage}
+            onPick={(uid) => {
+              cancelPlacement();
+              setPickedFurniture(null);
+              setMovingModule(null);
+              setPickedModule(uid);
+            }}
+            onMove={(slot) => {
+              cancelPlacement();
+              setPickedFurniture(null);
+              setPickedModule(null);
+              setMovingModule(slot);
+            }}
+          />
           <output className="housing-message" aria-live="polite">
             {message}
           </output>
@@ -730,7 +930,12 @@ export function Residents({
                     className="text-button"
                     onClick={() => {
                       const next = reserveResident(run, meta, selected);
-                      if (next === run) return;
+                      if (next === run) {
+                        setMessage(
+                          'Склад переповнений. Звільни місце, щоб зберегти обладнання цієї квартири.',
+                        );
+                        return;
+                      }
                       onChange(next);
                       choose(run.character);
                       setMessage(
@@ -758,6 +963,8 @@ export function Residents({
             onPick={(uid) => {
               stopDrag();
               cancelPlacement();
+              setPickedModule(null);
+              setMovingModule(null);
               setPickedFurniture(uid);
             }}
           />

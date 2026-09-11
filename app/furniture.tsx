@@ -1,3 +1,5 @@
+import { apartmentSlot } from '@/lib/game/equipment';
+import { ITEM_BY_ID } from '@/lib/game/data';
 import {
   Wrench,
   Coffee,
@@ -94,6 +96,13 @@ export function ApartmentFurniture({
             const cell = index + 1,
               item = run.furniture.find(
                 (item) => item.resident === resident && item.cell === cell,
+              );
+            const moduleId = run.items[apartmentSlot(resident, cell)];
+            if (moduleId)
+              return (
+                <div className="apartment-slot installed" key={cell}>
+                  <span>Обладнання: {ITEM_BY_ID[moduleId].name}</span>
+                </div>
               );
             return item ? (
               <div className="apartment-slot installed" key={cell}>

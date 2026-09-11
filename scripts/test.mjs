@@ -10,6 +10,7 @@ for (const name of [
   'lore',
   'residents',
   'furniture',
+  'equipment',
   'cutscenes',
   'model',
   'enemy-art',

@@ -9,10 +9,154 @@ const Lore = require('../.test-build/lore.js');
 const R = require('../.test-build/residents.js');
 const Scenes = require('../.test-build/cutscenes.js');
 const F = require('../.test-build/furniture.js');
+const E = require('../.test-build/equipment.js');
+
+const allModules = (run) =>
+  [...run.items.filter(Boolean), ...run.backpack.map((item) => item.id)].sort();
+const closeEnough = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
+
+test('Equipment only occupies non-portrait cells of aboard apartments and shares space with furniture', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 105);
+  assert.equal(E.activeEquipment(run).length, 3);
+  assert.equal(E.equipmentTargets(run).length, 7);
+  assert.equal(M.installFurniture(run, meta, 1, 'mechanic', 1), run);
+  const slot = E.apartmentSlot('nina', 1);
+  run = M.installFurniture(run, meta, 2, 'nina', 1);
+  for (const bad of [-1, 0.5, 22, E.apartmentSlot('flora', 1), slot]) {
+    assert.equal(M.equip(run, 'battery', bad, meta), run);
+  }
+  assert.equal(E.apartmentSlot('nina', 0), -1);
+  run = M.removeFurniture(run, meta, 2);
+  const next = M.equip(run, 'battery', slot, meta);
+  assert.equal(next.items[slot], 'battery');
+  assert.equal(M.installFurniture(next, meta, 2, 'nina', 1), next);
+  const combat = { ...next, page: 'combat' };
+  assert.equal(M.moveEquipment(combat, meta, slot, 1), combat);
+  assert.equal(M.equip(combat, 'battery', slot, meta), combat);
+  assert.equal(M.stowModule(combat, meta, slot), combat);
+  assert.equal(M.scrapEquipment(combat, meta, slot), combat);
+});
+
+test('Equipment stays with rotated apartments and returning a resident preserves modules in a full store', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 106);
+  const slot = E.apartmentSlot('nina', 1);
+  run = M.equip(run, 'armor', slot, meta);
+  run.hp = 0.25;
+  const ratio = run.hp / M.statsFor(run, meta).health;
+  for (let rotation = 0; rotation < 4; rotation++) {
+    run = M.houseResident(run, meta, { id: 'nina', x: 3, y: 3, rotation });
+    assert.equal(run.items[slot], 'armor');
+    const position = E.activeEquipment(run).find((item) => item.slot === slot);
+    const cell = R.residentCells('nina', rotation)[1];
+    assert.deepEqual([position.x, position.y], [3 + cell[0], 3 + cell[1]]);
+    closeEnough(run.hp / M.statsFor(run, meta).health, ratio);
+  }
+  for (let i = 0; i < 30; i++) run = M.packItem(run, meta, 'kitchen');
+  const before = allModules(run);
+  run = M.reserveResident(run, meta, 'nina');
+  assert.equal(run.items[slot], null);
+  assert.equal(run.backpack.length, 31);
+  assert.deepEqual(allModules(run), before);
+  closeEnough(run.hp / M.statsFor(run, meta).health, ratio);
+  assert.deepEqual(M.readSave(M.saveData(meta, run)).run, run);
+});
+
+test('Legacy nine-module saves migrate once without losing full-store overflow or health percentage', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 107);
+  for (let i = 0; i < 30; i++) run = M.packItem(run, meta, 'kitchen');
+  delete run.equipmentLayout;
+  run.items = [
+    'cannon',
+    'engine',
+    'armor',
+    'battery',
+    'kitchen',
+    'armor',
+    'cannon',
+    'armor',
+    'battery',
+  ];
+  run.furniture = [
+    { uid: 1, id: 'bench', resident: 'mechanic', cell: 1 },
+    { uid: 2, id: 'planter', resident: 'nina', cell: 1 },
+  ];
+  run.hp = M.statsFor(run, meta, true).health * 0.37;
+  const before = allModules(run);
+  const loaded = M.readSave(M.saveData(meta, run));
+  assert.ok(loaded.run);
+  assert.equal(loaded.run.equipmentLayout, 1);
+  assert.equal(E.activeEquipment(loaded.run).length, 5);
+  assert.equal(loaded.run.backpack.length, 34);
+  assert.deepEqual(allModules(loaded.run), before);
+  closeEnough(loaded.run.hp / M.statsFor(loaded.run, loaded.meta).health, 0.37);
+  assert.deepEqual(M.readSave(M.saveData(loaded.meta, loaded.run)), loaded);
+  loaded.run.items = E.emptyEquipment();
+  const empty = M.readSave(M.saveData(loaded.meta, loaded.run)).run;
+  assert.equal(empty.items.filter(Boolean).length, 0);
+  assert.equal(empty.backpack.length, 34);
+});
+
+test('Module adjacency follows apartment coordinates and moves conserve every item', () => {
+  const meta = M.initialMeta();
+  meta.wins = 2;
+  M.unlock(meta);
+  let run = M.makeRun(meta, 'mechanic', 0, 108);
+  run.items = E.emptyEquipment();
+  run.residents = [
+    { id: 'mechanic', x: 0, y: 0, rotation: 0 },
+    { id: 'nina', x: 1, y: 0, rotation: 0 },
+  ];
+  const generator = E.apartmentSlot('mechanic', 1),
+    battery = E.apartmentSlot('nina', 2);
+  run = M.equip(run, 'generator', generator, meta);
+  run = M.equip(run, 'battery', battery, meta);
+  const before = allModules(run),
+    near = M.statsFor(run, meta);
+  run.hp = near.health * 0.41;
+  run = M.houseResident(run, meta, { id: 'nina', x: 4, y: 3, rotation: 0 });
+  const far = M.statsFor(run, meta);
+  assert.ok(near.rate > far.rate);
+  assert.equal(
+    far.synergies.filter((s) => s.startsWith('Електромережа')).length,
+    0,
+  );
+  closeEnough(run.hp / far.health, 0.41);
+  const destination = E.apartmentSlot('mechanic', 2);
+  for (let i = 0; i < 8; i++) {
+    run = M.moveEquipment(run, meta, battery, destination);
+    run = M.moveEquipment(run, meta, destination, battery);
+  }
+  assert.deepEqual(allModules(run), before);
+  closeEnough(run.hp / M.statsFor(run, meta).health, 0.41);
+});
+
+test('Purchased replacements keep old equipment, and offboard modules never grant active stats', () => {
+  const meta = M.initialMeta();
+  let run = M.makeRun(meta, 'mechanic', 0, 109);
+  run.hp = M.statsFor(run, meta).health * 0.4;
+  const before = allModules(run);
+  run = M.equip(run, 'armor', 0, meta);
+  assert.deepEqual(allModules(run), [...before, 'armor'].sort());
+  closeEnough(run.hp / M.statsFor(run, meta).health, 0.4);
+  const stats = M.statsFor(run, meta);
+  run.items[E.apartmentSlot('flora', 1)] = 'cannon';
+  assert.deepEqual(M.statsFor(run, meta), stats);
+  assert.equal(
+    E.activeEquipment(run).some((item) => item.resident === 'flora'),
+    false,
+  );
+  const loaded = M.readSave(M.saveData(meta, run)).run;
+  assert.equal(loaded.items[E.apartmentSlot('flora', 1)], null);
+  assert.deepEqual(allModules(loaded), allModules(run));
+});
 
 test('Furniture fills apartment slots, follows rotations and cannot create health by reinstalling', () => {
   const meta = M.initialMeta();
   let run = M.makeRun(meta, 'mechanic', 0, 91);
+  run.items = E.emptyEquipment();
   const initial = M.statsFor(run, meta);
   run.hp = initial.health * 0.4;
   run = M.installFurniture(run, meta, 1, 'mechanic', 1);
@@ -46,6 +190,8 @@ test('Furniture fills apartment slots, follows rotations and cannot create healt
 test('Furniture rejects portrait slots, overlap, absent residents, invalid IDs and combat changes', () => {
   const meta = M.initialMeta();
   let run = M.makeRun(meta, 'mechanic', 0, 92);
+  run.items = E.emptyEquipment();
+  run.hp = M.statsFor(run, meta).health;
   for (const [uid, id, cell] of [
     [1, 'mechanic', 0],
     [1, 'mechanic', 4],
@@ -151,14 +297,16 @@ test('Backpack shapes rotate, fill corners, and reject overlap and out-of-bounds
 test('Backpack transfers conserve modules and cannot heal by repeated installation', () => {
   const meta = M.initialMeta();
   let run = M.makeRun(meta, 'mechanic', 0, 7);
-  run = M.equip(run, 'armor', 3, meta);
-  run.hp = M.statsFor(run, meta).health * 0.4;
+  const slot = E.apartmentSlot('nina', 1);
+  run = M.equip(run, 'armor', slot, meta);
+  run.hp = 1;
   const health = run.hp;
   const items = [...run.items];
   for (let i = 0; i < 12; i++) {
-    run = M.stowModule(run, meta, 3);
+    run = M.stowModule(run, meta, slot);
     assert.equal(run.backpack.length, 1);
-    run = M.installPacked(run, meta, run.backpack[0].uid, 3);
+    run = M.readSave(M.saveData(meta, run)).run;
+    run = M.installPacked(run, meta, run.backpack[0].uid, slot);
     assert.equal(run.backpack.length, 0);
     assert.deepEqual(run.items, items);
     assert.ok(Math.abs(run.hp - health) < 1e-8);
@@ -531,29 +679,12 @@ test('Research is snapshotted per run, modules change stats, and adjacency is sp
   const damage = M.statsFor(run, meta).damage;
   meta.research.garage = 5;
   assert.equal(M.statsFor(run, meta).damage, damage);
-  run.items = [
-    'generator',
-    'battery',
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-  ];
+  run.items = E.emptyEquipment();
+  run.items[E.apartmentSlot('mechanic', 1)] = 'generator';
+  run.items[E.apartmentSlot('mechanic', 2)] = 'battery';
   const near = M.statsFor(run, meta);
-  run.items = [
-    'generator',
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    'battery',
-  ];
+  run.items[E.apartmentSlot('mechanic', 2)] = null;
+  run.items[E.apartmentSlot('lev', 2)] = 'battery';
   const far = M.statsFor(run, meta);
   assert.ok(near.rate > far.rate);
   assert.equal(near.synergies.length, 1);

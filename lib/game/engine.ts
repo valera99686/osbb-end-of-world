@@ -1,3 +1,4 @@
+import { activeEquipment, equipmentTargets } from './equipment';
 import { CHAPTERS, ITEM_BY_ID, FAMILY } from './data';
 import { seeded, statsFor, type Run, type Meta, type Stats } from './model';
 import { drawEnemy, preloadEnemyArt, ENEMY_PALETTES } from './enemy-art';
@@ -331,7 +332,11 @@ export class Battle {
       (1 + (this.run.level - 1) * 0.07) *
       (crit ? 1.8 : 1) *
       (drone ? 0.45 : 1);
-    if (!drone && this.run.items.includes('coinshot') && this.run.coins > 0) {
+    if (
+      !drone &&
+      activeEquipment(this.run).some((item) => item.id === 'coinshot') &&
+      this.run.coins > 0
+    ) {
       this.run.coins--;
       damage *= 3;
     }
@@ -707,21 +712,27 @@ export class Battle {
     c.strokeStyle = '#91a9af';
     c.lineWidth = 1;
     c.strokeRect(-26, -52, 52, 72);
-    for (let i = 0; i < 9; i++) {
-      const id = this.run.items[i],
-        xx = -21 + (i % 3) * 15,
-        yy = -44 + Math.floor(i / 3) * 19;
-      const col = id ? FAMILY[ITEM_BY_ID[id].family].color : '#243844';
-      c.fillStyle = '#182630';
-      c.fillRect(xx - 1, yy - 1, 12, 15);
-      c.fillStyle = col;
-      c.shadowBlur = id ? 6 : 0;
-      c.shadowColor = col;
-      c.fillRect(xx, yy, 10, 12);
+    const apartmentPositions = equipmentTargets(this.run);
+    const lit = new Map(
+      activeEquipment(this.run).map((item) => [item.slot, item.id]),
+    );
+    const floorWidth = Math.max(
+      6,
+      ...apartmentPositions.map((item) => item.x + 1),
+    );
+    const floorHeight = Math.max(
+      5,
+      ...apartmentPositions.map((item) => item.y + 1),
+    );
+    for (const target of apartmentPositions) {
+      const id = lit.get(target.slot),
+        xx = -23 + (target.x * 48) / floorWidth,
+        yy = -47 + (target.y * 60) / floorHeight;
+      c.fillStyle = id ? FAMILY[ITEM_BY_ID[id].family].color : '#243844';
+      c.shadowBlur = id ? 4 : 0;
+      c.shadowColor = c.fillStyle;
+      c.fillRect(xx, yy, 48 / floorWidth - 2, 60 / floorHeight - 3);
       c.shadowBlur = 0;
-      c.fillStyle = '#14212b';
-      c.fillRect(xx + 4, yy, 2, 12);
-      c.fillRect(xx, yy + 5, 10, 2);
     }
     c.fillStyle = '#a17f54';
     c.fillRect(-30, -58, 60, 7);

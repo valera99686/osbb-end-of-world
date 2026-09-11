@@ -1,3 +1,13 @@
+import {
+  APARTMENT_SLOTS,
+  STORAGE_LIMIT,
+  RESTORED_STORAGE_LIMIT,
+  apartmentSlot,
+  equipmentTargets,
+  canEquipAt,
+  activeEquipment,
+  emptyEquipment,
+} from './equipment';
 import { ITEMS, ITEM_BY_ID, CHARACTERS, type Stat, type Item } from './data';
 import { type PackedItem } from './backpack';
 import { loreForProgress } from './lore';
@@ -55,6 +65,7 @@ export interface Run {
   routeVersion: 2;
   path: number[];
   historyStart: number;
+  equipmentLayout: 1;
   items: (string | null)[];
   backpack: PackedItem[];
   nextBagId: number;
@@ -169,7 +180,8 @@ export function makeRun(
     routeVersion: 2,
     path: [],
     historyStart: 0,
-    items: ['cannon', 'engine', c.start, null, null, null, null, null, null],
+    equipmentLayout: 1,
+    items: emptyEquipment(),
     backpack: [],
     nextBagId: 1,
     residents: initialHouse(c.id),
@@ -191,10 +203,15 @@ export function makeRun(
     reward: [],
     eventDone: false,
   };
+  equipmentTargets(run)
+    .slice(0, 3)
+    .forEach((target, index) => {
+      run.items[target.slot] = ['cannon', 'engine', c.start][index];
+    });
   run.hp = statsFor(run, meta).health;
   return run;
 }
-export function statsFor(run: Run, meta: Meta): Stats {
+export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   const research = run.research ?? meta.research;
   const s: Stats = {
     damage: 16 + (research.garage ?? 0) * 3,
@@ -238,24 +255,26 @@ export function statsFor(run: Run, meta: Meta): Stats {
     s.synergies.push(
       `Облаштовані квартири: ${furnished.details.length} предметів`,
     );
-  for (const id of run.items) {
+  const installed = legacyLayout
+    ? run.items.flatMap((id, slot) =>
+        id ? [{ id, slot, x: slot % 3, y: Math.floor(slot / 3) }] : [],
+      )
+    : activeEquipment(run);
+  for (const { id } of installed) {
     if (!id || !ITEM_BY_ID[id]) continue;
     for (const [key, val] of Object.entries(ITEM_BY_ID[id].stats)) {
       if (key === 'rate') rate += val;
       else s[key as Stat] += val;
     }
   }
-  run.items.forEach((id, index) => {
-    if (!id) return;
-    const neighbors = [
-      index % 3 > 0 ? index - 1 : -1,
-      index % 3 < 2 ? index + 1 : -1,
-      index - 3,
-      index + 3,
-    ]
-      .filter((n) => n >= 0 && n < 9)
-      .map((n) => ITEM_BY_ID[run.items[n] ?? ''])
-      .filter(Boolean);
+  installed.forEach(({ id, x, y, slot }) => {
+    const neighbors = installed
+      .filter(
+        (other) =>
+          other.slot !== slot &&
+          Math.abs(other.x - x) + Math.abs(other.y - y) === 1,
+      )
+      .map((other) => ITEM_BY_ID[other.id]);
     if (id === 'generator') {
       const n = neighbors.filter((i) => i.family === 'electric').length;
       if (n) {
@@ -397,40 +416,65 @@ export function nextNode(run: Run): Run {
     eventDone: false,
   };
 }
+function storedItem(run: Run, id: string): Run {
+  if (
+    run.backpack.length >= RESTORED_STORAGE_LIMIT ||
+    !Number.isInteger(run.nextBagId) ||
+    run.nextBagId > 1e8
+  )
+    return run;
+  return {
+    ...run,
+    backpack: [
+      ...run.backpack,
+      { uid: run.nextBagId, id, x: 0, y: 0, rotation: 0 },
+    ],
+    nextBagId: run.nextBagId + 1,
+  };
+}
+function equipmentHealth(before: Run, next: Run, meta: Meta): Run {
+  return {
+    ...next,
+    hp:
+      (before.hp * statsFor(next, meta).health) / statsFor(before, meta).health,
+  };
+}
 export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
   if (
-    slot < 0 ||
-    slot >= 9 ||
+    run.page === 'combat' ||
+    !canEquipAt(run, slot) ||
     !ITEM_BY_ID[itemId] ||
     !meta.unlocked.includes(itemId)
   )
     return run;
-  const old = statsFor(run, meta).health;
-  const next = { ...run, items: [...run.items] };
+  let next = run;
+  const old = run.items[slot];
+  if (old) {
+    next = storedItem(run, old);
+    if (next === run) return run;
+  }
+  next = { ...next, items: [...run.items] };
   next.items[slot] = itemId;
-  const health = statsFor(next, meta).health;
-  next.hp = Math.max(1, Math.min(health, run.hp + Math.max(0, health - old)));
-  return next;
+  return equipmentHealth(run, next, meta);
 }
 export function packItem(run: Run, meta: Meta, id: string): Run {
-  if (run.page === 'combat' || !meta.unlocked.includes(id)) return run;
-  if (!ITEM_BY_ID[id] || run.backpack.length >= 30) return run;
-  const space = { x: 0, y: 0, rotation: 0 };
-  return {
-    ...run,
-    backpack: [...run.backpack, { uid: run.nextBagId, id, ...space }],
-    nextBagId: run.nextBagId + 1,
-  };
+  if (
+    run.page === 'combat' ||
+    !meta.unlocked.includes(id) ||
+    !ITEM_BY_ID[id] ||
+    run.backpack.length >= STORAGE_LIMIT
+  )
+    return run;
+  return storedItem(run, id);
 }
 export function stowModule(run: Run, meta: Meta, slot: number): Run {
   const id = run.items[slot];
-  if (!id || !Number.isInteger(slot)) return run;
-  const packed = packItem(run, meta, id);
+  if (run.page === 'combat' || !id || !Number.isInteger(slot)) return run;
+  const packed = storedItem(run, id);
   if (packed === run) return run;
   const next = { ...packed, items: [...run.items] };
   next.items[slot] = null;
-  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
-  return next;
+  return equipmentHealth(run, next, meta);
 }
 export function installPacked(
   run: Run,
@@ -438,24 +482,46 @@ export function installPacked(
   uid: number,
   slot: number,
 ): Run {
-  if (run.page === 'combat' || !Number.isInteger(slot) || slot < 0 || slot >= 9)
-    return run;
-  const packed = run.backpack.find((i) => i.uid === uid);
+  if (run.page === 'combat' || !canEquipAt(run, slot)) return run;
+  const packed = run.backpack.find((item) => item.uid === uid);
   if (!packed) return run;
-  let next = {
+  const old = run.items[slot];
+  const next = {
     ...run,
-    backpack: run.backpack.filter((i) => i.uid !== uid),
+    backpack: old
+      ? run.backpack.map((item) =>
+          item.uid === uid ? { ...item, id: old } : item,
+        )
+      : run.backpack.filter((item) => item.uid !== uid),
     items: [...run.items],
   };
-  const old = run.items[slot];
-  if (old) {
-    const stored = packItem(next, meta, old);
-    if (stored === next) return run;
-    next = stored;
-  }
   next.items[slot] = packed.id;
-  next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
-  return next;
+  return equipmentHealth(run, next, meta);
+}
+export function moveEquipment(
+  run: Run,
+  meta: Meta,
+  from: number,
+  to: number,
+): Run {
+  if (
+    run.page === 'combat' ||
+    !canEquipAt(run, from) ||
+    !canEquipAt(run, to) ||
+    !run.items[from] ||
+    from === to
+  )
+    return run;
+  const next = { ...run, items: [...run.items] };
+  [next.items[from], next.items[to]] = [next.items[to], next.items[from]];
+  return equipmentHealth(run, next, meta);
+}
+export function scrapEquipment(run: Run, meta: Meta, slot: number): Run {
+  if (run.page === 'combat' || !Number.isInteger(slot) || !run.items[slot])
+    return run;
+  const next = { ...run, items: [...run.items], scrap: run.scrap + 2 };
+  next.items[slot] = null;
+  return equipmentHealth(run, next, meta);
 }
 export function buyFurniture(run: Run, id: string): Run {
   const item = FURNITURE_BY_ID[id];
@@ -489,6 +555,7 @@ export function installFurniture(
 ): Run {
   if (
     run.page === 'combat' ||
+    !!run.items[apartmentSlot(resident, cell)] ||
     !canFurnish(run.furniture, run.residents, uid, resident, cell)
   )
     return run;
@@ -545,8 +612,21 @@ export function reserveResident(run: Run, meta: Meta, id: string): Run {
     !run.residents.some((r) => r.id === id)
   )
     return run;
+  let stored = run;
+  for (const target of equipmentTargets(run).filter(
+    (target) => target.resident === id,
+  )) {
+    const item = run.items[target.slot];
+    if (!item) continue;
+    const nextStore = storedItem(stored, item);
+    if (nextStore === stored) return run;
+    stored = nextStore;
+  }
   const next = {
-    ...run,
+    ...stored,
+    items: run.items.map((item, slot) =>
+      APARTMENT_SLOTS[slot]?.resident === id ? null : item,
+    ),
     residents: run.residents.filter((r) => r.id !== id),
     furniture: run.furniture.map((item) =>
       item.resident === id ? { ...item, resident: null, cell: null } : item,
@@ -699,7 +779,9 @@ export function readSave(raw: string | null): {
       typeof r.seed === 'number' &&
       Number.isFinite(r.seed) &&
       Array.isArray(r.items) &&
-      r.items.length === 9 &&
+      (r.equipmentLayout === 1
+        ? r.items.length <= APARTMENT_SLOTS.length
+        : r.items.length === 9) &&
       Number.isInteger(r.step) &&
       r.step >= 0 &&
       r.step < 8
@@ -715,7 +797,7 @@ export function readSave(raw: string | null): {
           run.research[key] = Math.floor(
             finite(r.research[key], 0, base.research[key], 0),
           );
-      run.items = r.items.map((id: unknown) =>
+      const savedItems: (string | null)[] = r.items.map((id: unknown) =>
         typeof id === 'string' && base.unlocked.includes(id) ? id : null,
       );
       // v0.2 module shapes remain readable; the storage list no longer uses geometry.
@@ -732,7 +814,7 @@ export function readSave(raw: string | null): {
             !uids.has(i.uid) &&
             (uids.add(i.uid), true),
         )
-        .slice(0, 30)
+        .slice(0, RESTORED_STORAGE_LIMIT)
         .map((i: PackedItem) => ({
           uid: i.uid,
           id: i.id,
@@ -755,6 +837,29 @@ export function readSave(raw: string | null): {
         Math.floor(finite(r.nextBagId, 1, 1e8, 1)),
         ...run.backpack.map((i) => i.uid + 1),
       );
+      const legacyHealth =
+        r.equipmentLayout !== 1
+          ? statsFor({ ...run, items: savedItems }, base, true).health
+          : null;
+      run.items = emptyEquipment();
+      if (r.equipmentLayout === 1) {
+        savedItems.forEach((id, slot) => {
+          if (!id) return;
+          if (canEquipAt(run!, slot)) run!.items[slot] = id;
+          else run = storedItem(run!, id);
+        });
+      } else {
+        const targets = equipmentTargets(run).filter((target) =>
+          canEquipAt(run!, target.slot),
+        );
+        let placed = 0;
+        for (const id of savedItems) {
+          if (!id) continue;
+          const target = targets[placed++];
+          if (target) run.items[target.slot] = id;
+          else run = storedItem(run, id);
+        }
+      }
       for (const k of [
         'coins',
         'scrap',
@@ -767,10 +872,16 @@ export function readSave(raw: string | null): {
         run[k] = finite(r[k], 0, 1e7, k === 'level' ? 1 : 0);
       run.hp = finite(
         r.hp,
-        1,
+        Number.MIN_VALUE,
         statsFor(run, base).health,
         statsFor(run, base).health,
       );
+      if (legacyHealth !== null) {
+        const fraction =
+          finite(r.hp, Number.MIN_VALUE, legacyHealth, legacyHealth) /
+          legacyHealth;
+        run.hp = fraction * statsFor(run, base).health;
+      }
       run.step = r.step;
       restoreRoute(run, r);
       run.page = ['map', 'shop', 'event', 'reward'].includes(r.page)

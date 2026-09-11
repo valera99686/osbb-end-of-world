@@ -17,30 +17,13 @@ import {
   Zap,
   Wrench,
   Footprints,
-  Magnet,
-  WashingMachine,
-  ScanEye,
   Soup,
-  BatteryCharging,
-  Triangle,
-  Bell,
   Crosshair,
-  Sprout,
-  Trees,
-  Flower2,
   Hexagon,
   Package,
-  Copy,
-  Orbit,
   ScrollText,
-  Hammer,
-  Bot,
   Recycle,
-  Atom,
-  DoorOpen,
   Crown,
-  Wifi,
-  Plug,
   Lock,
   Check,
   Skull,
@@ -52,7 +35,6 @@ import {
   Trophy,
   Target,
   Timer,
-  type LucideIcon,
 } from 'lucide-react';
 import {
   Dialog,
@@ -64,7 +46,9 @@ import { Progress } from '@/components/ui/progress';
 import { RouteTree, NODE_INFO } from './route-tree';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
 import { Backpack } from './backpack';
-import { Residents, HousePreview } from './residents';
+import { Glyph } from './glyph';
+import { activeEquipment, APARTMENT_SLOTS } from '@/lib/game/equipment';
+import { Residents, HousePreview, EquipmentPlacement } from './residents';
 import { CutscenePlayer, StoryLibrary } from './cutscenes';
 import { CUTSCENES, SCENE_BY_ID, MISSIONS } from '@/lib/game/cutscenes';
 import { residentCells, RESIDENT_BY_ID, houseSize } from '@/lib/game/residents';
@@ -90,7 +74,6 @@ import {
   nextNode,
   equip,
   packItem,
-  stowModule,
   installPacked,
   rescueResident,
   finishRun,
@@ -107,42 +90,6 @@ import {
   type BattleResult,
 } from '@/lib/game/engine';
 
-const ICONS: Record<string, LucideIcon> = {
-  crosshair: Crosshair,
-  footprints: Footprints,
-  shield: Shield,
-  magnet: Magnet,
-  washing: WashingMachine,
-  scan: ScanEye,
-  soup: Soup,
-  battery: BatteryCharging,
-  triangle: Triangle,
-  bell: Bell,
-  wrench: Wrench,
-  zap: Zap,
-  wifi: Wifi,
-  plug: Plug,
-  sprout: Sprout,
-  heart: Heart,
-  tree: Trees,
-  flower: Flower2,
-  hexagon: Hexagon,
-  coins: Coins,
-  package: Package,
-  copy: Copy,
-  orbit: Orbit,
-  scroll: ScrollText,
-  hammer: Hammer,
-  bot: Bot,
-  recycle: Recycle,
-  atom: Atom,
-  door: DoorOpen,
-  crown: Crown,
-};
-function Glyph({ name, size = 24 }: { name: string; size?: number }) {
-  const C = ICONS[name] ?? Package;
-  return <C size={size} strokeWidth={1.65} />;
-}
 function Currency({
   amount,
   cores = false,
@@ -520,7 +467,6 @@ export default function Game() {
     [bagOpen, setBagOpen] = useState(false),
     [housingOpen, setHousingOpen] = useState(false),
     [notice, setNotice] = useState(''),
-    [selectedSlot, setSelectedSlot] = useState<number | null>(null),
     [pending, setPending] = useState<{
       id: string;
       source: 'shop' | 'reward';
@@ -657,13 +603,11 @@ export default function Game() {
     setScreen('play');
     setResult(null);
     setNotice('');
-    setSelectedSlot(null);
   }
   function back() {
     setHousingOpen(false);
     setBagOpen(false);
     setScreen('hub');
-    setSelectedSlot(null);
     setNotice('');
   }
   function ended(b: BattleResult) {
@@ -690,7 +634,6 @@ export default function Game() {
       const reward = offers(meta, b.run, 3, 67, b.run.kind === 'elite');
       setRun({ ...b.run, page: 'reward', reward });
     }
-    setSelectedSlot(null);
   }
   function pick(id: string, source: 'shop' | 'reward', index: number) {
     if (!run) return;
@@ -736,48 +679,23 @@ export default function Game() {
     if (source === 'shop' && (run.coins < cost || run.bought.includes(index)))
       return;
     let next = equip(run, id, slot, meta);
-    if (next === run) return;
+    if (next === run) {
+      ping(
+        'Це місце зайняте або склад переповнений. Обери іншу клітинку квартири.',
+      );
+      return;
+    }
     next = {
       ...next,
       coins: next.coins - cost,
-      scrap: next.scrap + (run.items[slot] ? 1 : 0),
       bought: source === 'shop' ? [...next.bought, index] : next.bought,
     };
     setMeta((m) => ({ ...m, seen: [...new Set([...m.seen, id])] }));
     if (source === 'reward') next = nextNode(next);
     setRun(next);
     setPending(null);
-    setSelectedSlot(null);
     ping(
-      `${item.name} встановлено${run.items[slot] ? ' · старий модуль розібрано на 1 брухт' : ''}.`,
-    );
-  }
-  function swap(slot: number) {
-    if (!run) return;
-    if (selectedSlot === null) {
-      setSelectedSlot(slot);
-      return;
-    }
-    if (selectedSlot === slot) {
-      setSelectedSlot(null);
-      return;
-    }
-    const items = [...run.items];
-    [items[slot], items[selectedSlot]] = [items[selectedSlot], items[slot]];
-    setRun({ ...run, items });
-    setSelectedSlot(null);
-  }
-  function scrap() {
-    if (!run || selectedSlot === null || !run.items[selectedSlot]) return;
-    const items = [...run.items];
-    items[selectedSlot] = null;
-    const next = { ...run, items, scrap: run.scrap + 2 };
-    next.hp = Math.min(next.hp, statsFor(next, meta).health);
-    setRun(next);
-    setMeta((m) => ({ ...m, scrapped: m.scrapped + 1 }));
-    setSelectedSlot(null);
-    ping(
-      'Модуль розібрано: +2 брухту. Креслення нових предметів відкриються після завершення рейду.',
+      `${item.name} — квартира ${RESIDENT_BY_ID[APARTMENT_SLOTS[slot].resident].name}${run.items[slot] ? ' · попереднє обладнання повернуто на склад' : ''}.`,
     );
   }
   function research(id: string, cost: number) {
@@ -842,42 +760,6 @@ export default function Game() {
     setRun(next);
   }
   const stats = run ? statsFor(run, meta) : null;
-  const board = (replacement = false) => (
-    <div className="house-grid">
-      {(run?.items ?? []).map((id, i) => (
-        <button
-          key={i}
-          className={`room ${selectedSlot === i ? 'selected' : ''} ${id ? 'filled' : ''}`}
-          style={
-            id
-              ? ({
-                  '--room-color': FAMILY[ITEM_BY_ID[id].family].color,
-                } as CSSProperties)
-              : undefined
-          }
-          aria-label={
-            id ? `${i + 1}: ${ITEM_BY_ID[id].name}` : `Порожня кімната ${i + 1}`
-          }
-          title={id ? ITEM_BY_ID[id].name : 'Вільна кімната'}
-          onClick={() =>
-            replacement && pending
-              ? acquire(pending.id, pending.source, pending.index, i)
-              : swap(i)
-          }
-        >
-          {id ? (
-            <>
-              <Glyph name={ITEM_BY_ID[id].icon} size={26} />
-              <small>{ITEM_BY_ID[id].name}</small>
-            </>
-          ) : (
-            <Plus size={20} />
-          )}
-          <span className="room-number">{String(i + 1).padStart(2, '0')}</span>
-        </button>
-      ))}
-    </div>
-  );
   const inventory = run && stats && (
     <aside className="inventory">
       <div className="section-kicker">
@@ -893,54 +775,25 @@ export default function Game() {
         className="primary housing-open"
         onClick={() => setHousingOpen(true)}
       >
-        <Home size={18} /> Розселити мешканців{' '}
+        <Home size={18} /> Квартири й обладнання{' '}
         <span>
           {run.residents.reduce((n, r) => n + residentCells(r.id).length, 0)}/
           {houseSize(meta.houseLevel).width * houseSize(meta.houseLevel).height}
         </span>
       </button>
       <p className="board-help">
-        Кожен мешканець займає фігуру. Спільні стіни відкривають бонуси
-        сусідства.
+        Натисни квартиру: обладнання встановлюється всередині неї. Сусідні
+        модулі й мешканці утворюють комбінації.
       </p>
-      <details className="equipment-panel">
-        <summary>
-          Обладнання <span>{run.items.filter(Boolean).length}/9</span>
-        </summary>
-        {board()}
-        <p className="board-help">
-          Обери два модулі, щоб поміняти їх місцями. Обладнання має власні
-          комбінації.
-        </p>
-        {selectedSlot !== null && run.items[selectedSlot] && (
-          <div className="selected-room">
-            <b>{ITEM_BY_ID[run.items[selectedSlot]!].name}</b>
-            <p>{ITEM_BY_ID[run.items[selectedSlot]!].desc}</p>
-            <button
-              className="text-button"
-              onClick={() => {
-                const next = stowModule(run, meta, selectedSlot);
-                if (next === run) {
-                  ping('Склад модулів заповнений.');
-                  return;
-                }
-                setRun(next);
-                setSelectedSlot(null);
-                ping('Модуль перенесено на склад.');
-              }}
-            >
-              <Package size={15} /> Зняти на склад
-            </button>
-            <button className="text-button danger" onClick={scrap}>
-              <Recycle size={15} /> Розібрати · +2 брухту
-            </button>
-          </div>
-        )}
+      <div className="equipment-summary">
+        <span>
+          Обладнання у квартирах <b>{activeEquipment(run).length}</b>
+        </span>
         <button className="secondary bag-open" onClick={() => setBagOpen(true)}>
-          <Package size={18} /> Склад модулів{' '}
-          <span>{run.backpack.length}/30</span>
+          <Package size={18} /> Склад обладнання{' '}
+          <span>{run.backpack.length}</span>
         </button>
-      </details>
+      </div>
       <div className="stat-grid">
         <div>
           <Heart size={16} />
@@ -1187,7 +1040,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.4.0 · Прогрес зберігається на цьому пристрої.
+              v0.4.1 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1249,7 +1102,6 @@ export default function Game() {
                         audio.current!.unlock();
                         setNotice('');
                         setRun(enterNode(run, meta, id));
-                        setSelectedSlot(null);
                       }}
                     />
                     <div className="map-note">
@@ -1670,11 +1522,11 @@ export default function Game() {
       )}
       <Dialog open={housingOpen && !!run} onOpenChange={setHousingOpen}>
         <DialogContent className="game-modal housing-modal">
-          <DialogTitle>Будинок №17 / Розселення</DialogTitle>
+          <DialogTitle>Будинок №17 / Квартири й обладнання</DialogTitle>
           <DialogDescription>
-            Розселяй людей у кімнатах різної форми. Бонуси дають лише ті, хто
-            зараз перебуває в будинку; сусідні кімнати можуть підсилювати одна
-            одну.
+            Розмісти квартири мешканців на плані, а гармати, акумулятори та інше
+            обладнання — у вільних клітинках усередині квартир. Воно працює,
+            поки мешканець на борту.
           </DialogDescription>
           {run && (
             <Residents
@@ -1688,20 +1540,19 @@ export default function Game() {
       </Dialog>
       <Dialog open={bagOpen && !!run} onOpenChange={setBagOpen}>
         <DialogContent className="game-modal backpack-modal">
-          <DialogTitle>Склад модулів</DialogTitle>
+          <DialogTitle>Склад обладнання</DialogTitle>
           <DialogDescription>
-            Збережене обладнання для цього рейду. Встанови модуль у вільне або
-            зайняте кріплення.
+            Обери модуль, потім місце всередині квартири на плані будинку.
+            Попереднє обладнання повернеться на склад.
           </DialogDescription>
           {run && (
             <Backpack
               run={run}
+              meta={meta}
               onInstall={(uid, slot) => {
                 const next = installPacked(run, meta, uid, slot);
                 if (next === run) {
-                  ping(
-                    'Не вдалося встановити модуль. Перевір доступне кріплення.',
-                  );
+                  ping('Обери клітинку квартири без меблів.');
                   return;
                 }
                 setRun(next);
@@ -1729,10 +1580,20 @@ export default function Game() {
         <DialogContent className="game-modal">
           <DialogTitle>{pending && ITEM_BY_ID[pending.id].name}</DialogTitle>
           <DialogDescription>
-            Встанови модуль у кріплення або залиш на складі. Заміна
-            встановленого обладнання розбирає старий модуль на 1 брухт.
+            Обери місце всередині квартири мешканця. Якщо там є модуль, він
+            повернеться на склад. Портрет мешканця та площа поза квартирами
+            недоступні.
           </DialogDescription>
-          {board(true)}
+          {run && pending && (
+            <EquipmentPlacement
+              run={run}
+              level={meta.houseLevel}
+              itemId={pending.id}
+              onInstall={(slot) =>
+                acquire(pending.id, pending.source, pending.index, slot)
+              }
+            />
+          )}
           <button
             className="secondary"
             disabled={!run || !pending || run.backpack.length >= 30}
@@ -1819,7 +1680,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.4.0 · 9 мешканців, фігурні кімнати, 5 босів і
+            ОСББ кінця світу · v0.4.1 · 9 мешканців, фігурні кімнати, 5 босів і
             сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">

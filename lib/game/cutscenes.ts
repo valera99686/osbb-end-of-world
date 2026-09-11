@@ -23,12 +23,12 @@ export const ORIGIN_ART = {
   loop: 12,
 } as const;
 export const SCENE_IMAGE_BY_ART: Record<number, string> = {
-  [ORIGIN_ART.service]: '/art/origins-city-service-v1.png',
-  [ORIGIN_ART.failure]: '/art/origins-network-failure-v1.png',
-  [ORIGIN_ART.scrap]: '/art/origins-scrap-attack-v1.png',
-  [ORIGIN_ART.pursuit]: '/art/origins-drone-pursuit-v1.png',
-  [ORIGIN_ART.greenhouse]: '/art/origins-greenhouse-machines-v1.png',
-  [ORIGIN_ART.loop]: '/art/origins-time-loop-v1.png',
+  [ORIGIN_ART.service]: '/art/origins-city-service-v1.webp',
+  [ORIGIN_ART.failure]: '/art/origins-network-failure-v1.webp',
+  [ORIGIN_ART.scrap]: '/art/origins-scrap-attack-v1.webp',
+  [ORIGIN_ART.pursuit]: '/art/origins-drone-pursuit-v1.webp',
+  [ORIGIN_ART.greenhouse]: '/art/origins-greenhouse-machines-v1.webp',
+  [ORIGIN_ART.loop]: '/art/origins-time-loop-v1.webp',
 };
 export const MISSIONS = [
   'Знешкодь Коменданта, охоронну машину підстанції. Забери карту проходу до теплиць.',

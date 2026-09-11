@@ -50,6 +50,7 @@ $apk = Join-Path $releases 'osbb.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signing failed' }
 & (Join-Path $buildTools 'apksigner.bat') verify --verbose $apk
 if ($LASTEXITCODE -ne 0) { throw 'APK verification failed' }
+if ((Get-Item -LiteralPath $apk).Length -gt 26214400) { throw 'APK exceeds the Sites 25 MiB per-file limit. Optimize bundled assets before publishing.' }
 $verifiedArchive = [IO.Compression.ZipFile]::OpenRead($apk)
 try {
   if ($verifiedArchive.Entries | Where-Object { $_.FullName.Contains('\') }) { throw 'APK contains Windows paths' }
@@ -59,9 +60,13 @@ try {
     $entry = $verifiedArchive.GetEntry('assets/game/' + $relativeAsset)
     if (!$entry) { throw "Missing APK asset: $relativeAsset" }
     $stream = $entry.Open()
+    $sourceStream = [IO.File]::OpenRead($assetFile.FullName)
     $hasher = [Security.Cryptography.SHA256]::Create()
-    try { $assetHash = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-','') } finally { $stream.Dispose(); $hasher.Dispose() }
-    if ($assetHash -ne (Get-FileHash -LiteralPath $assetFile.FullName -Algorithm SHA256).Hash) { throw "Corrupt APK asset: $relativeAsset" }
+    try {
+      $assetHash = [BitConverter]::ToString($hasher.ComputeHash($stream))
+      $sourceHash = [BitConverter]::ToString($hasher.ComputeHash($sourceStream))
+    } finally { $stream.Dispose(); $sourceStream.Dispose(); $hasher.Dispose() }
+    if ($assetHash -ne $sourceHash) { throw "Corrupt APK asset: $relativeAsset" }
     $verifiedAssets++
   }
   Write-Output "Verified $verifiedAssets bundled game files against the web build."

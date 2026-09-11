@@ -32,7 +32,7 @@ export function SceneArt({ art }: { art: number }) {
     >
       <image
         href={
-          art === 6 ? '/art/future-city-2086-v1.png' : '/art/cutscenes-v1.png'
+          art === 6 ? '/art/future-city-2086-v1.webp' : '/art/cutscenes-v1.webp'
         }
         width="1536"
         height="1024"

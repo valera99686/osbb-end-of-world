@@ -21,7 +21,7 @@ export function Backpack({
       {item && (
         <EquipmentPlacement
           run={run}
-          level={meta.houseLevel}
+          level={run.houseLevel}
           itemId={item.id}
           onInstall={(slot) => onInstall(item.uid, slot)}
         />

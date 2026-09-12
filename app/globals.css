@@ -3061,3 +3061,54 @@ button.item-card:hover:not(:disabled) {
     font-size: 20px;
   }
 }
+
+.campaign-itinerary {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+.campaign-itinerary li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.campaign-itinerary li b {
+  border: 1px solid #36515c;
+  padding: 7px;
+  border-radius: 5px;
+}
+.campaign-itinerary li.active {
+  color: var(--gold);
+}
+.furniture-reward {
+  --item-color: #95c9b3;
+}
+.furniture-shop-cards {
+  margin-top: 16px;
+}
+.tree-canvas {
+  min-width: 520px;
+}
+@media (max-width: 600px) {
+  .tree-viewport {
+    overflow-x: auto;
+  }
+  .mission-banner {
+    flex-wrap: wrap;
+  }
+  .reward-cards,
+  .shop-cards {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .item-card {
+    padding: 16px;
+  }
+  .item-card h3 {
+    font-size: 18px;
+  }
+}

@@ -11,13 +11,31 @@ const Scenes = require('../.test-build/cutscenes.js');
 const F = require('../.test-build/furniture.js');
 const E = require('../.test-build/equipment.js');
 
+// Apartment/storage regressions use an explicit populated legacy floor fixture.
+// New campaign start conditions are covered in campaign.test.cjs.
+function fixtureRun(meta, character, chapter, seed) {
+  const run = M.makeRun(meta, character, chapter, seed);
+  run.houseLevel = 4;
+  run.rescued = [run.character, 'nina', 'lev'];
+  run.residents = [];
+  for (const id of run.rescued) {
+    const room = R.residentSpace(run.residents, id, 4);
+    if (room) run.residents.push(room);
+  }
+  run.furniture = F.initialFurniture();
+  run.nextFurnitureId = 3;
+  run.nodes = M.legacyTree(seed);
+  run.routeVersion = 2;
+  run.hp = M.statsFor(run, meta).health;
+  return run;
+}
 const allModules = (run) =>
   [...run.items.filter(Boolean), ...run.backpack.map((item) => item.id)].sort();
 const closeEnough = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
 
 test('Equipment only occupies non-portrait cells of aboard apartments and shares space with furniture', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 105);
+  let run = fixtureRun(meta, 'mechanic', 0, 105);
   assert.equal(E.activeEquipment(run).length, 3);
   assert.equal(E.equipmentTargets(run).length, 7);
   assert.equal(M.installFurniture(run, meta, 1, 'mechanic', 1), run);
@@ -40,7 +58,7 @@ test('Equipment only occupies non-portrait cells of aboard apartments and shares
 
 test('Equipment stays with rotated apartments and returning a resident preserves modules in a full store', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 106);
+  let run = fixtureRun(meta, 'mechanic', 0, 106);
   const slot = E.apartmentSlot('nina', 1);
   run = M.equip(run, 'armor', slot, meta);
   run.hp = 0.25;
@@ -65,7 +83,7 @@ test('Equipment stays with rotated apartments and returning a resident preserves
 
 test('Legacy nine-module saves migrate once without losing full-store overflow or health percentage', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 107);
+  let run = fixtureRun(meta, 'mechanic', 0, 107);
   for (let i = 0; i < 30; i++) run = M.packItem(run, meta, 'kitchen');
   delete run.equipmentLayout;
   run.items = [
@@ -103,7 +121,7 @@ test('Module adjacency follows apartment coordinates and moves conserve every it
   const meta = M.initialMeta();
   meta.wins = 2;
   M.unlock(meta);
-  let run = M.makeRun(meta, 'mechanic', 0, 108);
+  let run = fixtureRun(meta, 'mechanic', 0, 108);
   run.items = E.emptyEquipment();
   run.residents = [
     { id: 'mechanic', x: 0, y: 0, rotation: 0 },
@@ -135,7 +153,7 @@ test('Module adjacency follows apartment coordinates and moves conserve every it
 
 test('Purchased replacements keep old equipment, and offboard modules never grant active stats', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 109);
+  let run = fixtureRun(meta, 'mechanic', 0, 109);
   run.hp = M.statsFor(run, meta).health * 0.4;
   const before = allModules(run);
   run = M.equip(run, 'armor', 0, meta);
@@ -155,14 +173,14 @@ test('Purchased replacements keep old equipment, and offboard modules never gran
 
 test('Furniture fills apartment slots, follows rotations and cannot create health by reinstalling', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 91);
+  let run = fixtureRun(meta, 'mechanic', 0, 91);
   run.items = E.emptyEquipment();
   const initial = M.statsFor(run, meta);
   run.hp = initial.health * 0.4;
   run = M.installFurniture(run, meta, 1, 'mechanic', 1);
   assert.equal(M.statsFor(run, meta).armor, initial.armor + 2);
   run = M.installFurniture(run, meta, 2, 'nina', 1);
-  assert.equal(M.statsFor(run, meta).health, initial.health + 12);
+  assert.equal(M.statsFor(run, meta).health, initial.health + 20);
   const saved = run.hp;
   for (let i = 0; i < 10; i++) {
     run = M.removeFurniture(run, meta, 2);
@@ -177,7 +195,7 @@ test('Furniture fills apartment slots, follows rotations and cannot create healt
   });
   assert.notEqual(moved, run);
   assert.deepEqual(moved.furniture, run.furniture);
-  assert.equal(M.statsFor(moved, meta).health, initial.health + 12);
+  assert.equal(M.statsFor(moved, meta).health, initial.health + 20);
   const reserved = M.reserveResident(moved, meta, 'nina');
   assert.equal(
     reserved.furniture.find((item) => item.uid === 2).resident,
@@ -189,7 +207,7 @@ test('Furniture fills apartment slots, follows rotations and cannot create healt
 
 test('Furniture rejects portrait slots, overlap, absent residents, invalid IDs and combat changes', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 92);
+  let run = fixtureRun(meta, 'mechanic', 0, 92);
   run.items = E.emptyEquipment();
   run.hp = M.statsFor(run, meta).health;
   for (const [uid, id, cell] of [
@@ -210,54 +228,39 @@ test('Furniture rejects portrait slots, overlap, absent residents, invalid IDs a
   const empty = { ...run, coins: 0 };
   assert.equal(M.buyFurniture(empty, 'bench'), empty);
   assert.equal(M.buyFurniture(run, 'constructor'), run);
+  run = {
+    ...run,
+    page: 'shop',
+    kind: 'shop',
+    step: 2,
+    path: [0, 0, 0],
+    shopFurniture: ['bench', 'radio'],
+  };
   const bought = M.buyFurniture(run, 'bench');
-  assert.equal(bought.coins, run.coins - 25);
+  assert.equal(bought.coins, run.coins - F.FURNITURE_BY_ID.bench.cost);
   assert.equal(bought.furniture.length, 3);
   assert.equal(bought.nextFurnitureId, 4);
   assert.deepEqual(M.readSave(M.saveData(meta, bought)).run, bought);
 });
 
-test('Permanent house expansions unlock real cells and survive reloads and new expeditions', () => {
-  let meta = M.initialMeta(),
-    run = M.makeRun(meta, 'mechanic', 0, 93);
-  assert.equal(M.expandHouse(meta, run), meta);
-  meta.cores = 26;
-  assert.equal(M.expandHouse(meta, { ...run, page: 'combat' }), meta);
-  const positions = structuredClone(run.residents);
-  const edge = { id: 'nina', x: 5, y: 3, rotation: 0 };
-  assert.equal(M.houseResident(run, meta, edge), run);
-  meta = M.expandHouse(meta, run);
-  assert.deepEqual(R.houseSize(meta.houseLevel), { width: 7, height: 5 });
-  assert.deepEqual(run.residents, positions);
-  run = M.houseResident(run, meta, edge);
-  assert.ok(run.residents.some((room) => room.id === 'nina' && room.x === 5));
-  meta = M.expandHouse(meta, run);
-  run = M.houseResident(run, meta, { id: 'lev', x: 4, y: 5, rotation: 0 });
-  assert.ok(run.residents.some((room) => room.id === 'lev' && room.y === 5));
-  meta = M.expandHouse(meta, run);
-  assert.equal(meta.cores, 0);
-  assert.deepEqual(R.houseSize(meta.houseLevel), { width: 8, height: 6 });
-  assert.equal(M.expandHouse({ ...meta, cores: 100 }, run).houseLevel, 3);
+test('Old expanded floors are retained during migration without charging the player', () => {
+  const meta = M.initialMeta();
+  meta.houseLevel = 3;
+  let run = fixtureRun(meta, 'mechanic', 0, 93);
+  delete run.campaignVersion;
+  run.residents.push({ id: 'marta', x: 6, y: 3, rotation: 0 });
+  run.coins = 200;
   const loaded = M.readSave(M.saveData(meta, run));
-  assert.deepEqual(loaded.run, run);
-  assert.equal(loaded.meta.houseLevel, 3);
-  assert.equal(loaded.meta.cores, 0);
-  const afterDefeat = M.finishRun(meta, run, false).meta;
-  assert.equal(afterDefeat.houseLevel, 3);
-  const next = M.makeRun(afterDefeat, 'mechanic', 0, 94);
-  assert.ok(
-    M.houseResident(next, afterDefeat, {
-      id: 'nina',
-      x: 6,
-      y: 4,
-      rotation: 0,
-    }).residents.some((room) => room.x === 6),
-  );
+  assert.equal(loaded.run.houseLevel, 4);
+  assert.equal(loaded.run.coins, 200);
+  assert.ok(loaded.run.residents.some((r) => r.id === 'marta'));
+  assert.deepEqual(R.houseSize(loaded.run.houseLevel), { width: 8, height: 6 });
+  assert.deepEqual(M.readSave(M.saveData(loaded.meta, loaded.run)), loaded);
 });
 
 test('Older saves gain starter furniture once; corrupt placements return items to stock', () => {
   const meta = M.initialMeta(),
-    run = M.makeRun(meta, 'mechanic', 0, 95);
+    run = fixtureRun(meta, 'mechanic', 0, 95);
   delete meta.houseLevel;
   delete run.furniture;
   delete run.nextFurnitureId;
@@ -296,7 +299,7 @@ test('Backpack shapes rotate, fill corners, and reject overlap and out-of-bounds
 });
 test('Backpack transfers conserve modules and cannot heal by repeated installation', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 7);
+  let run = fixtureRun(meta, 'mechanic', 0, 7);
   const slot = E.apartmentSlot('nina', 1);
   run = M.equip(run, 'armor', slot, meta);
   run.hp = 1;
@@ -323,7 +326,7 @@ test('Backpack transfers conserve modules and cannot heal by repeated installati
 });
 test('Full module storage rejects acquisitions but allows a lossless equipment swap', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 8);
+  let run = fixtureRun(meta, 'mechanic', 0, 8);
   for (let i = 0; i < 30; i++) run = M.packItem(run, meta, 'kitchen');
   assert.equal(run.backpack.length, 30);
   assert.equal(M.packItem(run, meta, 'cannon'), run);
@@ -337,7 +340,7 @@ test('Full module storage rejects acquisitions but allows a lossless equipment s
 
 test('Residents rotate and reject overlap, illegal coordinates, duplicates and unavailable people', () => {
   const meta = M.initialMeta(),
-    run = M.makeRun(meta, 'mechanic', 0, 18);
+    run = fixtureRun(meta, 'mechanic', 0, 18);
   for (const r of R.RESIDENTS) {
     assert.deepEqual(R.residentCells(r.id, 4), R.residentCells(r.id));
     for (let rotation = 0; rotation < 4; rotation++)
@@ -348,7 +351,7 @@ test('Residents rotate and reject overlap, illegal coordinates, duplicates and u
   }
   for (const room of [
     { id: 'nina', x: 0, y: 0, rotation: 0 },
-    { id: 'nina', x: 5, y: 4, rotation: 0 },
+    { id: 'nina', x: 8, y: 6, rotation: 0 },
     { id: 'nina', x: 0.5, y: 3, rotation: 0 },
     { id: 'nina', x: 0, y: 3, rotation: Infinity },
     { id: 'marta', x: 3, y: 3, rotation: 0 },
@@ -362,7 +365,7 @@ test('Residents rotate and reject overlap, illegal coordinates, duplicates and u
     { id: 'nina', x: NaN, y: 2, rotation: 0 },
   ];
   assert.deepEqual(
-    R.restoreResidents(bad, meta.residents, run.character),
+    R.restoreResidents(bad, meta.residents, run.character, run.houseLevel),
     run.residents,
   );
   const combat = { ...run, page: 'combat' };
@@ -372,7 +375,7 @@ test('Resident lists separate the expedition from refuge and undiscovered people
   const meta = M.initialMeta();
   meta.wins = 2;
   meta.residents = R.residentRoster([], 2);
-  let run = M.makeRun(meta, 'flora', 1, 19);
+  let run = fixtureRun(meta, 'flora', 1, 19);
   const ids = (people) => people.map((person) => person.id).sort();
   let groups = R.residentGroups(meta.residents, run.residents);
   assert.deepEqual(ids(groups.aboard), ['flora', 'lev', 'nina']);
@@ -434,7 +437,7 @@ test('Household arrangement changes adjacency bonuses without duplicating reside
   const meta = M.initialMeta();
   meta.wins = 5;
   meta.residents = R.residentRoster(['marta'], 5);
-  let run = M.makeRun(meta, 'mechanic', 0, 19);
+  let run = fixtureRun(meta, 'mechanic', 0, 19);
   run.hp = 61;
   const hp = run.hp,
     room = run.residents.find((r) => r.id === 'nina');
@@ -455,27 +458,31 @@ test('Household arrangement changes adjacency bonuses without duplicating reside
   assert.equal(a.damage, b.damage);
   assert.equal(a.synergies.filter((s) => s.startsWith('Спільна')).length, 1);
 });
-test('Rescue is an event choice and persists after defeat; reserve removal persists', () => {
-  let meta = M.initialMeta(),
-    run = M.makeRun(meta, 'mechanic', 0, 22);
+test('Rescue is single-use and belongs to the current expedition, including pending residents', () => {
+  const meta = M.initialMeta();
+  let run = fixtureRun(meta, 'mechanic', 0, 22);
   assert.equal(M.rescueResident(run, meta), null);
   run = { ...run, page: 'event', kind: 'event', path: [0, 0, 1], step: 2 };
   const rescue = M.rescueResident(run, meta);
-  assert.equal(rescue.id, 'marta');
-  assert.equal(M.rescueResident(rescue.run, rescue.meta), null);
-  run = M.reserveResident(rescue.run, rescue.meta, 'marta');
-  const saved = M.readSave(M.saveData(rescue.meta, run));
-  assert.ok(saved.meta.residents.includes('marta'));
-  assert.ok(!saved.run.residents.some((r) => r.id === 'marta'));
-  assert.ok(
-    M.finishRun(rescue.meta, run, false).meta.residents.includes('marta'),
+  assert.ok(rescue.id);
+  assert.equal(M.rescueResident(rescue.run, meta), null);
+  assert.ok(rescue.run.rescued.includes(rescue.id));
+  const saved = M.readSave(M.saveData(meta, rescue.run));
+  assert.ok(saved.run.rescued.includes(rescue.id));
+  const next = M.makeRun(
+    M.finishRun(meta, rescue.run, false).meta,
+    'mechanic',
+    0,
+    30,
   );
+  assert.deepEqual(next.rescued, ['mechanic']);
 });
+
 test('v0.2 save migration preserves module identities, route, economy and research snapshots', () => {
   const meta = M.initialMeta();
   meta.wins = 2;
   M.unlock(meta);
-  const run = M.makeRun(meta, 'mechanic', 2, 88);
+  const run = fixtureRun(meta, 'mechanic', 2, 88);
   Object.assign(run, {
     step: 2,
     page: 'shop',
@@ -494,6 +501,7 @@ test('v0.2 save migration preserves module identities, route, economy and resear
     nextBagId: 20,
   });
   delete run.residents;
+  delete run.campaignVersion;
   delete meta.residents;
   delete meta.scenesSeen;
   delete meta.sceneProgress;
@@ -521,22 +529,22 @@ test('v0.2 save migration preserves module identities, route, economy and resear
     restored,
   );
 });
-test('Cutscenes resume safely, preserve watched progress and lock the ending until chapter five', () => {
+test('Cutscenes resume safely, preserve watched progress and lock the ending until the final campaign victory', () => {
   const meta = M.initialMeta();
-  meta.scenesSeen = ['prologue', 'victory-4', 'missing'];
+  meta.scenesSeen = ['prologue', 'victory-2', 'missing'];
   meta.sceneProgress = { id: 'prologue', index: 3 };
   let saved = M.readSave(M.saveData(meta, null));
   assert.deepEqual(saved.meta.scenesSeen, ['prologue']);
   assert.deepEqual(saved.meta.sceneProgress, { id: 'prologue', index: 3 });
-  assert.equal(Scenes.sceneUnlocked('victory-4', 4), false);
-  assert.equal(Scenes.sceneUnlocked('victory-4', 5), true);
+  assert.equal(Scenes.sceneUnlocked('victory-2', 0), false);
+  assert.equal(Scenes.sceneUnlocked('victory-2', 5), true);
   assert.equal(Scenes.sceneUnlocked('origins', 0), true);
   assert.deepEqual(
     Scenes.restoreSceneProgress({ id: 'origins', index: 3 }, 0),
     { id: 'origins', index: 3 },
   );
   assert.equal(
-    Scenes.restoreSceneProgress({ id: 'victory-4', index: 0 }, 0),
+    Scenes.restoreSceneProgress({ id: 'victory-2', index: 0 }, 0),
     null,
   );
   assert.equal(
@@ -550,7 +558,7 @@ test('Cutscenes resume safely, preserve watched progress and lock the ending unt
 });
 test('Rewritten story restarts only the introduction once and preserves the active expedition', () => {
   const meta = M.initialMeta(),
-    run = M.makeRun(meta, 'mechanic', 0, 55);
+    run = fixtureRun(meta, 'mechanic', 0, 55);
   meta.storyRevision = 2;
   meta.scenesSeen = ['prologue', 'arrival-0'];
   meta.sceneProgress = { id: 'prologue', index: 2 };
@@ -569,7 +577,7 @@ test('Rewritten story restarts only the introduction once and preserves the acti
 test('Prototype property names and unsafe module IDs cannot corrupt a run', () => {
   for (const id of ['constructor', 'toString', '__proto__']) {
     const meta = M.initialMeta(),
-      run = M.makeRun(meta, 'mechanic', 0, 35);
+      run = fixtureRun(meta, 'mechanic', 0, 35);
     meta.residents.push(id);
     meta.scenesSeen.push(id);
     meta.sceneProgress = { id, index: 0 };
@@ -620,7 +628,7 @@ test('Lore records survive a defeat and disclose the resolution only after the f
   assert.equal(meta.lore.length, 2);
   const afterLoss = M.finishRun(
     meta,
-    M.makeRun(meta, 'mechanic', 0, 1),
+    fixtureRun(meta, 'mechanic', 0, 1),
     false,
   ).meta;
   assert.ok(afterLoss.lore.includes('rust-arrival'));
@@ -636,33 +644,35 @@ test('Lore records survive a defeat and disclose the resolution only after the f
 test('An abandoned empty run cannot farm permanent currency', () => {
   let meta = M.initialMeta();
   for (let i = 0; i < 20; i++)
-    meta = M.finishRun(meta, M.makeRun(meta, 'mechanic', 0, i), false).meta;
+    meta = M.finishRun(meta, fixtureRun(meta, 'mechanic', 0, i), false).meta;
   assert.equal(meta.cores, 0);
   assert.equal(meta.wins, 0);
   assert.equal(meta.runs, 20);
 });
-test('Five different chapter victories unlock the story and the full chapter pool; replay cannot skip a chapter', () => {
+test('Five complete campaigns unlock repeat-run blueprints, while early bosses do not increment wins', () => {
   let meta = M.initialMeta();
-  for (let chapter = 0; chapter < 5; chapter++) {
-    const r = M.makeRun(meta, 'mechanic', chapter, 100 + chapter);
-    r.kills = 70;
-    meta = M.finishRun(meta, r, true).meta;
-    assert.equal(meta.wins, chapter + 1);
-    const replay = M.finishRun(
+  for (let win = 0; win < 5; win++) {
+    const early = M.finishRun(
       meta,
       M.makeRun(meta, 'mechanic', 0, 90),
       true,
     ).meta;
-    assert.equal(replay.wins, meta.wins);
+    assert.equal(early.wins, meta.wins);
+    const run = M.makeRun(meta, 'mechanic', 2, 100 + win);
+    run.kills = 70;
+    run.bossesDefeated = 2;
+    meta = M.finishRun(meta, run, true).meta;
+    assert.equal(meta.wins, win + 1);
   }
   assert.ok(meta.unlocked.includes('crown'));
   assert.ok(meta.unlocked.includes('portal'));
-  assert.equal(meta.unlocked.length, 34); // dash and scrapping unlocks remain; kill unlocks were earned
+  assert.equal(meta.unlocked.length, 34);
 });
+
 test('Action unlocks survive a loss, and no item is duplicated', () => {
   const meta = M.initialMeta();
   meta.scrapped = 5;
-  const r = M.makeRun(meta, 'mechanic', 0, 1);
+  const r = fixtureRun(meta, 'mechanic', 0, 1);
   r.kills = 150;
   r.dashes = 10;
   const result = M.finishRun(meta, r, false);
@@ -675,7 +685,7 @@ test('Research is snapshotted per run, modules change stats, and adjacency is sp
   const meta = M.initialMeta();
   meta.wins = 2;
   M.unlock(meta);
-  const run = M.makeRun(meta, 'mechanic', 0, 1);
+  const run = fixtureRun(meta, 'mechanic', 0, 1);
   const damage = M.statsFor(run, meta).damage;
   meta.research.garage = 5;
   assert.equal(M.statsFor(run, meta).damage, damage);
@@ -695,7 +705,7 @@ test('Malformed saves are recoverable; loaded chapters and room IDs cannot crash
   assert.equal(M.readSave('{broken').error, true);
   assert.equal(M.readSave(null).run, null);
   const meta = M.initialMeta();
-  const r = M.makeRun(meta, 'mechanic', 0, 1);
+  const r = fixtureRun(meta, 'mechanic', 0, 1);
   delete r.chapter;
   r.items[5] = 'unknown';
   const recovered = M.readSave(M.saveData(meta, r));
@@ -704,9 +714,9 @@ test('Malformed saves are recoverable; loaded chapters and room IDs cannot crash
   r.chapter = 0.5;
   assert.equal(M.readSave(M.saveData(meta, r)).run.chapter, 0);
   const round = M.readSave(
-    M.saveData(meta, M.makeRun(meta, 'mechanic', 0, 23)),
+    M.saveData(meta, fixtureRun(meta, 'mechanic', 0, 23)),
   );
-  assert.deepEqual(round.run, M.makeRun(meta, 'mechanic', 0, 23));
+  assert.deepEqual(round.run, fixtureRun(meta, 'mechanic', 0, 23));
 });
 test('Shop and reward offers never contain locked items or duplicates; elite drops favor higher rarity', () => {
   const meta = M.initialMeta();
@@ -719,7 +729,7 @@ test('Shop and reward offers never contain locked items or duplicates; elite dro
   let basic = 0,
     elite = 0;
   for (let seed = 0; seed < 2000; seed++) {
-    const r = M.makeRun(meta, 'mechanic', 0, seed);
+    const r = fixtureRun(meta, 'mechanic', 0, seed);
     const offer = M.offers(meta, r, 4, 41);
     assert.equal(new Set(offer).size, 4);
     basic += ITEM_BY_ID[M.offers(meta, r, 1, 73)[0]].rarity;
@@ -727,20 +737,20 @@ test('Shop and reward offers never contain locked items or duplicates; elite dro
   }
   assert.ok(elite > basic * 1.12);
   const initial = M.initialMeta(),
-    r = M.makeRun(initial, 'mechanic', 0, 1);
+    r = fixtureRun(initial, 'mechanic', 0, 1);
   assert.ok(
     M.offers(initial, r, 4, 1).every((id) => initial.unlocked.includes(id)),
   );
 });
 test('Blocked map nodes cannot be entered and shop economics persist through reload', () => {
   const meta = M.initialMeta();
-  let r = M.makeRun(meta, 'mechanic', 0, 1);
+  let r = fixtureRun(meta, 'mechanic', 0, 1);
   assert.equal(M.enterNode(r, meta, '7:0'), r);
   r = completeRoom(M.enterNode(r, meta, '0:0'));
   r = completeRoom(M.enterNode(r, meta, '1:0'));
   const shop = M.enterNode(r, meta, '2:0');
   assert.equal(shop.page, 'shop');
-  assert.equal(shop.offers.length, 4);
+  assert.equal(shop.offers.length, 3);
   shop.bought = [0];
   shop.coins = 7;
   shop.rerolls = 2;
@@ -760,7 +770,7 @@ function completeRoom(run) {
 test('Every branch has a legal continuation and every full route ends at the boss', () => {
   const meta = M.initialMeta();
   for (const seed of [0, 1, 23, 900, 123456]) {
-    let frontier = [M.makeRun(meta, 'mechanic', 0, seed)];
+    let frontier = [fixtureRun(meta, 'mechanic', 0, seed)];
     const seen = new Set();
     for (let step = 0; step < 8; step++) {
       const next = [];
@@ -782,13 +792,13 @@ test('Every branch has a legal continuation and every full route ends at the bos
     }
     assert.equal(
       seen.size,
-      M.makeRun(meta, 'mechanic', 0, seed).nodes.flat().length,
+      fixtureRun(meta, 'mechanic', 0, seed).nodes.flat().length,
     );
   }
 });
 test('A branch choice excludes unconnected rooms and survives the combat checkpoint', () => {
   const meta = M.initialMeta();
-  let run = M.makeRun(meta, 'mechanic', 0, 7);
+  let run = fixtureRun(meta, 'mechanic', 0, 7);
   assert.equal(M.nextNode(run), run);
   run = completeRoom(M.enterNode(run, meta, '0:0'));
   run = M.enterNode(run, meta, '1:1');
@@ -813,7 +823,8 @@ test('Legacy maps, stores, events, rewards and combat retain their progress duri
       [3, 'reward', 'elite'],
       [5, 'combat', 'elite'],
     ]) {
-      const old = M.makeRun(meta, 'mechanic', 0, seed);
+      const old = fixtureRun(meta, 'mechanic', 0, seed);
+      delete old.campaignVersion;
       delete old.path;
       delete old.routeVersion;
       delete old.historyStart;
@@ -853,7 +864,7 @@ test('Legacy maps, stores, events, rewards and combat retain their progress duri
 test('Invalid saved route indices recover to a connected path without erasing the run', () => {
   const meta = M.initialMeta();
   for (const path of [[99], [0, -1, 300], [0, 0, 2], 'bad']) {
-    const run = M.makeRun(meta, 'mechanic', 0, 1);
+    const run = fixtureRun(meta, 'mechanic', 0, 1);
     Object.assign(run, {
       step: 2,
       page: 'shop',
@@ -877,7 +888,7 @@ test('Diagonal, cardinal and analog dashes have the same speed', () => {
   const distance = (mode) => {
     const b = new Battle(
       null,
-      M.makeRun(meta, 'mechanic', 0, 1),
+      fixtureRun(meta, 'mechanic', 0, 1),
       meta,
       new AudioEngine(),
       () => {},
@@ -900,7 +911,7 @@ test('Diagonal, cardinal and analog dashes have the same speed', () => {
 });
 test('Combat damage, collection, level-up, pause, and terminal event work independently of rendering', () => {
   const meta = M.initialMeta(),
-    r = M.makeRun(meta, 'mechanic', 0, 1);
+    r = fixtureRun(meta, 'mechanic', 0, 1);
   let calls = 0,
     result;
   const b = new Battle(
@@ -941,12 +952,12 @@ test('Combat damage, collection, level-up, pause, and terminal event work indepe
   assert.equal(calls, 1);
   assert.ok(result.run.kills > 0);
 });
-test('All five boss encounters terminate with a win and never produce NaN state', () => {
+test('Boss encounters terminate with a win and never produce NaN state', () => {
   const meta = M.initialMeta();
   meta.wins = 5;
   M.unlock(meta);
-  for (let chapter = 0; chapter < 5; chapter++) {
-    const r = M.makeRun(meta, 'spark', chapter, 44);
+  for (let chapter = 0; chapter < 3; chapter++) {
+    const r = fixtureRun(meta, 'spark', chapter, 44);
     r.step = 7;
     r.kind = 'boss';
     r.items = [

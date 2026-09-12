@@ -1,3 +1,6 @@
+import { CAMPAIGN_EVENTS, type EventEffect } from './campaign-content';
+import { RESIDENTS, RESIDENT_BY_ID } from './residents';
+import { FURNITURE } from './furniture';
 import {
   APARTMENT_SLOTS,
   STORAGE_LIMIT,
@@ -22,7 +25,6 @@ import {
   HOUSE_EXPANSION_COSTS,
 } from './residents';
 import {
-  initialFurniture,
   restoreFurniture,
   furnitureBonuses,
   canFurnish,
@@ -54,7 +56,19 @@ export interface Meta {
   storyRevision: number;
   sceneProgress: { id: string; index: number } | null;
 }
-export type NodeKind = 'battle' | 'elite' | 'shop' | 'event' | 'rest' | 'boss';
+export type NodeKind =
+  | 'battle'
+  | 'elite'
+  | 'shop'
+  | 'event'
+  | 'rest'
+  | 'boss'
+  | 'mystery'
+  | 'chest';
+export interface Loot {
+  kind: 'module' | 'furniture';
+  id: string;
+}
 export interface Run {
   research: Record<string, number>;
   seed: number;
@@ -62,7 +76,19 @@ export interface Run {
   character: string;
   step: number;
   nodes: NodeKind[][];
-  routeVersion: 2;
+  routeVersion: 2 | 3;
+  campaignVersion: 1;
+  bossVariants: number[];
+  houseLevel: number;
+  rescued: string[];
+  battlesSinceRescue: number;
+  battleCount: number;
+  bossesDefeated: number;
+  revealed: Record<string, NodeKind>;
+  loot: Loot[];
+  shopFurniture: string[];
+  repairUsed: boolean;
+  eventResult: string;
   path: number[];
   historyStart: number;
   equipmentLayout: 1;
@@ -92,6 +118,306 @@ export interface Stats extends Record<Stat, number> {
   synergies: string[];
 }
 export const SAVE_KEY = 'osbb.save.v1';
+export function legacyTree(seed: number): NodeKind[][] {
+  const nodes: NodeKind[][] = [
+    ['battle'],
+    ['battle', 'elite'],
+    ['shop', 'event', 'rest'],
+    ['battle', 'elite'],
+    ['event', 'rest', 'shop'],
+    ['battle', 'elite'],
+    ['shop', 'rest'],
+    ['boss'],
+  ];
+  if (seeded(seed)() > 0.5) nodes[4] = ['event', 'shop', 'rest'];
+  return nodes;
+}
+export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+  const rng = seeded(seed + chapter * 100003 + 81);
+  const pool: NodeKind[] = [
+    'battle',
+    'battle',
+    'elite',
+    'event',
+    'mystery',
+    'chest',
+  ];
+  return [1, 3, 4, 3, 4, 4, 3, 4, 4, 3, 3, 1].map((width, row) =>
+    row === 0
+      ? ['battle']
+      : row === 11
+        ? ['boss']
+        : row === 4
+          ? ['shop', 'rest', 'shop', 'event']
+          : row === 10
+            ? ['rest', 'shop', 'rest']
+            : row % 2 === 1
+              ? Array.from({ length: width }, (_, col) =>
+                  col === 1 ? 'elite' : 'battle',
+                )
+              : Array.from({ length: width }, (_, col) =>
+                  row === 2 && col === 0
+                    ? 'chest'
+                    : row === 2 && col === 3
+                      ? 'mystery'
+                      : pool[Math.floor(rng() * pool.length)],
+                ),
+  );
+}
+export function mysteryKind(run: Run, nodeId: string): NodeKind {
+  const col = Number(nodeId.split(':')[1]) || 0;
+  const rng = seeded(
+    run.seed + run.chapter * 100003 + run.step * 881 + col * 199 + 735,
+  );
+  const pool: NodeKind[] = [
+    'battle',
+    'battle',
+    'elite',
+    'shop',
+    'event',
+    'event',
+    'rest',
+    'chest',
+    'chest',
+    'boss',
+  ];
+  return pool[Math.floor(rng() * pool.length)];
+}
+export function furniturePrice(run: Run, id: string) {
+  return Math.round(
+    (FURNITURE_BY_ID[id]?.cost ?? 0) * (1 + run.chapter * 0.15),
+  );
+}
+export function furnitureOffers(run: Run, count = 2) {
+  const rng = seeded(
+    run.seed + run.chapter * 100003 + run.step * 617 + 83 + run.rerolls * 199,
+  );
+  return [...FURNITURE]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((i) => ({ id: i.id, n: rng() }))
+    .sort((a, b) => a.n - b.n)
+    .slice(0, count)
+    .map((i) => i.id);
+}
+export function randomLoot(
+  run: Run,
+  meta: Meta,
+  count: number,
+  salt: number,
+  any = false,
+  forced?: 'module' | 'furniture',
+  rare = false,
+): Loot[] {
+  const rng = seeded(run.seed + run.chapter * 100003 + run.step * 301 + salt);
+  const out: Loot[] = [];
+  for (let i = 0; i < count; i++) {
+    const kind = forced ?? (rng() < (any ? 0.5 : 0.3) ? 'furniture' : 'module');
+    const pool =
+      kind === 'furniture'
+        ? FURNITURE.map((i) => i.id)
+        : ITEMS.filter((i) => any || meta.unlocked.includes(i.id)).flatMap(
+            (i) =>
+              Array(
+                rare ? [0, 1, 3, 5, 3][i.rarity] : [0, 12, 6, 3, 1][i.rarity],
+              ).fill(i.id),
+          );
+    const available = pool.filter(
+      (id) => !out.some((l) => l.kind === kind && l.id === id),
+    );
+    if (available.length)
+      out.push({ kind, id: available[Math.floor(rng() * available.length)] });
+  }
+  return out;
+}
+export function claimFurniture(run: Run, index: number): Run {
+  const loot = run.loot[index];
+  if (
+    run.page !== 'reward' ||
+    loot?.kind !== 'furniture' ||
+    run.furniture.length >= 30
+  )
+    return run;
+  return nextNode({
+    ...run,
+    furniture: [
+      ...run.furniture,
+      { uid: run.nextFurnitureId, id: loot.id, resident: null, cell: null },
+    ],
+    nextFurnitureId: run.nextFurnitureId + 1,
+    loot: [],
+    reward: [],
+  });
+}
+export function battleRewards(run: Run, meta: Meta): Run {
+  let next: Run = {
+    ...run,
+    page: 'reward',
+    battleCount: run.battleCount + 1,
+    battlesSinceRescue: run.battlesSinceRescue + 1,
+    coins:
+      run.coins +
+      18 +
+      run.chapter * 6 +
+      (run.kind === 'elite' ? 14 : run.kind === 'boss' ? 25 : 0),
+    scrap: run.scrap + (run.kind === 'elite' ? 3 : 1),
+    eventResult: '',
+  };
+  if (
+    next.battleCount === 1 ||
+    next.battlesSinceRescue >= 4 ||
+    seeded(run.seed + run.chapter * 100003 + run.step * 419)() < 0.18
+  ) {
+    const rescue = recruit(next, meta);
+    next = rescue.run;
+    if (rescue.id)
+      next.eventResult = `Урятовано: ${RESIDENT_BY_ID[rescue.id].name}. ${next.residents.some((r) => r.id === rescue.id) ? 'Квартиру заселено.' : 'Потрібне місце: переплануй або розшир будинок.'}`;
+  }
+  next.loot = randomLoot(
+    run,
+    meta,
+    3,
+    67,
+    false,
+    undefined,
+    run.kind === 'elite' || run.kind === 'boss',
+  );
+  next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
+  return next;
+}
+export function advanceLocation(run: Run, meta: Meta): Run {
+  if (
+    run.kind !== 'boss' ||
+    run.step !== run.nodes.length - 1 ||
+    run.chapter >= 2
+  )
+    return run;
+  const chapter = run.chapter + 1;
+  return {
+    ...run,
+    chapter,
+    nodes: campaignTree(run.seed, chapter),
+    routeVersion: 3,
+    step: 0,
+    path: [],
+    historyStart: 0,
+    page: 'map',
+    kind: 'battle',
+    bossesDefeated: run.bossesDefeated + 1,
+    loot: [],
+    reward: [],
+    offers: [],
+    shopFurniture: [],
+    bought: [],
+    revealed: {},
+    eventResult: '',
+    eventDone: false,
+    rerolls: 0,
+    repairUsed: false,
+    hp: Math.min(
+      statsFor(run, meta).health,
+      run.hp + statsFor(run, meta).health * 0.25,
+    ),
+  };
+}
+export function eventFor(run: Run) {
+  const pool = CAMPAIGN_EVENTS.filter((e) => e.chapter === run.chapter);
+  return pool[
+    Math.floor(
+      seeded(run.seed + run.chapter * 100003 + run.step * 719)() * pool.length,
+    )
+  ];
+}
+export function canChooseEvent(run: Run, meta: Meta, e: EventEffect) {
+  return (
+    run.coins + (e.coins ?? 0) >= 0 &&
+    run.scrap + (e.scrap ?? 0) >= 0 &&
+    run.hp > Math.ceil(statsFor(run, meta).health * (e.damageMax ?? 0))
+  );
+}
+export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
+  if (run.page !== 'event' || run.eventDone) return run;
+  const max = statsFor(run, meta).health;
+  if (run.kind === 'rest')
+    return {
+      ...run,
+      eventDone: true,
+      eventResult:
+        choice === 0
+          ? 'Відновлено 35% міцності.'
+          : 'Знайдено 20 монет і 3 брухту.',
+      hp: choice === 0 ? Math.min(max, run.hp + max * 0.35) : run.hp,
+      coins: run.coins + (choice === 1 ? 20 : 0),
+      scrap: run.scrap + (choice === 1 ? 3 : 0),
+    };
+  const selected = eventFor(run).choices[choice];
+  if (!selected || !canChooseEvent(run, meta, selected.effect)) return run;
+  const e = selected.effect;
+  let next: Run = {
+    ...run,
+    eventDone: true,
+    eventResult: selected.result,
+    coins: run.coins + (e.coins ?? 0),
+    scrap: run.scrap + (e.scrap ?? 0),
+    hp: Math.min(
+      max,
+      run.hp - Math.ceil(max * (e.damageMax ?? 0)) + max * (e.healMax ?? 0),
+    ),
+  };
+  if (e.rescue) {
+    const result = recruit(next, meta);
+    next = {
+      ...result.run,
+      eventResult:
+        selected.result +
+        (result.id
+          ? ` Урятовано: ${RESIDENT_BY_ID[result.id].name}.`
+          : ' Усі мешканці вже з нами: +25 монет.'),
+    };
+  }
+  if (e.loot) {
+    next.page = 'reward';
+    next.loot = randomLoot(run, meta, 1, 404, false, e.loot, e.rare);
+    next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
+  }
+  return next;
+}
+export function rerollShop(run: Run, meta: Meta): Run {
+  const cost = 25 + 15 * run.rerolls;
+  if (run.page !== 'shop' || run.coins < cost) return run;
+  const next = { ...run, coins: run.coins - cost, rerolls: run.rerolls + 1 };
+  const replacements = offers(meta, next, 3, 800 + next.rerolls * 83);
+  next.offers = run.offers.map((id, i) =>
+    run.bought.includes(i) ? id : (replacements[i] ?? id),
+  );
+  const sold = new Set(
+    run.shopFurniture.filter((_, i) => run.bought.includes(i + 10)),
+  );
+  const furniture = furnitureOffers(next, FURNITURE.length).filter(
+    (id) => !sold.has(id),
+  );
+  let furnitureIndex = 0;
+  next.shopFurniture = run.shopFurniture.map((id, i) =>
+    run.bought.includes(i + 10) ? id : furniture[furnitureIndex++],
+  );
+  return next;
+}
+export function repairShop(run: Run, meta: Meta): Run {
+  const cost = 30 + run.chapter * 10,
+    max = statsFor(run, meta).health;
+  if (
+    run.page !== 'shop' ||
+    run.repairUsed ||
+    run.coins < cost ||
+    run.hp >= max
+  )
+    return run;
+  return {
+    ...run,
+    coins: run.coins - cost,
+    hp: Math.min(max, run.hp + max * 0.3),
+    repairUsed: true,
+  };
+}
 export function initialMeta(): Meta {
   return {
     version: 1,
@@ -151,33 +477,30 @@ export function makeRun(
   const c =
     CHARACTERS.find((c) => c.id === character && c.win <= meta.wins) ??
     CHARACTERS[0];
-  const r = seeded(seed);
-  const nodes: NodeKind[][] = [
-    ['battle'],
-    ['battle', 'elite'],
-    ['shop', 'event', 'rest'],
-    ['battle', 'elite'],
-    ['event', 'rest', 'shop'],
-    ['battle', 'elite'],
-    ['shop', 'rest'],
-    ['boss'],
-  ];
-  if (r() > 0.5) nodes[4] = ['event', 'shop', 'rest'];
+  chapter = Math.max(0, Math.min(2, Math.floor(chapter || 0)));
+  const nodes = campaignTree(seed, chapter);
   const run: Run = {
     research: { ...meta.research },
     seed: Number.isFinite(seed) ? seed : Date.now(),
-    chapter: Math.max(
-      0,
-      Math.min(
-        4,
-        meta.wins,
-        Math.floor(Number.isFinite(chapter) ? chapter : 0),
-      ),
-    ),
+    chapter,
     character: c.id,
     step: 0,
     nodes,
-    routeVersion: 2,
+    routeVersion: 3,
+    campaignVersion: 1,
+    bossVariants: [0, 1, 2].map((n) =>
+      Math.floor(seeded(seed + n * 91237 + 919)() * 3),
+    ),
+    houseLevel: 0,
+    rescued: [c.id],
+    battlesSinceRescue: 0,
+    battleCount: 0,
+    bossesDefeated: 0,
+    revealed: {},
+    loot: [],
+    shopFurniture: [],
+    repairUsed: false,
+    eventResult: '',
     path: [],
     historyStart: 0,
     equipmentLayout: 1,
@@ -185,8 +508,8 @@ export function makeRun(
     backpack: [],
     nextBagId: 1,
     residents: initialHouse(c.id),
-    furniture: initialFurniture(),
-    nextFurnitureId: 3,
+    furniture: [],
+    nextFurnitureId: 1,
     coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
     scrap: 0,
     hp: 100,
@@ -305,6 +628,10 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   s.drones = Math.min(6, s.drones);
   s.orbit = Math.min(8, s.orbit);
   s.crit = Math.min(0.8, s.crit);
+  s.regen = Math.min(4, s.regen);
+  s.armor = Math.min(12, s.armor);
+  s.rate = Math.min(4.5, s.rate);
+  s.speed = Math.min(260, s.speed);
   return s;
 }
 export function offers(
@@ -314,7 +641,7 @@ export function offers(
   salt: number,
   rare = false,
 ): string[] {
-  const rng = seeded(run.seed + run.step * 301 + salt);
+  const rng = seeded(run.seed + run.chapter * 100003 + run.step * 301 + salt);
   const pool = ITEMS.filter((i) => meta.unlocked.includes(i.id));
   const out: string[] = [];
   for (let j = 0; j < count; j++) {
@@ -333,9 +660,7 @@ export function offers(
   return out;
 }
 export function priceFor(item: Item, run: Run) {
-  return Math.round(
-    item.price * (run.chapter >= 2 ? 0.95 : 1) * (1 + run.step * 0.035),
-  );
+  return Math.round(item.price * (1 + run.chapter * 0.15));
 }
 // Each entry contains the next row's columns reachable from this column.
 // Branches split and merge without crossings; every route reaches the boss.
@@ -354,14 +679,27 @@ const ROUTE_CONNECTIONS: number[][][] = [
   [[0, 1], [1]],
   [[0], [0]],
 ];
-export function routeTargets(step: number, column: number): readonly number[] {
-  return ROUTE_CONNECTIONS[step]?.[column] ?? [];
+export function routeTargets(
+  step: number,
+  column: number,
+  nodes?: NodeKind[][],
+): readonly number[] {
+  if (!nodes || nodes.length === 8)
+    return ROUTE_CONNECTIONS[step]?.[column] ?? [];
+  const a = nodes[step]?.length,
+    b = nodes[step + 1]?.length;
+  if (!a || !b || column < 0 || column >= a) return [];
+  if (a === 1) return Array.from({ length: b }, (_, i) => i);
+  const position = (column * (b - 1)) / (a - 1);
+  const left = Math.max(0, Math.floor(position - 0.4)),
+    right = Math.min(b - 1, Math.ceil(position + 0.4));
+  return Array.from({ length: right - left + 1 }, (_, i) => left + i);
 }
 export function availableColumns(run: Run): readonly number[] {
   if (run.path.length > run.step) return [run.path[run.step]];
   if (run.step === 0) return [0];
   if (run.path.length !== run.step) return [];
-  return routeTargets(run.step - 1, run.path[run.step - 1]);
+  return routeTargets(run.step - 1, run.path[run.step - 1], run.nodes);
 }
 export function reachableColumns(run: Run): number[][] {
   const reachable = run.nodes.map(() => [] as number[]);
@@ -369,7 +707,9 @@ export function reachableColumns(run: Run): number[][] {
   for (let step = run.step + 1; step < run.nodes.length; step++)
     reachable[step] = [
       ...new Set(
-        reachable[step - 1].flatMap((col) => [...routeTargets(step - 1, col)]),
+        reachable[step - 1].flatMap((col) => [
+          ...routeTargets(step - 1, col, run.nodes),
+        ]),
       ),
     ];
   return reachable;
@@ -380,11 +720,22 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
   const step = Number(match[1]),
     column = Number(match[2]);
   if (step !== run.step || !availableColumns(run).includes(column)) return run;
-  const kind = run.nodes[step]?.[column];
+  const original = run.nodes[step]?.[column];
+  const kind =
+    original === 'mystery'
+      ? (run.revealed[nodeId] ?? mysteryKind(run, nodeId))
+      : original;
   if (!kind) return run;
   const next: Run = {
     ...run,
     kind,
+    revealed:
+      original === 'mystery'
+        ? { ...run.revealed, [nodeId]: kind }
+        : run.revealed,
+    loot: [],
+    eventResult: '',
+    repairUsed: false,
     path: [...run.path.slice(0, step), column],
     bought: [],
     rerolls: 0,
@@ -392,9 +743,14 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
   };
   if (kind === 'shop') {
     next.page = 'shop';
-    next.offers = offers(meta, run, 4, 41);
+    next.offers = offers(meta, run, 3, 41);
+    next.shopFurniture = furnitureOffers(run, 2);
   } else if (kind === 'event' || kind === 'rest') {
     next.page = 'event';
+  } else if (kind === 'chest') {
+    next.page = 'reward';
+    next.loot = randomLoot(run, meta, 1, 731, true);
+    next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
   } else next.page = 'combat';
   return next;
 }
@@ -409,6 +765,10 @@ export function nextNode(run: Run): Run {
   return {
     ...run,
     step: run.step + 1,
+    loot: [],
+    eventResult: '',
+    shopFurniture: [],
+    repairUsed: false,
     page: 'map',
     offers: [],
     bought: [],
@@ -444,7 +804,8 @@ export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
     run.page === 'combat' ||
     !canEquipAt(run, slot) ||
     !ITEM_BY_ID[itemId] ||
-    !meta.unlocked.includes(itemId)
+    (!meta.unlocked.includes(itemId) &&
+      !run.loot.some((l) => l.kind === 'module' && l.id === itemId))
   )
     return run;
   let next = run;
@@ -460,7 +821,8 @@ export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
 export function packItem(run: Run, meta: Meta, id: string): Run {
   if (
     run.page === 'combat' ||
-    !meta.unlocked.includes(id) ||
+    (!meta.unlocked.includes(id) &&
+      !run.loot.some((l) => l.kind === 'module' && l.id === id)) ||
     !ITEM_BY_ID[id] ||
     run.backpack.length >= STORAGE_LIMIT
   )
@@ -527,8 +889,10 @@ export function buyFurniture(run: Run, id: string): Run {
   const item = FURNITURE_BY_ID[id];
   if (
     !item ||
-    run.page === 'combat' ||
-    run.coins < item.cost ||
+    run.page !== 'shop' ||
+    !run.shopFurniture.includes(id) ||
+    run.bought.includes(10 + run.shopFurniture.indexOf(id)) ||
+    run.coins < furniturePrice(run, id) ||
     run.furniture.length >= 30 ||
     !Number.isInteger(run.nextFurnitureId) ||
     run.nextFurnitureId < 1 ||
@@ -538,7 +902,8 @@ export function buyFurniture(run: Run, id: string): Run {
     return run;
   return {
     ...run,
-    coins: run.coins - item.cost,
+    coins: run.coins - furniturePrice(run, id),
+    bought: [...run.bought, 10 + run.shopFurniture.indexOf(id)],
     nextFurnitureId: run.nextFurnitureId + 1,
     furniture: [
       ...run.furniture,
@@ -583,17 +948,20 @@ export function removeFurniture(run: Run, meta: Meta, uid: number): Run {
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
-export function expandHouse(meta: Meta, run: Run | null): Meta {
-  const cost = HOUSE_EXPANSION_COSTS[meta.houseLevel];
-  if (run?.page === 'combat' || cost === undefined || meta.cores < cost)
-    return meta;
-  return { ...meta, cores: meta.cores - cost, houseLevel: meta.houseLevel + 1 };
+export function expandHouse(meta: Meta, _run: Run | null): Meta {
+  return meta;
+}
+export function expandRunHouse(run: Run): Run {
+  const cost = HOUSE_EXPANSION_COSTS[run.houseLevel];
+  return run.page === 'combat' || cost === undefined || run.coins < cost
+    ? run
+    : { ...run, coins: run.coins - cost, houseLevel: run.houseLevel + 1 };
 }
 export function houseResident(run: Run, meta: Meta, room: ResidentRoom): Run {
   if (
     run.page === 'combat' ||
-    !meta.residents.includes(room.id) ||
-    !canHouse(run.residents, room, meta.houseLevel)
+    !run.rescued.includes(room.id) ||
+    !canHouse(run.residents, room, run.houseLevel)
   )
     return run;
   const next = {
@@ -635,20 +1003,35 @@ export function reserveResident(run: Run, meta: Meta, id: string): Run {
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
-export function rescueResident(
-  run: Run,
-  meta: Meta,
-): { run: Run; meta: Meta; id: string } | null {
+export function recruit(run: Run, meta: Meta): { run: Run; id: string | null } {
+  const pool = RESIDENTS.filter((r) => !run.rescued.includes(r.id));
+  if (!pool.length)
+    return {
+      run: { ...run, coins: run.coins + 25, battlesSinceRescue: 0 },
+      id: null,
+    };
+  const id =
+    pool[
+      Math.floor(
+        seeded(
+          run.seed +
+            run.chapter * 100003 +
+            run.step * 773 +
+            run.rescued.length * 97,
+        )() * pool.length,
+      )
+    ].id;
+  let next = { ...run, rescued: [...run.rescued, id], battlesSinceRescue: 0 };
+  const room = residentSpace(next.residents, id, next.houseLevel);
+  if (room) next = houseResident(next, meta, room);
+  return { run: next, id };
+}
+export function rescueResident(run: Run, meta: Meta) {
   if (run.page !== 'event' || run.kind !== 'event' || run.eventDone)
     return null;
-  const id = ['marta', 'danilo', 'solomia'].find(
-    (id) => !meta.residents.includes(id),
-  );
-  if (!id) return null;
-  const nextMeta = { ...meta, residents: [...meta.residents, id] };
-  const room = residentSpace(run.residents, id, meta.houseLevel);
-  const next = room ? houseResident(run, nextMeta, room) : run;
-  return { run: { ...next, eventDone: true }, meta: nextMeta, id };
+  const result = recruit(run, meta);
+  if (!result.id) return null;
+  return { run: { ...result.run, eventDone: true }, meta, id: result.id };
 }
 export function finishRun(
   meta: Meta,
@@ -671,9 +1054,10 @@ export function finishRun(
   n.kills += run.kills;
   n.dashes += run.dashes;
   n.best = Math.max(n.best, run.kills);
-  if (won && run.chapter === Math.min(meta.wins, 4))
-    n.wins = Math.min(5, n.wins + 1);
-  const cores = Math.floor(run.kills / 18) + (won ? 6 + run.chapter * 2 : 0);
+  if (won && run.chapter === 2) n.wins = Math.min(5, n.wins + 1);
+  const cores =
+    Math.min(4, Math.floor(run.kills / 100)) +
+    [0, 2, 5, 10][Math.min(3, run.bossesDefeated + (won ? 1 : 0))];
   n.cores += cores;
   n.lore = loreForProgress(meta.lore, n.wins, run.chapter);
   n.residents = residentRoster(meta.residents, n.wins);
@@ -691,7 +1075,7 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
     (Array.isArray(path) && path.length === run.step + 1);
   const count = run.step + (active ? 1 : 0);
   const valid =
-    saved.routeVersion === 2 &&
+    (saved.routeVersion === 2 || saved.routeVersion === 3) &&
     Array.isArray(path) &&
     path.length === count &&
     path.every(
@@ -700,9 +1084,11 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
         !!run.nodes[step]?.[col] &&
         (step === 0
           ? col === 0
-          : routeTargets(step - 1, path[step - 1]).includes(col)),
+          : routeTargets(step - 1, path[step - 1], run.nodes).includes(col)),
     ) &&
-    (!active || run.nodes[run.step][path[run.step]] === saved.kind);
+    (!active ||
+      run.nodes[run.step][path[run.step]] === saved.kind ||
+      run.nodes[run.step][path[run.step]] === 'mystery');
   if (valid) {
     run.path = [...path];
     run.historyStart = Math.floor(finite(saved.historyStart, 0, run.step, 0));
@@ -710,12 +1096,15 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
     // Old saves did not record choices. Reconstruct a legal prefix ending at
     // the saved room, but do not present inferred past rooms as visited.
     let candidates: number[][] = [[]];
-    for (let step = 0; step < count; step++)
-      candidates = candidates.flatMap((prefix) =>
-        (step === 0 ? [0] : routeTargets(step - 1, prefix[step - 1])).map(
-          (col) => [...prefix, col],
-        ),
-      );
+    for (let step = 0; step < count; step++) {
+      const endpoints = new Map<number, number[]>();
+      for (const prefix of candidates)
+        for (const col of step === 0
+          ? [0]
+          : routeTargets(step - 1, prefix[step - 1], run.nodes))
+          if (!endpoints.has(col)) endpoints.set(col, [...prefix, col]);
+      candidates = [...endpoints.values()];
+    }
     run.path =
       candidates.find(
         (p) => run.nodes[count - 1]?.[p[count - 1]] === saved.kind,
@@ -724,7 +1113,14 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
       [];
     run.historyStart = run.step;
   }
-  if (count) run.kind = run.nodes[count - 1][run.path[count - 1]];
+  if (count) {
+    const node = run.nodes[count - 1][run.path[count - 1]];
+    run.kind =
+      node === 'mystery'
+        ? (run.revealed[count - 1 + ':' + run.path[count - 1]] ??
+          mysteryKind(run, count - 1 + ':' + run.path[count - 1]))
+        : node;
+  }
 }
 export function readSave(raw: string | null): {
   meta: Meta;
@@ -754,6 +1150,15 @@ export function readSave(raw: string | null): {
       : [];
     for (const k of ['hull', 'supplies', 'garage'])
       base.research[k] = Math.floor(finite(m.research?.[k], 0, 5, 0));
+    base.unlocked = [
+      ...new Set([
+        ...base.unlocked,
+        ...(Array.isArray(m.unlocked)
+          ? m.unlocked.filter((id: string) => !!ITEM_BY_ID[id])
+          : []),
+        ...base.seen,
+      ]),
+    ];
     unlock(base);
     base.lore = loreForProgress(Array.isArray(m.lore) ? m.lore : [], base.wins);
     base.residents = residentRoster(m.residents, base.wins);
@@ -762,12 +1167,20 @@ export function readSave(raw: string | null): {
           ...new Set<string>(
             m.scenesSeen.filter(
               (id: unknown) =>
-                typeof id === 'string' && sceneUnlocked(id, base.wins),
+                typeof id === 'string' &&
+                (sceneUnlocked(id, base.wins, o.run?.chapter) ||
+                  ['victory-0', 'victory-1', 'arrival-1', 'arrival-2'].includes(
+                    id,
+                  )),
             ),
           ),
         ]
       : [];
-    base.sceneProgress = restoreSceneProgress(m.sceneProgress, base.wins);
+    base.sceneProgress = restoreSceneProgress(
+      m.sceneProgress,
+      base.wins,
+      base.scenesSeen.includes(m.sceneProgress?.id) ? 3 : undefined,
+    );
     if (m.storyRevision !== STORY_REVISION) {
       base.scenesSeen = base.scenesSeen.filter((id) => id !== 'prologue');
       base.sceneProgress = { id: 'prologue', index: 0 };
@@ -784,21 +1197,82 @@ export function readSave(raw: string | null): {
         : r.items.length === 9) &&
       Number.isInteger(r.step) &&
       r.step >= 0 &&
-      r.step < 8
+      r.step < (r.campaignVersion === 1 ? 12 : 8)
     ) {
       run = makeRun(
         base,
         r.character,
-        Math.floor(finite(r.chapter, 0, Math.min(base.wins, 4), 0)),
+        Math.floor(finite(r.chapter, 0, 2, 0)),
         r.seed,
       );
+      if (r.campaignVersion !== 1 || r.routeVersion === 2) {
+        run.nodes = legacyTree(r.seed);
+        run.routeVersion = 2;
+        run.houseLevel = 4;
+      } else run.houseLevel = Math.floor(finite(r.houseLevel, 0, 4, 0));
+      run.rescued = [
+        ...new Set<string>(
+          [
+            run.character,
+            ...(Array.isArray(r.rescued) ? r.rescued : []),
+            ...(Array.isArray(r.residents)
+              ? r.residents.map((room: ResidentRoom) => room?.id)
+              : []),
+          ].filter((id) => !!RESIDENT_BY_ID[id]),
+        ),
+      ];
+      run.bossVariants = [0, 1, 2].map((i) =>
+        Math.floor(finite(r.bossVariants?.[i], 0, 2, run!.bossVariants[i])),
+      );
+      run.revealed = {};
+      if (r.revealed && typeof r.revealed === 'object')
+        for (const [key, value] of Object.entries(r.revealed))
+          if (
+            [
+              'battle',
+              'elite',
+              'shop',
+              'event',
+              'rest',
+              'boss',
+              'chest',
+            ].includes(value as string) &&
+            /^\d+:\d+$/.test(key)
+          )
+            run.revealed[key] = value as NodeKind;
+      run.loot = Array.isArray(r.loot)
+        ? r.loot
+            .filter(
+              (l: Loot) =>
+                l &&
+                (l.kind === 'module'
+                  ? !!ITEM_BY_ID[l.id]
+                  : l.kind === 'furniture' && !!FURNITURE_BY_ID[l.id]),
+            )
+            .slice(0, 3)
+        : [];
+      run.battleCount = Math.floor(finite(r.battleCount, 0, 100, 0));
+      run.battlesSinceRescue = Math.floor(
+        finite(r.battlesSinceRescue, 0, 100, 0),
+      );
+      run.bossesDefeated = Math.floor(
+        finite(r.bossesDefeated, 0, 2, run.chapter),
+      );
+      run.shopFurniture = Array.isArray(r.shopFurniture)
+        ? r.shopFurniture
+            .filter((id: string) => !!FURNITURE_BY_ID[id])
+            .slice(0, 2)
+        : [];
+      run.repairUsed = !!r.repairUsed;
+      run.eventResult =
+        typeof r.eventResult === 'string' ? r.eventResult.slice(0, 1000) : '';
       if (r.research)
         for (const key of ['hull', 'supplies', 'garage'])
           run.research[key] = Math.floor(
             finite(r.research[key], 0, base.research[key], 0),
           );
       const savedItems: (string | null)[] = r.items.map((id: unknown) =>
-        typeof id === 'string' && base.unlocked.includes(id) ? id : null,
+        typeof id === 'string' && !!ITEM_BY_ID[id] ? id : null,
       );
       // v0.2 module shapes remain readable; the storage list no longer uses geometry.
       const bag = Array.isArray(r.backpack) ? r.backpack : [];
@@ -807,7 +1281,7 @@ export function readSave(raw: string | null): {
         .filter(
           (i: PackedItem) =>
             i &&
-            base.unlocked.includes(i.id) &&
+            !!ITEM_BY_ID[i.id] &&
             Number.isInteger(i.uid) &&
             i.uid <= 1e8 &&
             i.uid > 0 &&
@@ -822,11 +1296,27 @@ export function readSave(raw: string | null): {
           y: finite(i.y, 0, 4, 0),
           rotation: Math.floor(finite(i.rotation, 0, 3, 0)),
         }));
+      const savedRooms =
+        r.residents ??
+        (r.campaignVersion !== 1
+          ? ['mechanic', 'nina', 'lev'].reduce((rooms: ResidentRoom[], id) => {
+              const room = residentSpace(rooms, id, 4);
+              if (room) rooms.push(room);
+              return rooms;
+            }, [])
+          : undefined);
+      if (r.campaignVersion !== 1 && savedRooms)
+        run.rescued = [
+          ...new Set([
+            ...run.rescued,
+            ...savedRooms.map((room: ResidentRoom) => room.id),
+          ]),
+        ];
       run.residents = restoreResidents(
-        r.residents,
-        base.residents,
+        savedRooms,
+        run.rescued,
         run.character,
-        base.houseLevel,
+        run.houseLevel,
       );
       run.furniture = restoreFurniture(r.furniture, run.residents);
       run.nextFurnitureId = Math.max(
@@ -898,10 +1388,22 @@ export function readSave(raw: string | null): {
             .slice(0, 3)
         : [];
       run.bought = Array.isArray(r.bought)
-        ? r.bought.filter((n: number) => Number.isInteger(n) && n >= 0 && n < 4)
+        ? r.bought.filter(
+            (n: number) => Number.isInteger(n) && n >= 0 && n < 12,
+          )
         : [];
       run.rerolls = finite(r.rerolls, 0, 50, 0);
       run.eventDone = !!r.eventDone;
+      if (!run.loot.length && run.page === 'reward')
+        run.loot = run.reward.map((id) => ({ kind: 'module', id }));
+      for (const id of [...run.items, ...run.backpack.map((i) => i.id)])
+        if (id && !base.unlocked.includes(id)) base.unlocked.push(id);
+      if (m.storyRevision === STORY_REVISION)
+        base.sceneProgress = restoreSceneProgress(
+          m.sceneProgress,
+          base.wins,
+          base.scenesSeen.includes(m.sceneProgress?.id) ? 3 : run.chapter,
+        );
       base.lore = loreForProgress(base.lore, base.wins, run.chapter);
     }
     return { meta: base, run };

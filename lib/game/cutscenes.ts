@@ -1,3 +1,4 @@
+import { CAMPAIGN_SCENES, CAMPAIGN_MISSIONS } from './campaign-content';
 export interface Shot {
   art: number;
   speaker: string;
@@ -13,7 +14,7 @@ export interface Cutscene {
 }
 export const STORY_YEAR = 2086;
 // Restart the rewritten introduction once for older saves, without resetting a run.
-export const STORY_REVISION = 3;
+export const STORY_REVISION = 4;
 export const ORIGIN_ART = {
   service: 7,
   failure: 8,
@@ -30,20 +31,14 @@ export const SCENE_IMAGE_BY_ART: Record<number, string> = {
   [ORIGIN_ART.greenhouse]: '/art/origins-greenhouse-machines-v1.webp',
   [ORIGIN_ART.loop]: '/art/origins-time-loop-v1.webp',
 };
-export const MISSIONS = [
-  'Знешкодь Коменданта, охоронну машину підстанції. Забери карту проходу до теплиць.',
-  'Зупини захисні механізми Матері теплиць і звільни виходи для людей. Знайди журнал евакуації.',
-  'Переможи Колектора й забери список будинків. З’ясуй, чию евакуацію не завершено.',
-  'Зупини будівельного робота Архітектора. Знайди шлях до центральної диспетчерської.',
-  'Подолай захист Останнього будинку. Перевези головний комп’ютер «Світанку» до притулку.',
-];
+export const MISSIONS = CAMPAIGN_MISSIONS;
 const shot = (
   art: number,
   speaker: string,
   text: string,
   time = 'ПЕТЛЯ · 04:17',
 ): Shot => ({ art, speaker, text, time });
-export const CUTSCENES: Cutscene[] = [
+const LEGACY_CUTSCENES: Cutscene[] = [
   {
     id: 'prologue',
     title: '2086. Будинок, який мав нас урятувати',
@@ -103,7 +98,7 @@ export const CUTSCENES: Cutscene[] = [
       shot(
         2,
         'Твоя роль · керівник евакуації будинку №17',
-        'Керуй нашим рухомим будинком: розселяй мешканців, встановлюй обладнання й рятуй інших уцілілих. Пройди п’ять районів, дістанься до «Світанку» та з’ясуй, чому він повторює аварію.',
+        'Керуй нашим рухомим будинком: розселяй мешканців, встановлюй обладнання й рятуй інших уцілілих. Пройди три локації за одну експедицію, дістанься до «Світанку» та з’ясуй, чому він повторює аварію.',
       ),
     ],
   },
@@ -355,6 +350,42 @@ export const CUTSCENES: Cutscene[] = [
     ],
   },
 ];
+export const CUTSCENES: Cutscene[] = [
+  ...LEGACY_CUTSCENES.filter((s) => ['prologue', 'origins'].includes(s.id)),
+  {
+    id: 'arrival-0',
+    title: 'Перша брама',
+    chapter: 0,
+    victory: false,
+    shots: [
+      shot(
+        9,
+        'Іскра · аварійний радіоканал',
+        'Іржавий квартал колись обслуговували збирачі брухту й патрульні дрони. Після збою «Світанку» вони приймають рухомі будинки за небезпечний вантаж. Тепер вони атакують усіх, хто намагається виїхати.',
+        'ЛОКАЦІЯ 1 · ІРЖАВИЙ КВАРТАЛ',
+      ),
+      shot(
+        1,
+        'Петрович · аварійний радіоканал',
+        'У кожному повторі охорона підстанції змінюється. Пройдемо квартал, урятуємо людей і знешкодимо машину біля брами. У пульті є дорога до теплиць — це наша наступна локація.',
+        'ПЕРША МЕТА · ВІДКРИТИ БРАМУ',
+      ),
+      shot(
+        2,
+        'Іскра · аварійний радіоканал',
+        'Будинок №17 починає шлях з головою ОСББ. Інших людей треба знайти в дорозі. Обладнання й меблі став у їхні квартири; на добудову відкладай монети. Після кожного боса їдемо далі тим самим будинком.',
+        'ОДНА ЕКСПЕДИЦІЯ · ТРИ ЛОКАЦІЇ',
+      ),
+    ],
+  },
+  ...CAMPAIGN_SCENES,
+  ...[0, 1].map((i) => ({
+    ...CAMPAIGN_SCENES[i],
+    id: 'arrival-' + (i + 1),
+    chapter: i + 1,
+    victory: false,
+  })),
+];
 export const SCENE_BY_ID: Record<string, Cutscene> = Object.assign(
   Object.create(null),
   Object.fromEntries(CUTSCENES.map((s) => [s.id, s])),
@@ -370,8 +401,10 @@ export function sceneUnlocked(
     (s.id === 'prologue' ||
       s.id === 'origins' ||
       (s.victory
-        ? wins > s.chapter
-        : wins >= s.chapter || chapter === s.chapter))
+        ? wins > 0 || (chapter !== undefined && chapter > s.chapter)
+        : wins > 0 ||
+          s.chapter === 0 ||
+          (chapter !== undefined && chapter >= s.chapter)))
   );
 }
 export function restoreSceneProgress(

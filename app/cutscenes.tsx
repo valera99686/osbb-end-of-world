@@ -167,7 +167,7 @@ export function StoryLibrary({
   return (
     <section className="collection-page">
       <button className="text-button" onClick={onBack}>
-        <ArrowLeft size={16} /> До притулку
+        <ArrowLeft size={16} /> Головне меню
       </button>
       <p className="eyebrow">
         УКРАЇНА · {STORY_YEAR} РІК · ІСТОРІЯ БУДИНКУ №17
@@ -182,7 +182,8 @@ export function StoryLibrary({
       </button>
       <div className="story-grid">
         {CUTSCENES.map((s) => {
-          const unlocked = sceneUnlocked(s.id, meta.wins);
+          const unlocked =
+            meta.scenesSeen.includes(s.id) || sceneUnlocked(s.id, meta.wins);
           return (
             <button
               key={s.id}

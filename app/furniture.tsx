@@ -8,17 +8,14 @@ import {
   Radio,
   Bike,
   X,
-  Coins,
 } from 'lucide-react';
 import {
-  FURNITURE,
   FURNITURE_BY_ID,
   furnitureEffect,
   canFurnish,
 } from '@/lib/game/furniture';
 import { RESIDENT_BY_ID } from '@/lib/game/residents';
 import {
-  buyFurniture,
   installFurniture,
   removeFurniture,
   type Run,
@@ -172,45 +169,14 @@ export function ApartmentFurniture({
       </div>
       {!inventory.length && (
         <p>
-          Усі меблі встановлено. Зніми предмет із квартири або придбай новий.
+          У запасі немає меблів. Шукай їх у скринях, магазинах, подіях і після
+          боїв.
         </p>
       )}
-      <details className="furniture-shop">
-        <summary>
-          Купити меблі{' '}
-          <span>
-            <Coins size={14} /> {run.coins}
-          </span>
-        </summary>
-        {FURNITURE.map((item) => (
-          <div key={item.id} className="furniture-offer">
-            <FurnitureIcon id={item.id} />
-            <div>
-              <b>{item.name}</b>
-              <p>
-                {furnitureEffect(item.id, null).label}. {item.bonus}.
-              </p>
-            </div>
-            <button
-              className="secondary small"
-              disabled={run.coins < item.cost || run.furniture.length >= 30}
-              onClick={() => {
-                const next = buyFurniture(run, item.id);
-                if (next === run) return;
-                onChange(next);
-                onPick(run.nextFurnitureId);
-                onMessage(`${item.name} придбано. Обери слот у квартирі.`);
-              }}
-              aria-label={`Купити ${item.name} за ${item.cost} монет`}
-            >
-              <Coins size={13} /> {item.cost}
-            </button>
-          </div>
-        ))}
-      </details>
+
       <p>
-        На початку рейду є безкоштовні верстак і мінітеплиця. Меблі належать
-        поточному рейду; добудова дому зберігається назавжди.
+        Меблі та добудови належать поточній експедиції. Предмети дають бонуси
+        лише після встановлення у квартирі.
       </p>
     </section>
   );

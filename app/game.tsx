@@ -1,4 +1,16 @@
 'use client';
+import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
+import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
+import { FURNITURE_BY_ID } from '@/lib/game/furniture';
+import {
+  battleRewards,
+  advanceLocation,
+  claimFurniture,
+  buyFurniture,
+  furniturePrice,
+  rerollShop,
+  repairShop,
+} from '@/lib/game/model';
 import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import {
   ArrowUpRight,
@@ -17,7 +29,6 @@ import {
   Zap,
   Wrench,
   Footprints,
-  Soup,
   Crosshair,
   Hexagon,
   Package,
@@ -27,7 +38,6 @@ import {
   Lock,
   Check,
   Skull,
-  MapPin,
   Plus,
   RefreshCw,
   HelpCircle,
@@ -68,14 +78,12 @@ import {
   initialMeta,
   makeRun,
   statsFor,
-  offers,
   priceFor,
   enterNode,
   nextNode,
   equip,
   packItem,
   installPacked,
-  rescueResident,
   finishRun,
   readSave,
   saveData,
@@ -325,7 +333,7 @@ function Combat({
         <div className="battle-center">
           <span className="micro">
             {run.kind === 'boss'
-              ? CHAPTERS[run.chapter].boss
+              ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
               : NODE_INFO[run.kind].name}
           </span>
           <strong>
@@ -347,7 +355,8 @@ function Combat({
       {hud.bossMax > 0 && (
         <div className="boss-health">
           <span>
-            {CHAPTERS[run.chapter].boss} · {Math.ceil(hud.boss)} / {hud.bossMax}
+            {campaignBoss(run.chapter, run.bossVariants[run.chapter]).name} ·{' '}
+            {Math.ceil(hud.boss)} / {hud.bossMax}
           </span>
           <small className="boss-attack-cue">
             ФАЗА {hud.bossPhase + 1} · {hud.bossAttack || 'Готується до атаки'}
@@ -437,8 +446,8 @@ function Combat({
         <DialogContent className="game-modal">
           <DialogTitle>Будинок перепочиває</DialogTitle>
           <DialogDescription>
-            Забіг поставлено на паузу. Повернення до притулку збереже стан перед
-            цим боєм.
+            Забіг поставлено на паузу. Повернення до меню збереже стан перед цим
+            боєм.
           </DialogDescription>
           <button className="primary" onClick={() => setPaused(false)}>
             <Play size={18} /> Продовжити
@@ -447,7 +456,7 @@ function Combat({
             className="secondary"
             onClick={() => onExit({ ...run, page: 'map' })}
           >
-            <Home size={18} /> Зберегти й до притулку
+            <Home size={18} /> Зберегти й до меню
           </button>
         </DialogContent>
       </Dialog>
@@ -494,7 +503,7 @@ export default function Game() {
       });
       setRun(s.run);
       setCharacter(s.run?.character ?? 'mechanic');
-      setChapter(s.run?.chapter ?? Math.min(4, s.meta.wins));
+      setChapter(0);
       if (s.error) setNotice('Збереження пошкоджено. Створено новий профіль.');
     } catch {
       setNotice(
@@ -592,7 +601,7 @@ export default function Game() {
         playScene(`arrival-${run.chapter}`);
       return;
     }
-    setRun(makeRun(meta, character, chapter));
+    setRun(makeRun(meta, character, 0));
     setMeta({
       ...meta,
       lore: loreForProgress(meta.lore, meta.wins, chapter),
@@ -611,14 +620,24 @@ export default function Game() {
     setNotice('');
   }
   function ended(b: BattleResult) {
-    if (!b.won || b.boss) {
+    const gate = b.boss && b.run.step === b.run.nodes.length - 1;
+    if (b.won && gate && b.run.chapter < 2) {
+      setRun(advanceLocation(b.run, meta));
+      setMeta((m) => ({
+        ...m,
+        scenesSeen: [
+          ...new Set([...m.scenesSeen, `arrival-${b.run.chapter + 1}`]),
+        ],
+        sceneProgress: { id: 'victory-' + b.run.chapter, index: 0 },
+      }));
+      ping('Локацію пройдено. Будинок і здобич переходять далі.');
+      return;
+    }
+    if (!b.won || gate) {
       const f = finishRun(meta, b.run, b.won);
       setMeta({
         ...f.meta,
-        sceneProgress:
-          b.won && !meta.scenesSeen.includes(`victory-${b.run.chapter}`)
-            ? { id: `victory-${b.run.chapter}`, index: 0 }
-            : null,
+        sceneProgress: b.won ? { id: 'victory-2', index: 0 } : null,
       });
       setRun(null);
       setResult({
@@ -626,14 +645,11 @@ export default function Game() {
         run: b.run,
         cores: f.cores,
         unlocks: f.unlocks,
-        final: b.won && b.run.chapter === 4,
+        final: b.won,
       });
-      setChapter(Math.min(4, f.meta.wins));
+      setChapter(0);
       setScreen('hub');
-    } else {
-      const reward = offers(meta, b.run, 3, 67, b.run.kind === 'elite');
-      setRun({ ...b.run, page: 'reward', reward });
-    }
+    } else setRun(battleRewards(b.run, meta));
   }
   function pick(id: string, source: 'shop' | 'reward', index: number) {
     if (!run) return;
@@ -663,7 +679,11 @@ export default function Game() {
     if (source === 'reward') next = nextNode(next);
     setRun(next);
     setPending(null);
-    setMeta({ ...meta, seen: [...new Set([...meta.seen, id])] });
+    setMeta({
+      ...meta,
+      seen: [...new Set([...meta.seen, id])],
+      unlocked: [...new Set([...meta.unlocked, id])],
+    });
     ping(`${ITEM_BY_ID[id].name} на складі.`);
   }
   function acquire(
@@ -690,7 +710,11 @@ export default function Game() {
       coins: next.coins - cost,
       bought: source === 'shop' ? [...next.bought, index] : next.bought,
     };
-    setMeta((m) => ({ ...m, seen: [...new Set([...m.seen, id])] }));
+    setMeta((m) => ({
+      ...m,
+      seen: [...new Set([...m.seen, id])],
+      unlocked: [...new Set([...m.unlocked, id])],
+    }));
     if (source === 'reward') next = nextNode(next);
     setRun(next);
     setPending(null);
@@ -709,56 +733,6 @@ export default function Game() {
     });
     ping('Дослідження завершено. Покращення діє з наступного рейду.');
   }
-  function eventChoice(choice: number) {
-    if (!run || run.eventDone) return;
-    let next = { ...run, eventDone: true };
-    const max = statsFor(run, meta).health;
-    if (run.kind === 'rest') {
-      if (choice === 0) {
-        next.hp = Math.min(max, run.hp + max * 0.5);
-        ping('Мешканці залатали дім. Відновлено 50% міцності.');
-      } else {
-        next.scrap += 5;
-        next.coins += 15;
-        ping('Обшукали гаражі: +5 брухту, +15 монет.');
-      }
-    } else {
-      const event = run.step % 3;
-      if (event === 0) {
-        if (choice === 0) {
-          if (run.coins < 20) return;
-          next.coins -= 20;
-          next.hp = Math.min(max, run.hp + 60);
-          next.scrap += 3;
-          ping('Петрович допоміг із ремонтом і залишив 3 брухту.');
-        } else {
-          next.coins += 18;
-          ping('Ви допомогли перетягнути генератор. +18 монет.');
-        }
-      } else if (event === 1) {
-        if (choice === 0) {
-          next.hp = Math.max(1, run.hp - 22);
-          next.coins += 45;
-          next.scrap += 3;
-          ping('Вивезли сейф: +45 монет і 3 брухту. Будинок отримав 22 шкоди.');
-        } else {
-          next.hp = Math.min(max, run.hp + 22);
-          ping('Перечекали бурю й підлатали вікна. +22 міцності.');
-        }
-      } else {
-        if (choice === 0) {
-          next.reward = offers(meta, run, 3, 404, true);
-          next.page = 'reward';
-          ping('Врятований сусід віддав креслення. Вибери модуль.');
-        } else {
-          next.coins += 30;
-          next.scrap += 2;
-          ping('Доставили вантаж. +30 монет, +2 брухту.');
-        }
-      }
-    }
-    setRun(next);
-  }
   const stats = run ? statsFor(run, meta) : null;
   const inventory = run && stats && (
     <aside className="inventory">
@@ -768,7 +742,7 @@ export default function Game() {
       </div>
       <HousePreview
         run={run}
-        level={meta.houseLevel}
+        level={run.houseLevel}
         onOpen={() => setHousingOpen(true)}
       />
       <button
@@ -778,7 +752,7 @@ export default function Game() {
         <Home size={18} /> Квартири й обладнання{' '}
         <span>
           {run.residents.reduce((n, r) => n + residentCells(r.id).length, 0)}/
-          {houseSize(meta.houseLevel).width * houseSize(meta.houseLevel).height}
+          {houseSize(run.houseLevel).width * houseSize(run.houseLevel).height}
         </span>
       </button>
       <p className="board-help">
@@ -805,7 +779,11 @@ export default function Game() {
         <div>
           <Crosshair size={16} />
           <span>Шкода</span>
-          <b>{Math.round(stats.damage * (1 + (run.level - 1) * 0.07))}</b>
+          <b>
+            {Math.round(
+              stats.damage * (1 + Math.min(0.6, (run.level - 1) * 0.04)),
+            )}
+          </b>
         </div>
         <div>
           <Zap size={16} />
@@ -869,7 +847,7 @@ export default function Game() {
           onClick={() => {
             if (run?.page !== 'combat') back();
           }}
-          aria-label="До притулку"
+          aria-label="Головне меню"
         >
           <span className="brand-mark">
             <Home size={19} />
@@ -949,7 +927,7 @@ export default function Game() {
                   onClick={() => setCharacter(c.id)}
                   title={
                     c.win > meta.wins
-                      ? `Відкриється після розділу ${c.win}`
+                      ? `Заверши ${c.win} повних експедицій`
                       : c.desc
                   }
                 >
@@ -964,7 +942,7 @@ export default function Game() {
             </div>
             <p className="crew-description">
               {run
-                ? `Голова ОСББ: ${RESIDENT_BY_ID[run.character].name}. На борту — ${run.residents.length}. Решта врятованих мешканців чекають у притулку.`
+                ? `Голова ОСББ: ${RESIDENT_BY_ID[run.character].name}. На борту — ${run.residents.length}. Урятовані в цій експедиції: ${run.rescued.length}.`
                 : CHARACTERS.find((c) => c.id === character)?.desc}
             </p>
             <button
@@ -1009,38 +987,30 @@ export default function Game() {
           </div>
           <div className="chapter-plaque">
             <span className="micro">НАСТУПНА ЗУПИНКА</span>
-            <h3>{CHAPTERS[run?.chapter ?? chapter].name}</h3>
-            <p>{CHAPTERS[run?.chapter ?? chapter].story}</p>
-            <div className="chapter-dots">
-              {CHAPTERS.map((c, i) => (
-                <button
-                  key={i}
-                  disabled={i > meta.wins || !!run}
-                  className={(run?.chapter ?? chapter) === i ? 'active' : ''}
-                  onClick={() => setChapter(i)}
-                  title={`${i + 1}. ${c.name}${i > meta.wins ? ' · ще закрито' : ''}`}
-                  aria-label={`Розділ ${i + 1}: ${c.name}`}
+            <h3>{LOCATIONS[run?.chapter ?? 0].name}</h3>
+            <p>{LOCATIONS[run?.chapter ?? 0].desc}</p>
+            <ol className="campaign-itinerary">
+              {LOCATIONS.map((location, i) => (
+                <li
+                  key={location.id}
+                  className={(run?.chapter ?? 0) === i ? 'active' : ''}
                 >
-                  {i < meta.wins ? (
-                    <Check size={14} />
-                  ) : i > meta.wins ? (
-                    <Lock size={12} />
-                  ) : (
-                    String(i + 1).padStart(2, '0')
-                  )}
-                </button>
+                  <b>0{i + 1}</b>
+                  <span>{location.name}</span>
+                  {run && run.chapter > i && <Check size={16} />}
+                </li>
               ))}
-            </div>
+            </ol>
           </div>
           <div className="hub-bottom">
             <span className="micro">
-              {meta.wins >= 5
+              {meta.wins > 0
                 ? 'СВІТАНОК НАСТАВ'
-                : `РОЗДІЛ ${Math.min(meta.wins + 1, 5)} / 5`}{' '}
+                : '3 ЛОКАЦІЇ · 9 ВАРІАНТІВ БОСІВ'}{' '}
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.4.1 · Прогрес зберігається на цьому пристрої.
+              v0.5.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1049,7 +1019,7 @@ export default function Game() {
         <>
           {run.page === 'combat' ? (
             <Combat
-              key={`${run.seed}-${run.step}`}
+              key={`${run.seed}-${run.chapter}-${run.step}`}
               run={run}
               meta={meta}
               audio={audio.current!}
@@ -1064,7 +1034,7 @@ export default function Game() {
               <section className="play-main">
                 <div className="page-heading">
                   <button className="text-button" onClick={back}>
-                    <ArrowLeft size={16} /> Притулок
+                    <ArrowLeft size={16} /> Меню
                   </button>
                   <div className="run-wallet">
                     <Currency amount={run.coins} />
@@ -1079,12 +1049,12 @@ export default function Game() {
                       ЕКСПЕДИЦІЯ {String(meta.runs + 1).padStart(2, '0')} /
                       РОЗДІЛ {run.chapter + 1}
                     </p>
-                    <h2>{CHAPTERS[run.chapter].name}</h2>
-                    <p className="lead">{CHAPTERS[run.chapter].story}</p>
+                    <h2>{LOCATIONS[run.chapter].name}</h2>
+                    <p className="lead">{LOCATIONS[run.chapter].desc}</p>
                     <div className="mission-banner">
                       <Target size={22} />
                       <div>
-                        <small>МЕТА РЕЙДУ · {run.chapter + 1}/5</small>
+                        <small>МЕТА РЕЙДУ · {run.chapter + 1}/3</small>
                         <p>{MISSIONS[run.chapter]}</p>
                       </div>
                       <button
@@ -1096,7 +1066,7 @@ export default function Game() {
                       </button>
                     </div>
                     <RouteTree
-                      key={`${run.seed}-${run.step}`}
+                      key={`${run.seed}-${run.chapter}-${run.step}`}
                       run={run}
                       onEnter={(id) => {
                         audio.current!.unlock();
@@ -1109,9 +1079,10 @@ export default function Game() {
                       <span>
                         <b>Поверни світанок.</b>
                         <br />
-                        Рятуй людей у невідомих сигналах. Перемагай босів, щоб
-                        відкрити шлях до диспетчера. Після поразки мешканці,
-                        ядра й креслення залишаються з тобою.
+                        Рятуй людей після боїв і в подіях. Пройди три локації з
+                        одним будинком. Після поразки зберігаються ядра та
+                        креслення; наступна експедиція знову починається з
+                        головою ОСББ.
                       </span>
                     </div>
                   </>
@@ -1119,36 +1090,71 @@ export default function Game() {
                 {run.page === 'reward' && (
                   <>
                     <p className="eyebrow">
-                      <Check size={16} /> РАЙОН ЗАЧИЩЕНО
+                      <Check size={16} />{' '}
+                      {run.kind === 'chest' ? 'СКРИНЮ ВІДКРИТО' : 'ЗДОБИЧ'}
                     </p>
                     <h2>Знайшли дещо корисне.</h2>
                     <p className="lead">
-                      Вибери один модуль. Усе, що встановиш, працює вже в
-                      наступному бою.
+                      {run.kind === 'chest'
+                        ? 'У скрині один випадковий предмет.'
+                        : 'Вибери один предмет.'}{' '}
+                      Обладнання й меблі встановлюються всередині квартир.
                     </p>
+                    {run.eventResult && (
+                      <div className="mission-banner" role="status">
+                        <Home size={22} />
+                        <p>{run.eventResult}</p>
+                        <button
+                          className="secondary"
+                          onClick={() => setHousingOpen(true)}
+                        >
+                          Квартири
+                        </button>
+                      </div>
+                    )}
                     <div className="reward-cards">
-                      {run.reward.map((id, i) => (
-                        <ItemCard
-                          key={id}
-                          item={ITEM_BY_ID[id]}
-                          onClick={() => pick(id, 'reward', i)}
-                          footer={
-                            <>
-                              <span>Встановити безкоштовно</span>
-                              <Plus size={18} />
-                            </>
-                          }
-                        />
-                      ))}
+                      {run.loot.map((loot, i) =>
+                        loot.kind === 'module' ? (
+                          <ItemCard
+                            key={loot.kind + loot.id}
+                            item={ITEM_BY_ID[loot.id]}
+                            onClick={() => pick(loot.id, 'reward', i)}
+                            footer={
+                              <>
+                                <span>Забрати обладнання</span>
+                                <Plus size={18} />
+                              </>
+                            }
+                          />
+                        ) : (
+                          <FurnitureCard
+                            key={loot.kind + loot.id}
+                            id={loot.id}
+                            footer="Забрати меблі"
+                            onClick={() => {
+                              const next = claimFurniture(run, i);
+                              if (next === run) {
+                                ping('Запас меблів заповнений.');
+                                return;
+                              }
+                              setRun(next);
+                              ping(
+                                FURNITURE_BY_ID[loot.id].name +
+                                  ' на борту. Встанови у квартирі.',
+                              );
+                            }}
+                          />
+                        ),
+                      )}
                     </div>
                     <button
                       className="text-button"
                       onClick={() => {
-                        setRun(nextNode({ ...run, coins: run.coins + 18 }));
-                        ping('Лут продано. +18 монет.');
+                        setRun(nextNode({ ...run, coins: run.coins + 10 }));
+                        ping('Лут продано. +10 монет.');
                       }}
                     >
-                      Продати знахідки за 18 монет <ArrowRight size={16} />
+                      Продати знахідки за 10 монет <ArrowRight size={16} />
                     </button>
                   </>
                 )}
@@ -1189,36 +1195,54 @@ export default function Game() {
                         />
                       ))}
                     </div>
+                    <div className="shop-cards furniture-shop-cards">
+                      {run.shopFurniture.map((id, i) => (
+                        <FurnitureCard
+                          key={id + i}
+                          id={id}
+                          disabled={
+                            run.bought.includes(10 + i) ||
+                            run.coins < furniturePrice(run, id) ||
+                            run.furniture.length >= 30
+                          }
+                          footer={
+                            run.bought.includes(10 + i) ? (
+                              'Придбано'
+                            ) : (
+                              <Currency amount={furniturePrice(run, id)} />
+                            )
+                          }
+                          onClick={() => {
+                            const next = buyFurniture(run, id);
+                            if (next !== run) {
+                              setRun(next);
+                              ping('Меблі на борту. Встанови їх у квартирі.');
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
                     <div className="shop-tools">
                       <button
                         className="secondary"
-                        disabled={run.coins < 18 + run.rerolls * 8}
-                        onClick={() =>
-                          setRun({
-                            ...run,
-                            coins: run.coins - (18 + run.rerolls * 8),
-                            rerolls: run.rerolls + 1,
-                            bought: [],
-                            offers: offers(meta, run, 4, 91 + run.rerolls * 97),
-                          })
-                        }
+                        disabled={run.coins < 25 + 15 * run.rerolls}
+                        onClick={() => setRun(rerollShop(run, meta))}
                       >
-                        <RefreshCw size={16} /> Новий товар{' '}
-                        <Currency amount={18 + run.rerolls * 8} />
+                        <RefreshCw size={16} /> Оновити непроданий товар{' '}
+                        <Currency amount={25 + 15 * run.rerolls} />
                       </button>
                       <button
                         className="secondary"
-                        disabled={run.coins < 20 || run.hp >= stats!.health}
-                        onClick={() => {
-                          setRun({
-                            ...run,
-                            coins: run.coins - 20,
-                            hp: Math.min(stats!.health, run.hp + 50),
-                          });
-                          ping('Ремонт завершено: +50 міцності.');
-                        }}
+                        disabled={
+                          run.repairUsed ||
+                          run.coins < 30 + run.chapter * 10 ||
+                          run.hp >= stats!.health
+                        }
+                        onClick={() => setRun(repairShop(run, meta))}
                       >
-                        <Heart size={16} /> Ремонт +50 <Currency amount={20} />
+                        <Heart size={16} />{' '}
+                        {run.repairUsed ? 'Ремонт використано' : 'Ремонт +30%'}{' '}
+                        <Currency amount={30 + run.chapter * 10} />
                       </button>
                     </div>
                     <button
@@ -1230,131 +1254,7 @@ export default function Game() {
                   </>
                 )}
                 {run.page === 'event' && (
-                  <>
-                    <p className="eyebrow">
-                      <MapPin size={16} />{' '}
-                      {run.kind === 'rest'
-                        ? 'ТИХЕ ПОДВІР’Я'
-                        : 'НЕВІДОМИЙ СИГНАЛ'}
-                    </p>
-                    <div className="event-symbol">
-                      {run.kind === 'rest' ? (
-                        <Soup size={56} />
-                      ) : run.step % 3 === 0 ? (
-                        <Wrench size={56} />
-                      ) : run.step % 3 === 1 ? (
-                        <Package size={56} />
-                      ) : (
-                        <Home size={56} />
-                      )}
-                    </div>
-                    <h2>
-                      {run.kind === 'rest'
-                        ? 'Борщ ще теплий.'
-                        : run.step % 3 === 0
-                          ? 'Зустріч із Петровичем'
-                          : run.step % 3 === 1
-                            ? 'Сейф під руїнами'
-                            : 'Сусід просить підвезти'}
-                    </h2>
-                    <p className="lead">
-                      {run.kind === 'rest'
-                        ? 'Сьогодні можна трохи побути звичайним будинком. Мешканці накрили стіл, а навколо залишилися незачинені гаражі.'
-                        : run.step % 3 === 0
-                          ? 'З-під припаркованого кіоску чути знайоме бурчання. Майстер пропонує допомогу — або невелику роботу.'
-                          : run.step % 3 === 1
-                            ? 'Металеві двері затисло під бетонною плитою. Ваші ноги витягнуть сейф, але фасад цього не забуде.'
-                            : 'На балконі самотнього будинку хтось махає кресленнями. Поруч стоять ящики, за доставку яких добре заплатять.'}
-                    </p>
-                    {!run.eventDone ? (
-                      <div className="event-options">
-                        {run.kind === 'event' &&
-                          ['marta', 'danilo', 'solomia'].some(
-                            (id) => !meta.residents.includes(id),
-                          ) && (
-                            <button
-                              className="event-option rescue-option"
-                              onClick={() => {
-                                const saved = rescueResident(run, meta);
-                                if (!saved) return;
-                                setMeta(saved.meta);
-                                setRun(saved.run);
-                                ping(
-                                  `${RESIDENT_BY_ID[saved.id].name} врятовано! ${saved.run.residents.some((r) => r.id === saved.id) ? 'Кімнату облаштовано в будинку.' : 'Мешканець чекає у притулку — звільни місце в будинку.'}`,
-                                );
-                              }}
-                            >
-                              <b>Відгукнутися на сигнал порятунку</b>
-                              <span>
-                                Новий мешканець назавжди · замість пошуку
-                                ресурсів
-                              </span>
-                              <Home size={20} />
-                            </button>
-                          )}
-                        <button
-                          className="event-option"
-                          disabled={
-                            run.kind !== 'rest' &&
-                            run.step % 3 === 0 &&
-                            run.coins < 20
-                          }
-                          onClick={() => eventChoice(0)}
-                        >
-                          <b>
-                            {run.kind === 'rest'
-                              ? 'Відпочити разом'
-                              : run.step % 3 === 0
-                                ? 'Замовити ремонт'
-                                : run.step % 3 === 1
-                                  ? 'Витягнути сейф'
-                                  : 'Забрати креслення'}
-                          </b>
-                          <span>
-                            {run.kind === 'rest'
-                              ? '+50% міцності'
-                              : run.step % 3 === 0
-                                ? '−20 монет · +60 міцності · +3 брухту'
-                                : run.step % 3 === 1
-                                  ? '−22 міцності · +45 монет · +3 брухту'
-                                  : 'Один із трьох модулів на вибір'}
-                          </span>
-                          <ArrowUpRight size={20} />
-                        </button>
-                        <button
-                          className="event-option"
-                          onClick={() => eventChoice(1)}
-                        >
-                          <b>
-                            {run.kind === 'rest'
-                              ? 'Обшукати гаражі'
-                              : run.step % 3 === 0
-                                ? 'Допомогти з генератором'
-                                : run.step % 3 === 1
-                                  ? 'Перечекати бурю'
-                                  : 'Узяти вантаж'}
-                          </b>
-                          <span>
-                            {run.kind === 'rest'
-                              ? '+5 брухту · +15 монет'
-                              : run.step % 3 === 0
-                                ? '+18 монет'
-                                : run.step % 3 === 1
-                                  ? '+22 міцності'
-                                  : '+30 монет · +2 брухту'}
-                          </span>
-                          <ArrowUpRight size={20} />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        className="primary"
-                        onClick={() => setRun(nextNode(run))}
-                      >
-                        Рушати далі <ArrowRight size={18} />
-                      </button>
-                    )}
-                  </>
+                  <CampaignEventPanel run={run} meta={meta} onChange={setRun} />
                 )}
               </section>
               {inventory}
@@ -1365,7 +1265,7 @@ export default function Game() {
       {screen === 'workshop' && (
         <section className="collection-page">
           <button className="text-button" onClick={back}>
-            <ArrowLeft size={16} /> До притулку
+            <ArrowLeft size={16} /> Головне меню
           </button>
           <p className="eyebrow">ТЕ, ЩО ЗАЛИШАЄТЬСЯ З ТОБОЮ</p>
           <div className="collection-title">
@@ -1412,17 +1312,19 @@ export default function Game() {
             })}
           </div>
           <div className="progression-list">
-            <h3>Що чекає за наступними воротами</h3>
+            <h3>Креслення за повторні проходження</h3>
             {CHAPTERS.map((c, i) => (
               <div key={i} className={meta.wins > i ? 'completed' : ''}>
                 <span>
                   {meta.wins > i ? <Check size={20} /> : <Lock size={20} />}
                 </span>
                 <div>
-                  <b>{c.name}</b>
+                  <b>Експедиція {i + 1}</b>
                   <p>{c.unlock}</p>
                 </div>
-                <small>{meta.wins > i ? 'ВІДКРИТО' : `РОЗДІЛ ${i + 1}`}</small>
+                <small>
+                  {meta.wins > i ? 'ВІДКРИТО' : `ПРОХОДЖЕННЯ ${i + 1}`}
+                </small>
               </div>
             ))}
           </div>
@@ -1431,7 +1333,7 @@ export default function Game() {
               Рейди <b>{meta.runs}</b>
             </span>
             <span>
-              Перемоги сюжету <b>{meta.wins}/5</b>
+              Відкрито рівнів креслень <b>{meta.wins}/5</b>
             </span>
             <span>
               Вороги <b>{meta.kills}</b>
@@ -1445,7 +1347,7 @@ export default function Game() {
       {screen === 'codex' && (
         <section className="collection-page">
           <button className="text-button" onClick={back}>
-            <ArrowLeft size={16} /> До притулку
+            <ArrowLeft size={16} /> Головне меню
           </button>
           <p className="eyebrow">ЗНАЙОМСЯ. КОМБІНУЙ. ЕКСПЕРИМЕНТУЙ.</p>
           <div className="collection-title">
@@ -1587,7 +1489,7 @@ export default function Game() {
           {run && pending && (
             <EquipmentPlacement
               run={run}
-              level={meta.houseLevel}
+              level={run.houseLevel}
               itemId={pending.id}
               onInstall={(slot) =>
                 acquire(pending.id, pending.source, pending.index, slot)
@@ -1636,7 +1538,7 @@ export default function Game() {
               ? 'Місто більше не замкнене. Ваші сусіди нарешті побачили ранок. Історію завершено — інші збірки й колекція ще чекають.'
               : result?.won
                 ? CHAPTERS[result.run.chapter].unlock
-                : 'Мешканці повернулися до притулку. Новий дім буде іншим. Креслення й зароблені ядра залишилися з тобою.'}
+                : 'Мешканці повернулися до меню. Новий дім буде іншим. Креслення й зароблені ядра залишилися з тобою.'}
           </DialogDescription>
           {result && (
             <>
@@ -1672,7 +1574,7 @@ export default function Game() {
             </>
           )}
           <button className="primary" onClick={() => setResult(null)}>
-            До притулку <ArrowRight size={18} />
+            Головне меню <ArrowRight size={18} />
           </button>
         </DialogContent>
       </Dialog>
@@ -1680,8 +1582,8 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.4.1 · 9 мешканців, фігурні кімнати, 5 босів і
-            сюжетні катсцени.
+            ОСББ кінця світу · v0.5.0 · 3 локації, 9 мешканців, 9 варіантів
+            босів і сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">
             <p>
@@ -1694,12 +1596,12 @@ export default function Game() {
             </p>
             <p>
               <b>03 / Збирай ресурси.</b> Жовте — монети для магазину. Зелене —
-              досвід. Новий рівень відновлює 18 міцності й додає 7% базової
-              шкоди.
+              досвід. Новий рівень відновлює 10 міцності й додає 4% шкоди, до
+              +60%.
             </p>
             <p>
-              <b>04 / Перебудовуйся.</b> На карті натисни дві кімнати, щоб
-              поміняти їх місцями. Пральня посилює механіку, Тесла — електрику,
+              <b>04 / Перебудовуйся.</b> У квартирах перетягуй портрет, щоб
+              перемістити кімнату. Пральня посилює механіку, Тесла — електрику,
               теплиця — живі кімнати поруч.
             </p>
             <p>
@@ -1710,8 +1612,8 @@ export default function Game() {
             <p>
               <b>Мешканці.</b> Відкрий «Розселити мешканців». Повертай і
               перетягуй їхні фігурні кімнати. Сумісні сусіди дають додаткові
-              бонуси. Нових людей рятуй під час подій; вони залишаться після
-              рейду.
+              бонуси. Нових людей рятуй після боїв та в подіях. У наступній
+              експедиції команду збираєш знову.
             </p>
             <p>
               <b>Історія.</b> Катсцени показують катастрофу, евакуацію й причину

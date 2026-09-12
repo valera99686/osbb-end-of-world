@@ -1,3 +1,4 @@
+import { ENEMY_DEFS, campaignBoss } from './encounters';
 import type { Enemy } from './engine';
 
 export const ENEMY_PALETTES = [
@@ -8,9 +9,7 @@ export const ENEMY_PALETTES = [
   '#79d6db',
   '#e197c4',
 ];
-const BOSS_PALETTES = ['#f1b66a', '#a4db89', '#b49ae1', '#83dbe8', '#ffc292'];
 const SIZES = [52, 54, 82, 58, 58, 60];
-const BOSS_SIZES = [168, 178, 178, 170, 194];
 type Sprite = { body: HTMLCanvasElement; flash: HTMLCanvasElement };
 
 // All animation is driven by simulation time. Rendering never consumes the
@@ -152,13 +151,19 @@ export function drawEnemy(
   chapter: number,
   time: number,
   dying = 0,
+  variant = 0,
 ) {
-  const boss = enemy.type === 6;
-  const color = boss ? BOSS_PALETTES[chapter] : ENEMY_PALETTES[enemy.type];
-  const size = boss ? BOSS_SIZES[chapter] : SIZES[enemy.type];
-  const sprite = boss ? atlas?.bosses[chapter] : atlas?.enemies[enemy.type];
+  const boss = enemy.type === 99;
+  const def = boss ? campaignBoss(chapter, variant) : ENEMY_DEFS[enemy.type];
+  const color = def?.color ?? '#efb96a';
+  const size = boss
+    ? campaignBoss(chapter, variant).size
+    : SIZES[def.artIndex] * ENEMY_DEFS[enemy.type].scale;
+  const sprite = boss
+    ? atlas?.bosses[def.artIndex]
+    : atlas?.enemies[def.artIndex];
   const phase = enemy.walk + enemy.visualSeed * 1.7;
-  const hovering = enemy.type === 4 || (boss && chapter === 3);
+  const hovering = def.artIndex === 4 || (boss && def.artIndex === 3);
   const bob = hovering
     ? Math.sin(time * 3.5 + enemy.visualSeed) * 3.2 - 4
     : Math.sin(phase * 2) * (boss ? 1.4 : 1.3);
@@ -173,13 +178,8 @@ export function drawEnemy(
   ellipse(c, 0, enemy.r * 0.45 + 5, enemy.r * 1.25, enemy.r * 0.5, '#050c1190');
 
   // Readable windup tells the player where the existing ranged shot is going.
-  if (
-    !dying &&
-    (enemy.type === 4 || boss) &&
-    enemy.timer > 0 &&
-    enemy.timer < 0.65
-  ) {
-    const charge = 1 - enemy.timer / 0.65;
+  if (!dying && (enemy.windup ?? 0) > 0) {
+    const charge = 1 - (enemy.windup ?? 0) / 1.2;
     c.save();
     c.globalAlpha = 0.18 + charge * 0.5;
     c.strokeStyle = boss && enemy.phase ? '#ff796d' : '#ffc091';
@@ -214,6 +214,26 @@ export function drawEnemy(
     c.stroke();
   }
 
+  if (!dying && (boss || enemy.type === 7)) {
+    c.save();
+    c.strokeStyle = color;
+    c.lineWidth = boss ? 3 : 5;
+    c.beginPath();
+    if (enemy.type === 7)
+      c.arc(0, 0, enemy.r + 8, enemy.aim - 0.95, enemy.aim + 0.95);
+    else {
+      const sides = variant + 3;
+      for (let i = 0; i <= sides; i++) {
+        const angle = (i * Math.PI * 2) / sides + time * 0.08;
+        const x = Math.cos(angle) * (enemy.r + 12),
+          y = Math.sin(angle) * (enemy.r + 12) * 0.6;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+    }
+    c.stroke();
+    c.restore();
+  }
   c.save();
   c.translate(0, bob - enemy.r * 0.13);
   c.rotate(tilt + dying * enemy.facing * 0.32);

@@ -16,18 +16,19 @@ export interface ResidentRoom {
   y: number;
   rotation: number;
 }
-export const HOUSE_WIDTH = 6,
-  HOUSE_HEIGHT = 5;
-export const HOUSE_EXPANSION_COSTS = [4, 8, 14];
+export const HOUSE_WIDTH = 4,
+  HOUSE_HEIGHT = 4;
+export const HOUSE_EXPANSION_COSTS = [160, 280, 420];
 export function houseSize(level = 0) {
   const sizes = [
-    { width: 6, height: 5 },
-    { width: 7, height: 5 },
-    { width: 7, height: 6 },
-    { width: 8, height: 6 },
+    { width: 4, height: 4 },
+    { width: 5, height: 4 },
+    { width: 5, height: 5 },
+    { width: 6, height: 6 },
+    { width: 8, height: 6 }, // Retained floor for expeditions saved before 0.5.
   ];
   return sizes[
-    Number.isFinite(level) ? Math.max(0, Math.min(3, Math.floor(level))) : 0
+    Number.isFinite(level) ? Math.max(0, Math.min(4, Math.floor(level))) : 0
   ];
 }
 
@@ -274,7 +275,7 @@ export function residentSpace(
 }
 export function initialHouse(captain: string): ResidentRoom[] {
   const rooms: ResidentRoom[] = [];
-  for (const id of [captain, 'nina', 'lev']) {
+  for (const id of [captain]) {
     const r = residentSpace(rooms, id);
     if (r) rooms.push(r);
   }

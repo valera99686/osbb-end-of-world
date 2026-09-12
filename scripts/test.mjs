@@ -12,6 +12,8 @@ for (const name of [
   'furniture',
   'equipment',
   'cutscenes',
+  'campaign-content',
+  'encounters',
   'model',
   'enemy-art',
   'engine',
@@ -26,7 +28,11 @@ for (const name of [
   });
   await writeFile(`.test-build/${name}.js`, result.outputText);
 }
-const test = spawnSync(process.execPath, ['--test', 'tests/game.test.cjs'], {
-  stdio: 'inherit',
-});
+const test = spawnSync(
+  process.execPath,
+  ['--test', 'tests/game.test.cjs', 'tests/campaign.test.cjs'],
+  {
+    stdio: 'inherit',
+  },
+);
 process.exitCode = test.status ?? 1;

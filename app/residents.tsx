@@ -8,14 +8,7 @@ import { installPacked, moveEquipment } from '@/lib/game/model';
 import { Glyph } from './glyph';
 import { ApartmentEquipment } from './equipment';
 import { useId, useRef, useState, type CSSProperties } from 'react';
-import {
-  RotateCw,
-  Home,
-  ArrowDownToLine,
-  Move,
-  UserPlus,
-  Check,
-} from 'lucide-react';
+import { RotateCw, Home, Move, UserPlus, Check } from 'lucide-react';
 import {
   RESIDENT_BY_ID,
   residentCells,
@@ -29,9 +22,8 @@ import {
 } from '@/lib/game/residents';
 import {
   houseResident,
-  reserveResident,
   installFurniture,
-  expandHouse,
+  expandRunHouse,
   type Meta,
   type Run,
 } from '@/lib/game/model';
@@ -416,7 +408,6 @@ export function Residents({
   const [rotation, setRotation] = useState(
     run.residents.find((r) => r.id === run.character)?.rotation ?? 0,
   );
-  const [tab, setTab] = useState<'aboard' | 'reserve'>('aboard');
   const [placing, setPlacing] = useState(false);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [message, setMessage] = useState('');
@@ -424,9 +415,9 @@ export function Residents({
   const [pickedModule, setPickedModule] = useState<number | null>(null);
   const [movingModule, setMovingModule] = useState<number | null>(null);
   const [moduleSlot, setModuleSlot] = useState<number | null>(null);
-  const size = houseSize(meta.houseLevel),
-    nextSize = houseSize(meta.houseLevel + 1),
-    expansionCost = HOUSE_EXPANSION_COSTS[meta.houseLevel];
+  const size = houseSize(run.houseLevel),
+    nextSize = houseSize(run.houseLevel + 1),
+    expansionCost = HOUSE_EXPANSION_COSTS[run.houseLevel];
   const grid = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     pointerId: number;
@@ -439,7 +430,7 @@ export function Residents({
     moved: boolean;
   } | null>(null);
   const suppress = useRef(false);
-  const groups = residentGroups(meta.residents, run.residents);
+  const groups = residentGroups(run.rescued, run.residents);
   const person = RESIDENT_BY_ID[selected],
     room = run.residents.find((r) => r.id === selected);
   const occupied = new Map(
@@ -450,7 +441,7 @@ export function Residents({
     ),
   );
   const target = placing && ghost ? { id: selected, ...ghost, rotation } : null;
-  const valid = !!target && canHouse(run.residents, target, meta.houseLevel);
+  const valid = !!target && canHouse(run.residents, target, run.houseLevel);
 
   function stopDrag() {
     const active = drag.current;
@@ -471,22 +462,6 @@ export function Residents({
     setGhost(null);
     setPlacing(false);
     setMessage('');
-    setTab(current ? 'aboard' : 'reserve');
-  }
-  function switchTab(next: 'aboard' | 'reserve') {
-    stopDrag();
-    setPickedFurniture(null);
-    setPickedModule(null);
-    setMovingModule(null);
-    setModuleSlot(null);
-    const first = groups[next][0];
-    if (first) choose(first.id);
-    else {
-      setPlacing(false);
-      setGhost(null);
-      setMessage('');
-    }
-    setTab(next);
   }
   function place(nextRoom: ResidentRoom) {
     stopDrag();
@@ -500,7 +475,6 @@ export function Residents({
     setRotation(nextRoom.rotation);
     setGhost(null);
     setPlacing(false);
-    setTab('aboard');
     setMessage(
       `${RESIDENT_BY_ID[nextRoom.id].name} — у будинку. Бонус активний.`,
     );
@@ -512,7 +486,7 @@ export function Residents({
     setMovingModule(null);
     setModuleSlot(null);
     const candidate =
-      room ?? residentSpace(run.residents, selected, meta.houseLevel);
+      room ?? residentSpace(run.residents, selected, run.houseLevel);
     setRotation(candidate?.rotation ?? 0);
     setGhost(candidate ? { x: candidate.x, y: candidate.y } : { x: 0, y: 0 });
     setPlacing(true);
@@ -560,7 +534,7 @@ export function Residents({
             >
               <HousePlan
                 rooms={run.residents}
-                level={meta.houseLevel}
+                level={run.houseLevel}
                 furniture={run.furniture}
                 items={run.items}
                 selected={selected}
@@ -761,33 +735,34 @@ export function Residents({
               <b>Розширення дому</b>
               <p>
                 {expansionCost === undefined
-                  ? 'Максимальна площа — 48 клітинок.'
-                  : `${size.width}×${size.height} → ${nextSize.width}×${nextSize.height}. Назавжди, для всіх наступних рейдів.`}
+                  ? `Досягнуто максимальної площі: ${size.width * size.height} клітинок.`
+                  : `${size.width}×${size.height} → ${nextSize.width}×${nextSize.height}. До кінця цієї експедиції.`}
               </p>
               <small>
-                Ядер у запасі: {meta.cores}. Їх отримуєш після завершення рейду.
+                Монет у запасі: {Math.floor(run.coins)}. Добудова відкриє місце
+                для нових квартир.
               </small>
             </div>
             {expansionCost !== undefined && (
               <button
                 className="secondary small"
-                disabled={meta.cores < expansionCost}
+                disabled={run.coins < expansionCost}
                 onClick={() => {
-                  const next = expandHouse(meta, run);
-                  if (next === meta) return;
+                  const next = expandRunHouse(run);
+                  if (next === run) return;
                   stopDrag();
                   cancelPlacement();
                   setPickedFurniture(null);
                   setPickedModule(null);
                   setMovingModule(null);
                   setModuleSlot(null);
-                  onMetaChange(next);
+                  onChange(next);
                   setMessage(
                     `Дім розширено до ${nextSize.width}×${nextSize.height}. Кімнати залишилися на своїх місцях.`,
                   );
                 }}
               >
-                Добудувати · {expansionCost} ядер
+                Добудувати · {expansionCost} монет
               </button>
             )}
           </div>
@@ -823,32 +798,13 @@ export function Residents({
           </output>
         </div>
         <div className="housing-sidebar">
-          <fieldset
-            className="housing-tabs"
-            aria-label="Де перебувають мешканці"
-          >
-            <button
-              className={tab === 'aboard' ? 'active' : ''}
-              aria-pressed={tab === 'aboard'}
-              onClick={() => switchTab('aboard')}
-            >
-              У будинку <b>{groups.aboard.length}</b>
-            </button>
-            <button
-              className={tab === 'reserve' ? 'active' : ''}
-              aria-pressed={tab === 'reserve'}
-              onClick={() => switchTab('reserve')}
-            >
-              Притулок <b>{groups.reserve.length}</b>
-            </button>
-          </fieldset>
+          <h3>Урятовані в цій експедиції · {run.rescued.length}</h3>
           <p className="roster-explainer">
-            {tab === 'aboard'
-              ? 'Ці мешканці їдуть із тобою та дають бонуси.'
-              : 'Притулок — запас врятованих мешканців. Заселяй їх, коли з’явиться місце; поки вони тут, їхні бонуси в рейді не діють.'}
+            Бонуси діють у заселених квартирах. Урятовані без кімнати чекають на
+            перепланування або добудову.
           </p>
           <div className="resident-roster">
-            {groups[tab].map((resident) => (
+            {[...groups.aboard, ...groups.reserve].map((resident) => (
               <button
                 key={resident.id}
                 className={`resident-card ${selected === resident.id ? 'active' : ''}`}
@@ -861,23 +817,28 @@ export function Residents({
                   <small>
                     {resident.id === run.character
                       ? 'Голова ОСББ · на борту'
-                      : resident.job}
+                      : resident.job +
+                        (run.residents.some((r) => r.id === resident.id)
+                          ? ' · заселено'
+                          : ' · потрібна квартира')}
                   </small>
                 </span>
-                {tab === 'aboard' ? (
+                {run.residents.some((r) => r.id === resident.id) ? (
                   <Check size={16} className="aboard-check" />
                 ) : (
                   <ResidentShape id={resident.id} />
                 )}
               </button>
             ))}
-            {!groups[tab].length && (
+            {![...groups.aboard, ...groups.reserve].length && (
               <p className="roster-empty">
                 Усі врятовані мешканці зараз у будинку.
               </p>
             )}
           </div>
-          {groups[tab].some((r) => r.id === selected) && (
+          {[...groups.aboard, ...groups.reserve].some(
+            (r) => r.id === selected,
+          ) && (
             <div
               className="resident-selection"
               style={{ '--shape-color': person.color } as CSSProperties}
@@ -893,7 +854,7 @@ export function Residents({
               <span className={`resident-presence ${room ? 'aboard' : ''}`}>
                 {room
                   ? 'У будинку · бонус активний'
-                  : 'У притулку · бонус не діє'}
+                  : 'Урятовано · потрібна квартира'}
               </span>
               <p className="resident-effect">{person.effect}</p>
               <div className="housing-actions">
@@ -925,27 +886,6 @@ export function Residents({
                     </button>
                   </>
                 )}
-                {room && selected !== run.character && !placing && (
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      const next = reserveResident(run, meta, selected);
-                      if (next === run) {
-                        setMessage(
-                          'Склад переповнений. Звільни місце, щоб зберегти обладнання цієї квартири.',
-                        );
-                        return;
-                      }
-                      onChange(next);
-                      choose(run.character);
-                      setMessage(
-                        `${person.name} залишиться у притулку. Бонус у рейді вимкнено.`,
-                      );
-                    }}
-                  >
-                    <ArrowDownToLine size={15} /> Залишити у притулку
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -953,7 +893,9 @@ export function Residents({
             run={run}
             meta={meta}
             resident={
-              groups[tab].some((person) => person.id === selected)
+              [...groups.aboard, ...groups.reserve].some(
+                (person) => person.id === selected,
+              )
                 ? selected
                 : null
             }
@@ -968,22 +910,6 @@ export function Residents({
               setPickedFurniture(uid);
             }}
           />
-          {groups.missing.length > 0 && (
-            <details className="missing-residents">
-              <summary>Ще не врятовано · {groups.missing.length}</summary>
-              <p>Цих людей немає ані в будинку, ані у притулку.</p>
-              {groups.missing.map((resident) => (
-                <div key={resident.id}>
-                  <b>{resident.name}</b>
-                  <span>
-                    {['marta', 'danilo', 'solomia'].includes(resident.id)
-                      ? 'Знайди під час події'
-                      : 'Зустрінь у наступних розділах'}
-                  </span>
-                </div>
-              ))}
-            </details>
-          )}
         </div>
       </div>
       <p className="housing-footnote">

@@ -1,3 +1,5 @@
+import { HelpCircle, Gift } from 'lucide-react';
+import { campaignBoss } from '@/lib/game/encounters';
 import {
   useEffect,
   useCallback,
@@ -19,8 +21,6 @@ import {
   Swords,
   type LucideIcon,
 } from 'lucide-react';
-import { CHAPTERS } from '@/lib/game/data';
-import { BOSS_GUIDES } from '@/lib/game/bosses';
 import {
   availableColumns,
   reachableColumns,
@@ -33,6 +33,20 @@ export const NODE_INFO: Record<
   NodeKind,
   { name: string; short: string; desc: string; icon: LucideIcon; color: string }
 > = {
+  mystery: {
+    name: 'Невідома кімната',
+    short: '?',
+    desc: 'Може стати будь-якою кімнатою: боєм, елітою, магазином, подією, перепочинком, скринею або додатковим босом. Результат відкриється при вході.',
+    icon: HelpCircle,
+    color: '#c9b2ed',
+  },
+  chest: {
+    name: 'Покинута скриня',
+    short: 'Скриня',
+    desc: 'Рівно один випадковий предмет із повного каталогу: обладнання або меблі для квартири.',
+    icon: Gift,
+    color: '#f1c875',
+  },
   battle: {
     name: 'Вулиці',
     short: 'Бій',
@@ -71,7 +85,7 @@ export const NODE_INFO: Record<
   boss: {
     name: 'Бос району',
     short: 'Бос',
-    desc: 'Переможи охоронця підстанції, щоб відкрити наступний розділ.',
+    desc: 'Після перемоги — продовження історії та нове дерево наступної локації.',
     icon: Skull,
     color: '#eea28b',
   },
@@ -81,7 +95,9 @@ const ROW_HEIGHT = 116;
 const TOP = 60;
 function point(row: number, col: number, count: number) {
   const columns =
-    count === 1 ? [500] : count === 2 ? [290, 710] : [180, 500, 820];
+    count === 1
+      ? [500]
+      : Array.from({ length: count }, (_, i) => 140 + (i * 720) / (count - 1));
   return { x: columns[col], y: TOP + row * ROW_HEIGHT };
 }
 
@@ -104,7 +120,10 @@ export function RouteTree({
   const Icon = info.icon;
   const canEnter = selectedRow === run.step && available.includes(selectedCol);
   const checkpoint = run.path.length > run.step;
-  const title = kind === 'boss' ? CHAPTERS[run.chapter].boss : info.name;
+  const title =
+    kind === 'boss'
+      ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
+      : info.name;
   const height = TOP * 2 + (run.nodes.length - 1) * ROW_HEIGHT + 18;
   const focusCurrent = useCallback(() => {
     if (viewport.current)
@@ -164,7 +183,7 @@ export function RouteTree({
           >
             {run.nodes.flatMap((row, step) =>
               row.flatMap((_, col) =>
-                routeTargets(step, col).map((target) => {
+                routeTargets(step, col, run.nodes).map((target) => {
                   const from = point(step, col, row.length),
                     to = point(step + 1, target, run.nodes[step + 1].length);
                   const traversed =
@@ -212,7 +231,8 @@ export function RouteTree({
                 {String(step + 1).padStart(2, '0')}
               </span>
               {row.map((nodeKind, col) => {
-                const node = NODE_INFO[nodeKind],
+                const node =
+                    NODE_INFO[run.revealed[`${step}:${col}`] ?? nodeKind],
                   C = node.icon;
                 const pos = point(step, col, row.length),
                   status = state(step, col),
@@ -275,7 +295,11 @@ export function RouteTree({
             {canEnter ? 'ТВІЙ НАСТУПНИЙ КРОК' : 'ОГЛЯД МАРШРУТУ'}
           </small>
           <h3>{title}</h3>
-          <p>{kind === 'boss' ? BOSS_GUIDES[run.chapter] : info.desc}</p>
+          <p>
+            {kind === 'boss'
+              ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).guide
+              : info.desc}
+          </p>
         </div>
         <button
           type="button"

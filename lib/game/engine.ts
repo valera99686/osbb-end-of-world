@@ -1,8 +1,15 @@
+import {
+  LOCATIONS,
+  ENEMY_DEFS,
+  campaignBoss,
+  campaignBossPattern,
+} from './encounters';
+import type { BossPattern } from './bosses';
 import { activeEquipment, equipmentTargets } from './equipment';
-import { CHAPTERS, ITEM_BY_ID, FAMILY } from './data';
+import { ITEM_BY_ID, FAMILY } from './data';
 import { seeded, statsFor, type Run, type Meta, type Stats } from './model';
-import { drawEnemy, preloadEnemyArt, ENEMY_PALETTES } from './enemy-art';
-import { bossPattern, hazardContains, drawHazard, type Hazard } from './bosses';
+import { drawEnemy, preloadEnemyArt } from './enemy-art';
+import { hazardContains, drawHazard, type Hazard } from './bosses';
 export interface Enemy {
   x: number;
   y: number;
@@ -20,6 +27,12 @@ export interface Enemy {
   attack: number;
   visualSeed: number;
   pattern: number;
+  windup?: number;
+  lockedAim?: number;
+  targetX?: number;
+  targetY?: number;
+  chargeLeft?: number;
+  pendingBoss?: BossPattern;
 }
 interface Bullet {
   x: number;
@@ -159,11 +172,14 @@ export class Battle {
     this.audio = audio;
     this.onHud = onHud;
     this.onEnd = onEnd;
-    this.rng = seeded(run.seed + run.step * 719);
+    this.rng = seeded(run.seed + run.chapter * 100003 + run.step * 719);
     this.duration =
       run.kind === 'boss'
-        ? 180
-        : (run.kind === 'elite' ? 62 : 48) + run.step * 3;
+        ? 210
+        : 40 +
+          run.chapter * 6 +
+          run.step * 0.8 +
+          (run.kind === 'elite' ? 12 : 0);
     this.run.hp = Math.min(this.run.hp, this.stats.health);
   }
   start() {
@@ -201,7 +217,7 @@ export class Battle {
       const d = Math.hypot(e.x - this.x, e.y - this.y);
       if (d < 235) {
         this.damage(e, this.stats.damage * 3.5);
-        if (e.type !== 6) {
+        if (e.type !== 99) {
           e.x += ((e.x - this.x) / Math.max(1, d)) * 60;
           e.y += ((e.y - this.y) / Math.max(1, d)) * 60;
         }
@@ -238,16 +254,28 @@ export class Battle {
     });
   }
   spawn(type?: number) {
-    const boss = type === 6;
+    const boss = type === 99;
     const angle = this.rng() * Math.PI * 2,
       d = boss ? 320 : 430 + this.rng() * 100;
-    const t =
-      type ?? Math.min(5, Math.floor(this.rng() * (3 + this.run.chapter)));
-    const r = boss ? 46 : t === 2 ? 22 : 12;
-    const scale = 1 + this.run.chapter * 0.36 + this.run.step * 0.12;
-    const hp = boss
-      ? 800 + this.run.chapter * 470
-      : [22, 19, 75, 32, 38, 42][t] * scale;
+    const pool = LOCATIONS[this.run.chapter].enemyTypes;
+    const t = type ?? pool[Math.floor(this.rng() * pool.length)];
+    const def = boss
+      ? campaignBoss(this.run.chapter, this.run.bossVariants[this.run.chapter])
+      : ENEMY_DEFS[t];
+    if (
+      !def ||
+      this.enemies.filter((e) => e.hp > 0).length >=
+        (this.run.kind === 'boss' ? 19 : 55 + this.run.chapter * 10)
+    )
+      return;
+    const r = def.radius;
+    const hp =
+      def.health *
+      (boss
+        ? this.run.step === this.run.nodes.length - 1
+          ? 1
+          : 0.5
+        : (1 + this.run.step * 0.025) * (this.run.kind === 'elite' ? 1.15 : 1));
     this.enemies.push({
       x: Math.max(50, Math.min(1550, this.x + Math.cos(angle) * d)),
       y: Math.max(50, Math.min(950, this.y + Math.sin(angle) * d)),
@@ -255,9 +283,7 @@ export class Battle {
       max: hp,
       r,
       type: t,
-      speed:
-        (boss ? 38 : [62, 95, 38, 55, 45, 72][t]) *
-        (1 + this.run.chapter * 0.06),
+      speed: def.speed,
       hit: 0,
       timer: 1 + this.rng() * 2,
       phase: 0,
@@ -269,8 +295,14 @@ export class Battle {
       pattern: 0,
     });
   }
-  damage(e: Enemy, amount: number, crit = false) {
+  damage(e: Enemy, amount: number, crit = false, incomingAngle?: number) {
     if (e.hp <= 0) return;
+    if (
+      e.type === 7 &&
+      incomingAngle !== undefined &&
+      Math.cos(incomingAngle + Math.PI - e.aim) > 0.25
+    )
+      amount *= ENEMY_DEFS[7].frontalDamageMultiplier ?? 0.55;
     e.hp -= amount;
     e.hit = 0.12;
     this.burst(e.x, e.y, crit ? '#ffcd82' : '#b0ded4', crit ? 5 : 2);
@@ -281,33 +313,119 @@ export class Battle {
       this.burst(
         e.x,
         e.y,
-        e.type === 6
-          ? CHAPTERS[this.run.chapter].color
-          : ENEMY_PALETTES[e.type],
-        e.type === 6 ? 55 : 12,
+        e.type === 99
+          ? LOCATIONS[this.run.chapter].color
+          : ENEMY_DEFS[e.type].color,
+        e.type === 99 ? 55 : 12,
       );
       this.drops.push({
         x: e.x,
         y: e.y,
         kind: 'xp',
-        value: e.type === 2 ? 3 : 1,
+        value: e.r > 20 ? 3 : 1,
       });
-      this.drops.push({
-        x: e.x + 8,
-        y: e.y + 5,
-        kind: 'coin',
-        value: (e.type === 2 ? 3 : 1) + (this.rng() < this.stats.luck ? 1 : 0),
-      });
-      if (this.rng() < 0.055)
-        this.drops.push({ x: e.x - 10, y: e.y, kind: 'heal', value: 12 });
+      if (this.rng() < 0.32 + Math.min(0.2, this.stats.luck * 0.12))
+        this.drops.push({
+          x: e.x + 8,
+          y: e.y + 5,
+          kind: 'coin',
+          value: e.r > 20 ? 2 : 1,
+        });
+      if (this.rng() < 0.03)
+        this.drops.push({ x: e.x - 10, y: e.y, kind: 'heal', value: 8 });
       this.run.hp = Math.min(
         this.stats.health,
         this.run.hp + this.stats.vampire,
       );
-      if (e.type === 6) {
-        this.run.coins += 45 + this.run.chapter * 15;
+      if (e.type === 5)
+        for (let i = 0; i < 2; i++) {
+          const count = this.enemies.length;
+          this.spawn(3);
+          const child = this.enemies[this.enemies.length - 1];
+          if (this.enemies.length > count) {
+            child.x = Math.max(50, Math.min(1550, e.x + (i ? 30 : -30)));
+            child.y = e.y;
+          }
+        }
+      if (e.type === 99) {
+        for (const drop of this.drops)
+          if (drop.kind === 'coin') this.run.coins += drop.value;
+        this.drops = [];
+        this.run.coins += [65, 90, 120][this.run.chapter];
         this.finish(true);
       }
+    }
+  }
+  enemyAttack(e: Enemy) {
+    e.attack = 0.18;
+    const shot = (angle: number, speed: number, damage: number) =>
+      this.bullets.push({
+        x: e.x,
+        y: e.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 6,
+        damage,
+        enemy: true,
+        crit: false,
+      });
+    if (e.type === 99 && e.pendingBoss) {
+      const pattern = e.pendingBoss;
+      for (const s of pattern.shots) shot(s.angle, s.speed, s.damage);
+      this.hazards.push(...pattern.hazards);
+      for (const type of pattern.summons) this.spawn(type);
+      e.timer = pattern.cooldown;
+      e.pendingBoss = undefined;
+      return;
+    }
+    const def = ENEMY_DEFS[e.type];
+    if (!def) return;
+    e.timer = def.cooldown;
+    const angle = e.lockedAim ?? e.aim;
+    const zone = (
+      kind: 'circle' | 'line',
+      x: number,
+      y: number,
+      r: number,
+      duration: number,
+      damage = def.damage,
+    ) =>
+      this.hazards.push({
+        x,
+        y,
+        radius: r,
+        ...(kind === 'line'
+          ? { x2: x + Math.cos(angle) * 650, y2: y + Math.sin(angle) * 650 }
+          : {}),
+        age: -0.8,
+        duration,
+        damage,
+        color: def.color,
+      });
+    switch (def.behavior) {
+      case 'charge':
+        e.chargeLeft = def.chargeDuration ?? 0.65;
+        break;
+      case 'fan':
+        for (let i = -1; i <= 1; i++)
+          shot(angle + i * 0.22, def.projectileSpeed, def.damage);
+        break;
+      case 'roots':
+        zone('circle', e.targetX ?? this.x, e.targetY ?? this.y, 55, 2.2);
+        break;
+      case 'spit':
+        shot(angle, def.projectileSpeed, def.damage);
+        zone('circle', e.targetX ?? this.x, e.targetY ?? this.y, 42, 2.5);
+        break;
+      case 'brood':
+        this.spawn(def.summonType);
+        break;
+      case 'snipe':
+        zone('line', e.x, e.y, 18, 0.3);
+        break;
+      case 'pulse':
+        zone('circle', e.x, e.y, def.range, 0.4);
+        break;
     }
   }
   nearest(x: number, y: number, range: number) {
@@ -329,7 +447,7 @@ export class Battle {
     const crit = this.rng() < this.stats.crit;
     let damage =
       this.stats.damage *
-      (1 + (this.run.level - 1) * 0.07) *
+      (1 + Math.min(0.6, (this.run.level - 1) * 0.04)) *
       (crit ? 1.8 : 1) *
       (drone ? 0.45 : 1);
     if (
@@ -398,26 +516,23 @@ export class Battle {
     );
     this.spawnTimer -= dt;
     if (this.run.kind === 'boss' && !this.bossSpawned) {
-      this.spawn(6);
+      this.spawn(99);
       this.bossSpawned = true;
     }
-    if (this.spawnTimer <= 0 && this.enemies.length < 90) {
+    if (this.spawnTimer <= 0) {
       const count =
         this.run.kind === 'boss'
-          ? 2
+          ? 1
           : 2 +
-            Math.floor(this.elapsed / 24) +
+            (this.elapsed > 30 ? 1 : 0) +
             (this.run.kind === 'elite' ? 1 : 0);
       for (let i = 0; i < count; i++) this.spawn();
       this.spawnTimer =
         this.run.kind === 'boss'
-          ? 4
+          ? 6 - this.run.chapter * 0.5
           : Math.max(
-              0.65,
-              1.85 -
-                this.run.chapter * 0.16 -
-                this.run.step * 0.05 -
-                this.elapsed * 0.006,
+              1.5,
+              2.5 - this.run.chapter * 0.25 - this.run.step * 0.025,
             );
     }
     this.shotTimer -= dt;
@@ -449,12 +564,27 @@ export class Battle {
       if (Math.abs(ex) > 0.08) e.facing = ex < 0 ? -1 : 1;
       e.aim = Math.atan2(ey, ex);
       e.timer -= dt;
-      if (e.type === 6) {
-        e.phase = e.hp < e.max * (this.run.chapter === 4 ? 0.5 : 0.45) ? 1 : 0;
-        if (e.timer <= 0) {
-          e.attack = 0.18;
-          const pattern = bossPattern(
+      const def = e.type === 99 ? null : ENEMY_DEFS[e.type];
+      if (e.type === 99) e.phase = e.hp < e.max * 0.5 ? 1 : 0;
+      if ((e.windup ?? 0) > 0) {
+        e.windup = Math.max(0, e.windup! - dt);
+        e.aim = e.lockedAim ?? e.aim;
+        if (e.windup === 0) this.enemyAttack(e);
+      } else if (
+        e.timer <= 0 &&
+        (e.type === 99 ||
+          (def &&
+            !['chase', 'shield'].includes(def.behavior) &&
+            dist <= def.range))
+      ) {
+        e.lockedAim = e.aim;
+        e.targetX = this.x;
+        e.targetY = this.y;
+        e.windup = e.type === 99 ? 0.9 : def!.windup;
+        if (e.type === 99) {
+          e.pendingBoss = campaignBossPattern(
             this.run.chapter,
+            this.run.bossVariants[this.run.chapter],
             e.phase,
             e.pattern++,
             e.x,
@@ -462,51 +592,42 @@ export class Battle {
             this.x,
             this.y,
           );
-          this.bossAttack = pattern.name;
-          for (const shot of pattern.shots)
-            this.bullets.push({
-              x: e.x,
-              y: e.y,
-              vx: Math.cos(shot.angle) * shot.speed,
-              vy: Math.sin(shot.angle) * shot.speed,
-              life: 6,
-              damage: shot.damage,
-              enemy: true,
-              crit: false,
-            });
-          this.hazards.push(...pattern.hazards);
-          for (const type of pattern.summons)
-            if (this.enemies.length < 90) this.spawn(type);
-          e.timer = pattern.cooldown;
-          this.burst(e.x, e.y, CHAPTERS[this.run.chapter].color, 10);
+          this.bossAttack = e.pendingBoss.name;
         }
-      } else if (e.type === 4 && e.timer <= 0) {
-        e.attack = 0.18;
-        this.bullets.push({
-          x: e.x,
-          y: e.y,
-          vx: ex * 200,
-          vy: ey * 200,
-          life: 4,
-          damage: 9 + this.run.chapter * 2,
-          enemy: true,
-          crit: false,
-        });
-        e.timer = 2.2;
       }
-      const moving = e.type !== 4 || dist > 260;
+      const charging = (e.chargeLeft ?? 0) > 0;
+      if (charging) {
+        e.chargeLeft = Math.max(0, e.chargeLeft! - dt);
+        e.aim = e.lockedAim ?? e.aim;
+      }
+      const moving =
+        charging ||
+        (!(e.windup ?? 0) &&
+          (e.type === 99 ||
+            !def ||
+            ['chase', 'charge', 'shield', 'pulse', 'brood'].includes(
+              def.behavior,
+            ) ||
+            dist > def.range * 0.8));
       if (moving) {
-        e.walk += (dt * e.speed) / (e.type === 2 || e.type === 6 ? 13 : 9);
-        e.x += ex * e.speed * dt;
-        e.y += ey * e.speed * dt;
+        const speed = e.speed * (charging ? (def?.chargeMultiplier ?? 3) : 1);
+        e.walk += (dt * speed) / 12;
+        e.x = Math.max(
+          40,
+          Math.min(1560, e.x + (charging ? Math.cos(e.aim) : ex) * speed * dt),
+        );
+        e.y = Math.max(
+          40,
+          Math.min(960, e.y + (charging ? Math.sin(e.aim) : ey) * speed * dt),
+        );
       }
       if (dist < e.r + 24 && this.invincible <= 0) {
         e.attack = 0.18;
         const hit = Math.max(
           2,
-          (e.type === 6 ? 22 : e.type === 2 ? 17 : 9) +
-            this.run.chapter * 2 -
-            this.stats.armor,
+          (e.type === 99
+            ? 20 + this.run.chapter * 6
+            : ENEMY_DEFS[e.type].contactDamage) - this.stats.armor,
         );
         this.run.hp -= hit;
         this.invincible = 0.7;
@@ -514,7 +635,7 @@ export class Battle {
         this.audio.play('hit');
         this.label(this.x, this.y - 55, '−' + hit, '#ff8e82');
         if (this.stats.thorns) this.damage(e, this.stats.thorns);
-        if (e.type !== 6) {
+        if (e.type !== 99) {
           e.x -= ex * 32;
           e.y -= ey * 32;
         }
@@ -557,7 +678,7 @@ export class Battle {
       } else {
         for (const e of this.enemies) {
           if (e.hp <= 0 || Math.hypot(b.x - e.x, b.y - e.y) > e.r + 6) continue;
-          this.damage(e, b.damage, b.crit);
+          this.damage(e, b.damage, b.crit, Math.atan2(b.vy, b.vx));
           b.life = 0;
           if (this.stats.explosion) {
             this.burst(e.x, e.y, '#dab97b', 8);
@@ -616,7 +737,7 @@ export class Battle {
     if (this.run.xp >= need) {
       this.run.xp -= need;
       this.run.level++;
-      this.run.hp = Math.min(this.stats.health, this.run.hp + 18);
+      this.run.hp = Math.min(this.stats.health, this.run.hp + 10);
       this.label(this.x, this.y - 65, `РІВЕНЬ ${this.run.level}`, '#aee6cb');
       this.burst(this.x, this.y, '#aee6cb', 30);
       this.audio.play('win');
@@ -643,8 +764,7 @@ export class Battle {
       } else {
         for (const d of this.drops)
           if (d.kind === 'coin') this.run.coins += d.value;
-        this.run.coins += 12;
-        this.run.scrap += this.run.kind === 'elite' ? 4 : 2;
+
         this.finish(true);
       }
       return;
@@ -652,7 +772,7 @@ export class Battle {
     this.hudTimer -= dt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.1;
-      const boss = this.enemies.find((e) => e.type === 6);
+      const boss = this.enemies.find((e) => e.type === 99);
       this.onHud({
         hp: this.run.hp,
         max: this.stats.health,
@@ -783,8 +903,8 @@ export class Battle {
     );
     c.scale(zoom, zoom);
     const bg = c.createLinearGradient(0, 0, 1600, 1000);
-    bg.addColorStop(0, '#172a34');
-    bg.addColorStop(1, '#0d1a22');
+    bg.addColorStop(0, LOCATIONS[this.run.chapter].background[0]);
+    bg.addColorStop(1, LOCATIONS[this.run.chapter].background[1]);
     c.fillStyle = bg;
     c.fillRect(0, 0, 1600, 1000);
     c.strokeStyle = '#26394266';
@@ -810,7 +930,7 @@ export class Battle {
       c.fillRect(xx + 3, yy + 2, 9, 2);
       c.fillStyle = '#0b151b80';
     }
-    c.strokeStyle = CHAPTERS[this.run.chapter].color + '65';
+    c.strokeStyle = LOCATIONS[this.run.chapter].color + '65';
     c.lineWidth = 4;
     c.setLineDash([16, 12]);
     c.strokeRect(25, 25, 1550, 950);
@@ -852,7 +972,14 @@ export class Battle {
         Math.abs(e.x - cameraX) < w / zoom / 2 + 130 &&
         Math.abs(e.y - cameraY) < h / zoom / 2 + 130
       ) {
-        drawEnemy(c, e, this.run.chapter, this.elapsed, actor.dying);
+        drawEnemy(
+          c,
+          e,
+          this.run.chapter,
+          this.elapsed,
+          actor.dying,
+          this.run.bossVariants[this.run.chapter],
+        );
       }
     }
     for (let i = 0; i < this.stats.drones; i++) {

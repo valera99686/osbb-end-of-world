@@ -853,11 +853,12 @@ h3 {
 }
 .tree-legend {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 17px;
   padding: 0 20px 15px;
   border-bottom: 1px solid #2d4149;
-  font-size: 10px;
+  font-size: 14px;
   color: #a4b5bc;
 }
 .tree-legend span {
@@ -874,6 +875,13 @@ h3 {
 }
 .tree-legend .legend-visited::before {
   background: var(--teal);
+}
+.tree-legend .tree-node-key::before {
+  content: none;
+}
+.tree-node-key svg {
+  flex-shrink: 0;
+  color: var(--amber);
 }
 .tree-legend .legend-available::before {
   background: var(--amber);
@@ -1160,7 +1168,7 @@ h3 {
   .tree-legend {
     gap: 10px;
     padding-inline: 13px;
-    font-size: 9px;
+    font-size: 14px;
   }
   .tree-node b {
     font-size: 10px;

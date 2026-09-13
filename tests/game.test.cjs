@@ -13,7 +13,7 @@ const E = require('../.test-build/equipment.js');
 
 // Apartment/storage regressions use an explicit populated legacy floor fixture.
 // New campaign start conditions are covered in campaign.test.cjs.
-function fixtureRun(meta, character, chapter, seed) {
+function fixtureRun(meta, character, chapter, seed, legacyRoute = true) {
   const run = M.makeRun(meta, character, chapter, seed);
   run.houseLevel = 4;
   run.rescued = [run.character, 'nina', 'lev'];
@@ -24,8 +24,10 @@ function fixtureRun(meta, character, chapter, seed) {
   }
   run.furniture = F.initialFurniture();
   run.nextFurnitureId = 3;
-  run.nodes = M.legacyTree(seed);
-  run.routeVersion = 2;
+  if (legacyRoute) {
+    run.nodes = M.legacyTree(seed);
+    run.routeVersion = 2;
+  }
   run.hp = M.statsFor(run, meta).health;
   return run;
 }
@@ -58,7 +60,7 @@ test('Equipment only occupies non-portrait cells of aboard apartments and shares
 
 test('Equipment stays with rotated apartments and returning a resident preserves modules in a full store', () => {
   const meta = M.initialMeta();
-  let run = fixtureRun(meta, 'mechanic', 0, 106);
+  let run = fixtureRun(meta, 'mechanic', 0, 106, false);
   const slot = E.apartmentSlot('nina', 1);
   run = M.equip(run, 'armor', slot, meta);
   run.hp = 0.25;
@@ -173,7 +175,7 @@ test('Purchased replacements keep old equipment, and offboard modules never gran
 
 test('Furniture fills apartment slots, follows rotations and cannot create health by reinstalling', () => {
   const meta = M.initialMeta();
-  let run = fixtureRun(meta, 'mechanic', 0, 91);
+  let run = fixtureRun(meta, 'mechanic', 0, 91, false);
   run.items = E.emptyEquipment();
   const initial = M.statsFor(run, meta);
   run.hp = initial.health * 0.4;
@@ -326,7 +328,7 @@ test('Backpack transfers conserve modules and cannot heal by repeated installati
 });
 test('Full module storage rejects acquisitions but allows a lossless equipment swap', () => {
   const meta = M.initialMeta();
-  let run = fixtureRun(meta, 'mechanic', 0, 8);
+  let run = fixtureRun(meta, 'mechanic', 0, 8, false);
   for (let i = 0; i < 30; i++) run = M.packItem(run, meta, 'kitchen');
   assert.equal(run.backpack.length, 30);
   assert.equal(M.packItem(run, meta, 'cannon'), run);
@@ -558,7 +560,7 @@ test('Cutscenes resume safely, preserve watched progress and lock the ending unt
 });
 test('Rewritten story restarts only the introduction once and preserves the active expedition', () => {
   const meta = M.initialMeta(),
-    run = fixtureRun(meta, 'mechanic', 0, 55);
+    run = fixtureRun(meta, 'mechanic', 0, 55, false);
   meta.storyRevision = 2;
   meta.scenesSeen = ['prologue', 'arrival-0'];
   meta.sceneProgress = { id: 'prologue', index: 2 };
@@ -714,9 +716,9 @@ test('Malformed saves are recoverable; loaded chapters and room IDs cannot crash
   r.chapter = 0.5;
   assert.equal(M.readSave(M.saveData(meta, r)).run.chapter, 0);
   const round = M.readSave(
-    M.saveData(meta, fixtureRun(meta, 'mechanic', 0, 23)),
+    M.saveData(meta, fixtureRun(meta, 'mechanic', 0, 23, false)),
   );
-  assert.deepEqual(round.run, fixtureRun(meta, 'mechanic', 0, 23));
+  assert.deepEqual(round.run, fixtureRun(meta, 'mechanic', 0, 23, false));
 });
 test('Shop and reward offers never contain locked items or duplicates; elite drops favor higher rarity', () => {
   const meta = M.initialMeta();

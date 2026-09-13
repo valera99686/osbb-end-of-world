@@ -76,7 +76,7 @@ export interface Run {
   character: string;
   step: number;
   nodes: NodeKind[][];
-  routeVersion: 2 | 3;
+  routeVersion: 2 | 3 | 4;
   campaignVersion: 1;
   bossVariants: number[];
   houseLevel: number;
@@ -132,7 +132,11 @@ export function legacyTree(seed: number): NodeKind[][] {
   if (seeded(seed)() > 0.5) nodes[4] = ['event', 'shop', 'rest'];
   return nodes;
 }
-export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+// Frozen generator: an in-progress v0.5.0 encounter must survive reloading.
+export function previousCampaignTree(
+  seed: number,
+  chapter: number,
+): NodeKind[][] {
   const rng = seeded(seed + chapter * 100003 + 81);
   const pool: NodeKind[] = [
     'battle',
@@ -163,6 +167,36 @@ export function campaignTree(seed: number, chapter: number): NodeKind[][] {
                       : pool[Math.floor(rng() * pool.length)],
                 ),
   );
+}
+export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+  const rng = seeded(seed + chapter * 100003 + 417);
+  const shuffle = (rooms: NodeKind[]) => {
+    const result = [...rooms];
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  };
+  const discovery = (): NodeKind => (rng() < 0.5 ? 'event' : 'mystery');
+  const first = shuffle(['battle', 'event']);
+  const second = shuffle([
+    'battle',
+    rng() < 0.35 + chapter * 0.2 ? 'elite' : 'event',
+  ]);
+  return [
+    ['battle'],
+    // The central option is reachable from either side of the preceding fork.
+    [first[0], 'mystery', first[1]],
+    [second[0], 'chest', second[1]],
+    shuffle(['battle', 'elite']),
+    shuffle(['shop', 'rest', discovery()]),
+    shuffle(['battle', 'elite']),
+    shuffle(['mystery', 'chest', 'event']),
+    shuffle(['battle', 'elite']),
+    shuffle(['rest', 'shop', discovery()]),
+    ['boss'],
+  ];
 }
 export function mysteryKind(run: Run, nodeId: string): NodeKind {
   const col = Number(nodeId.split(':')[1]) || 0;
@@ -296,7 +330,7 @@ export function advanceLocation(run: Run, meta: Meta): Run {
     ...run,
     chapter,
     nodes: campaignTree(run.seed, chapter),
-    routeVersion: 3,
+    routeVersion: 4,
     step: 0,
     path: [],
     historyStart: 0,
@@ -486,7 +520,7 @@ export function makeRun(
     character: c.id,
     step: 0,
     nodes,
-    routeVersion: 3,
+    routeVersion: 4,
     campaignVersion: 1,
     bossVariants: [0, 1, 2].map((n) =>
       Math.floor(seeded(seed + n * 91237 + 919)() * 3),
@@ -1075,7 +1109,9 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
     (Array.isArray(path) && path.length === run.step + 1);
   const count = run.step + (active ? 1 : 0);
   const valid =
-    (saved.routeVersion === 2 || saved.routeVersion === 3) &&
+    (saved.routeVersion === 2 ||
+      saved.routeVersion === 3 ||
+      saved.routeVersion === 4) &&
     Array.isArray(path) &&
     path.length === count &&
     path.every(
@@ -1197,7 +1233,12 @@ export function readSave(raw: string | null): {
         : r.items.length === 9) &&
       Number.isInteger(r.step) &&
       r.step >= 0 &&
-      r.step < (r.campaignVersion === 1 ? 12 : 8)
+      r.step <
+        (r.routeVersion === 4
+          ? 10
+          : r.campaignVersion === 1 && r.routeVersion !== 2
+            ? 12
+            : 8)
     ) {
       run = makeRun(
         base,
@@ -1209,7 +1250,13 @@ export function readSave(raw: string | null): {
         run.nodes = legacyTree(r.seed);
         run.routeVersion = 2;
         run.houseLevel = 4;
-      } else run.houseLevel = Math.floor(finite(r.houseLevel, 0, 4, 0));
+      } else {
+        if (r.routeVersion !== 4) {
+          run.nodes = previousCampaignTree(r.seed, run.chapter);
+          run.routeVersion = 3;
+        }
+        run.houseLevel = Math.floor(finite(r.houseLevel, 0, 4, 0));
+      }
       run.rescued = [
         ...new Set<string>(
           [
@@ -1405,6 +1452,17 @@ export function readSave(raw: string | null): {
           base.scenesSeen.includes(m.sceneProgress?.id) ? 3 : run.chapter,
         );
       base.lore = loreForProgress(base.lore, base.wins, run.chapter);
+      // An untouched map can adopt the new route without replaying a room or
+      // discarding a checkpoint. Keep the house, inventory and resources.
+      if (
+        run.routeVersion !== 4 &&
+        run.step === 0 &&
+        run.page === 'map' &&
+        run.path.length === 0
+      ) {
+        run.nodes = campaignTree(run.seed, run.chapter);
+        run.routeVersion = 4;
+      }
     }
     return { meta: base, run };
   } catch {

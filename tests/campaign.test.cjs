@@ -11,7 +11,7 @@ test('A discovered locked item remains unlocked after a lost expedition, with pu
   meta.unlocked.push('crown');
   meta.seen.push('crown');
   let run = M.makeRun(meta, 'mechanic', 0, 77);
-  run = roomAt(run, meta, 4, 0);
+  run = roomOfKind(run, meta, 4, 'shop');
   run.offers = ['crown', 'engine', 'cannon'];
   run.bought = [0, 2];
   const loaded = M.readSave(M.saveData(meta, run));
@@ -23,25 +23,51 @@ test('A discovered locked item remains unlocked after a lost expedition, with pu
   );
 });
 function roomAt(run, meta, step, col = 0) {
+  let paths = [[]];
   for (let row = run.step; row <= step; row++) {
-    const c = row === step ? col : M.availableColumns(run)[0];
+    paths = paths.flatMap((path) => {
+      const options =
+        row === run.step
+          ? M.availableColumns(run)
+          : M.routeTargets(row - 1, path.at(-1), run.nodes);
+      return options.map((c) => [...path, c]);
+    });
+  }
+  const path = paths.find((p) => p.at(-1) === col);
+  assert.ok(path, `No route to ${step}:${col}`);
+  const start = run.step;
+  for (let row = run.step; row <= step; row++) {
+    const c = path[row - start];
     run = M.enterNode(run, meta, `${row}:${c}`);
     if (row < step) run = M.nextNode({ ...run, page: 'reward' });
   }
   return run;
 }
-test('Three seeded trees have 12 stages, all nodes connect to a final boss, and later locations differ', () => {
+function roomOfKind(run, meta, step, kind) {
+  const col = run.nodes[step].indexOf(kind);
+  assert.ok(col >= 0, `Missing ${kind} on row ${step}`);
+  return roomAt(run, meta, step, col);
+}
+test('Ten-step trees have compact varied forks and reachable guaranteed mystery rooms and chests', () => {
   const meta = M.initialMeta();
+  const layouts = new Set();
   for (let seed = 0; seed < 50; seed++)
     for (let chapter = 0; chapter < 3; chapter++) {
       const run = M.makeRun(meta, 'mechanic', chapter, seed);
-      assert.equal(run.nodes.length, 12);
-      assert.ok(run.nodes.flat().length >= 36);
-      for (let row = 0; row < 10; row++)
+      assert.equal(run.nodes.length, 10);
+      assert.equal(run.routeVersion, 4);
+      assert.ok(run.nodes.every((row) => row.length <= 3));
+      assert.equal(run.nodes[1][1], 'mystery');
+      assert.equal(run.nodes[2][1], 'chest');
+      assert.ok(run.nodes.flat().filter((n) => n === 'mystery').length >= 2);
+      assert.ok(run.nodes.flat().filter((n) => n === 'chest').length >= 2);
+      for (let col = 0; col < run.nodes[1].length; col++)
+        assert.ok(M.routeTargets(1, col, run.nodes).includes(1));
+      for (let row = 0; row < 8; row++)
         for (let col = 0; col < run.nodes[row].length; col++)
           assert.ok(M.routeTargets(row, col, run.nodes).length >= 2);
       let reached = [0];
-      for (let row = 0; row < 11; row++) {
+      for (let row = 0; row < 9; row++) {
         let next = new Set();
         for (const col of reached) {
           const targets = M.routeTargets(row, col, run.nodes);
@@ -51,10 +77,14 @@ test('Three seeded trees have 12 stages, all nodes connect to a final boss, and 
         reached = [...next];
         assert.equal(reached.length, run.nodes[row + 1].length);
       }
-      assert.deepEqual(run.nodes[11], ['boss']);
+      assert.deepEqual(run.nodes[9], ['boss']);
       assert.deepEqual(M.campaignTree(seed, chapter), run.nodes);
-      assert.notDeepEqual(run.nodes, M.campaignTree(seed, (chapter + 1) % 3));
+      layouts.add(JSON.stringify(run.nodes));
     }
+  assert.ok(
+    layouts.size > 120,
+    'Seeds and locations should produce different room layouts',
+  );
 });
 test('Captain only, no free furniture or permanent recruitment; expensive floor expansions belong to the expedition', () => {
   let meta = M.initialMeta();
@@ -95,6 +125,72 @@ test('Captain only, no free furniture or permanent recruitment; expensive floor 
   assert.equal(after.rescued.length, 1);
   assert.equal(after.furniture.length, 0);
 });
+test('An untouched older map upgrades to ten steps without resetting the house or inventory', () => {
+  const meta = M.initialMeta();
+  for (const version of [2, 3]) {
+    const old = M.makeRun(meta, 'mechanic', 2, 731);
+    old.routeVersion = version;
+    old.nodes =
+      version === 2
+        ? M.legacyTree(old.seed)
+        : M.previousCampaignTree(old.seed, old.chapter);
+    old.houseLevel = version === 2 ? 4 : 2;
+    old.coins = 317;
+    old.scrap = 13;
+    const loaded = M.readSave(M.saveData(meta, old)).run;
+    assert.equal(loaded.nodes.length, 10);
+    assert.equal(loaded.routeVersion, 4);
+    for (const key of [
+      'coins',
+      'scrap',
+      'hp',
+      'houseLevel',
+      'items',
+      'residents',
+      'furniture',
+      'rescued',
+      'bossVariants',
+    ])
+      assert.deepEqual(loaded[key], old[key], key);
+    assert.deepEqual(M.readSave(M.saveData(meta, loaded)).run, loaded);
+  }
+});
+test('Active twelve-step routes retain late rooms and mystery outcomes, then advance to ten steps', () => {
+  const meta = M.initialMeta();
+  for (const [step, kind] of [
+    [2, 'mystery'],
+    [9, 'elite'],
+    [10, 'shop'],
+    [11, 'boss'],
+  ]) {
+    let old = M.makeRun(meta, 'mechanic', 0, 18);
+    old.routeVersion = 3;
+    old.nodes = M.previousCampaignTree(old.seed, 0);
+    old = roomOfKind(old, meta, step, kind);
+    old.coins = 173;
+    const loaded = M.readSave(M.saveData(meta, old)).run;
+    assert.equal(loaded.nodes.length, 12);
+    for (const key of [
+      'step',
+      'kind',
+      'path',
+      'historyStart',
+      'revealed',
+      'coins',
+      'loot',
+      'offers',
+      'items',
+    ])
+      assert.deepEqual(loaded[key], old[key], key);
+    assert.deepEqual(M.readSave(M.saveData(meta, loaded)).run, loaded);
+    if (step === 11) {
+      const next = M.advanceLocation(loaded, meta);
+      assert.equal(next.nodes.length, 10);
+      assert.equal(next.routeVersion, 4);
+      assert.equal(next.coins, old.coins);
+    }
+  }
+});
 test('Rescued people are retained when rooms cannot fit, and can be housed after expansion', () => {
   const meta = M.initialMeta();
   let run = M.makeRun(meta, 'mechanic', 0, 133);
@@ -119,7 +215,7 @@ test('Boss transitions carry the same house and inventory, save the story, and o
   run.coins = 221;
   run.houseLevel = 1;
   for (let chapter = 0; chapter < 2; chapter++) {
-    run = roomAt(run, meta, 11);
+    run = roomAt(run, meta, 9);
     const before = run;
     run = M.advanceLocation(run, meta);
     assert.equal(run.chapter, chapter + 1);
@@ -135,7 +231,7 @@ test('Boss transitions carry the same house and inventory, save the story, and o
     assert.deepEqual(saved.meta.sceneProgress, meta.sceneProgress);
     assert.equal(meta.wins, 0);
   }
-  run = roomAt(run, meta, 11);
+  run = roomAt(run, meta, 9);
   assert.equal(M.advanceLocation(run, meta), run);
   const end = M.finishRun(meta, run, true);
   assert.equal(end.meta.wins, 1);
@@ -147,17 +243,15 @@ test('Mystery rooms resolve once across reload and include every room type witho
     seen = new Set();
   for (let seed = 0; seed < 200; seed++) {
     let run = M.makeRun(meta, 'mechanic', 0, seed);
-    run = roomAt(run, meta, 1, 2);
-    run = M.nextNode({ ...run, page: 'reward' });
-    run = M.enterNode(run, meta, '2:3');
+    run = roomOfKind(run, meta, 1, 'mystery');
     seen.add(run.kind);
-    assert.equal(run.revealed['2:3'], run.kind);
+    assert.equal(run.revealed['1:1'], run.kind);
     const saved = M.readSave(M.saveData(meta, run)).run;
     assert.equal(saved.kind, run.kind);
     assert.deepEqual(saved.loot, run.loot);
     assert.deepEqual(saved.bossVariants, run.bossVariants);
     if (saved.page === 'map')
-      assert.equal(M.enterNode(saved, meta, '2:3').kind, run.kind);
+      assert.equal(M.enterNode(saved, meta, '1:1').kind, run.kind);
     if (run.kind === 'boss') assert.equal(M.advanceLocation(run, meta), run);
   }
   assert.equal(seen.size, 7);
@@ -166,7 +260,12 @@ test('A chest contains exactly one furniture or module, locked modules survive a
   const meta = M.initialMeta();
   let found = new Set();
   for (let seed = 0; seed < 300; seed++) {
-    let run = roomAt(M.makeRun(meta, 'mechanic', 0, seed), meta, 2, 0);
+    let run = roomOfKind(
+      M.makeRun(meta, 'mechanic', 0, seed),
+      meta,
+      2,
+      'chest',
+    );
     assert.equal(run.kind, 'chest');
     assert.equal(run.loot.length, 1);
     const loot = run.loot[0];
@@ -190,7 +289,7 @@ test('A chest contains exactly one furniture or module, locked modules survive a
 });
 test('Shop furniture is finite, rerolls retain sold items, repairs are once per shop, and events are affordable and single-use', () => {
   const meta = M.initialMeta();
-  let run = roomAt(M.makeRun(meta, 'mechanic', 0, 91), meta, 4, 0);
+  let run = roomOfKind(M.makeRun(meta, 'mechanic', 0, 91), meta, 4, 'shop');
   run.coins = 200;
   run.hp = 40;
   assert.equal(run.page, 'shop');
@@ -255,7 +354,7 @@ test('Nine bosses have distinct attacks, warnings and escalating health, and all
         run = M.makeRun(meta, 'mechanic', location, 177);
       run.bossVariants[location] = variant;
       run.kind = 'boss';
-      run.step = 11;
+      run.step = 9;
       let result;
       const engine = new Battle(
         null,

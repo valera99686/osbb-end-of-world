@@ -156,13 +156,19 @@ export function RouteTree({
           onClick={focusCurrent}
           title="Показати поточну розвилку"
         >
-          <LocateFixed size={16} /> {run.step + 1} / {run.nodes.length}
+          <LocateFixed size={16} /> Крок {run.step + 1} / {run.nodes.length}
         </button>
       </div>
       <div className="tree-legend" aria-label="Позначення карти">
         <span className="legend-visited">Пройдено</span>
         <span className="legend-available">Можна йти</span>
         <span className="legend-future">Попереду</span>
+        <span className="tree-node-key">
+          <HelpCircle size={15} /> Випадкова кімната
+        </span>
+        <span className="tree-node-key">
+          <Gift size={15} /> Скриня
+        </span>
         <ArrowDown size={14} aria-label="Рух униз до боса" />
       </div>
       <div
@@ -316,7 +322,9 @@ export function RouteTree({
         </button>
       </div>
       <p className="tree-guidance">
-        Обирай з’єднані вузли. Після входу в кімнату змінити гілку вже не можна.
+        {run.routeVersion === 4
+          ? '10 кроків у цій локації. На 10-му — бос. Обирай з’єднані клітинки; «?» відкриває випадкову кімнату, скриня дає один предмет.'
+          : 'Цей маршрут уже розпочато й збережено. Наступна локація або новий рейд матиме 10 кроків, знаки питання та скрині.'}
       </p>
     </div>
   );

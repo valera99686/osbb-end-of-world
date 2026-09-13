@@ -48,11 +48,11 @@ export function ApartmentEquipment({
       <div className="apartment-equipment-heading">
         <h3>Обладнання квартир</h3>
         <span>
-          <Package size={15} /> На складі: {run.backpack.length}
+          <Package size={15} /> Невстановлено: {run.backpack.length}
         </span>
       </div>
       <p>
-        Обери модуль зі складу, потім клітинку з «+» всередині квартири на плані
+        Обери предмет нижче, потім клітинку з «+» всередині квартири на плані
         вище.
       </p>
       {(pending || movingId) && (
@@ -73,7 +73,40 @@ export function ApartmentEquipment({
           </button>
         </div>
       )}
-      {selected && target && (
+      {pending && (
+        <div className="apartment-module-details">
+          <Glyph name={ITEM_BY_ID[pending].icon} size={28} />
+          <div>
+            <small>Ще не встановлено</small>
+            <h4>{ITEM_BY_ID[pending].name}</h4>
+            <p>{ITEM_BY_ID[pending].desc}</p>
+          </div>
+          <div className="apartment-module-actions">
+            <button
+              className="text-button danger"
+              disabled={run.page === 'combat'}
+              onClick={() => {
+                if (
+                  run.page === 'combat' ||
+                  !run.backpack.some((item) => item.uid === picked)
+                )
+                  return;
+                onChange({
+                  ...run,
+                  backpack: run.backpack.filter((item) => item.uid !== picked),
+                  scrap: run.scrap + 2,
+                });
+                onMetaChange({ ...meta, scrapped: meta.scrapped + 1 });
+                onPick(null);
+                onMessage('Модуль розібрано: +2 брухту.');
+              }}
+            >
+              <Recycle size={15} /> Розібрати · +2 брухту
+            </button>
+          </div>
+        </div>
+      )}
+      {!pending && selected && target && (
         <div className="apartment-module-details">
           <Glyph name={ITEM_BY_ID[selected].icon} size={28} />
           <div>
@@ -94,16 +127,16 @@ export function ApartmentEquipment({
                 const next = stowModule(run, meta, selectedSlot!);
                 if (next === run) {
                   onMessage(
-                    'Склад переповнений. Спочатку встанови або розбери запасне обладнання.',
+                    'Забагато невстановлених предметів. Спочатку встанови або розбери запасне обладнання.',
                   );
                   return;
                 }
                 onChange(next);
                 onMove(null);
-                onMessage('Обладнання повернуто на склад.');
+                onMessage('Предмет знято. Можна встановити в іншу квартиру.');
               }}
             >
-              <Package size={15} /> На склад
+              <Package size={15} /> Зняти
             </button>
             <button
               className="text-button danger"
@@ -116,7 +149,7 @@ export function ApartmentEquipment({
                 onMessage('Модуль розібрано: +2 брухту.');
               }}
             >
-              <Recycle size={15} /> Розібрати · +2
+              <Recycle size={15} /> Розібрати · +2 брухту
             </button>
           </div>
         </div>
@@ -130,7 +163,7 @@ export function ApartmentEquipment({
             onClick={() => {
               onPick(picked === item.uid ? null : item.uid);
               onMessage(
-                'Обери місце всередині квартири. Встановлене там обладнання повернеться на склад.',
+                'Обери місце всередині квартири. Попередній предмет буде знято та збережено.',
               );
             }}
           >
@@ -144,7 +177,7 @@ export function ApartmentEquipment({
       {!run.backpack.length && (
         <p className="equipment-empty">
           Запасних модулів немає. Натисни обладнання у квартирі, щоб перемістити
-          його або зняти на склад. Нові модулі знаходь у боях і магазині.
+          його або зняти. Нові предмети знаходь під час рейду.
         </p>
       )}
     </section>

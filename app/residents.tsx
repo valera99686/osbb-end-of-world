@@ -378,7 +378,7 @@ export function EquipmentPlacement({
                   ? 'equipment-swap-target'
                   : 'equipment-free-target'
               }
-              aria-label={`Встановити ${ITEM_BY_ID[itemId].name}: квартира ${RESIDENT_BY_ID[target.resident].name}, місце ${target.cell}${run.items[target.slot] ? '. Попередній модуль повернеться на склад' : ''}`}
+              aria-label={`Встановити ${ITEM_BY_ID[itemId].name}: квартира ${RESIDENT_BY_ID[target.resident].name}, місце ${target.cell}${run.items[target.slot] ? '. Попередній модуль буде знято та збережено' : ''}`}
               title={`Квартира: ${RESIDENT_BY_ID[target.resident].name}`}
               onClick={() => onInstall(target.slot)}
             />
@@ -387,7 +387,7 @@ export function EquipmentPlacement({
       </div>
       <p className="housing-hint">
         Зелений пунктир — вільне місце. Золотий — заміна зі збереженням
-        попереднього модуля на складі. Меблі потрібно спочатку зняти.
+        попереднього модуля для іншої квартири. Меблі потрібно спочатку зняти.
       </p>
     </div>
   );

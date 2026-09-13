@@ -7,10 +7,6 @@
   display: flex;
   justify-content: space-between;
 }
-.equipment-summary .bag-open {
-  width: 100%;
-  margin-top: 12px;
-}
 .equipment-picker {
   max-width: 590px;
   margin: 0 auto;

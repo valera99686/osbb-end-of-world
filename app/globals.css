@@ -1415,6 +1415,12 @@ h3 {
   font-size: 13px;
   color: #a5b7be;
 }
+.scrap-help {
+  margin: 0;
+  color: #a5b7be;
+  font-size: 12px;
+  line-height: 1.6;
+}
 
 /* Loot, shops, encounters */
 .reward-cards,

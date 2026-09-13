@@ -55,7 +55,6 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { RouteTree, NODE_INFO } from './route-tree';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
-import { Backpack } from './backpack';
 import { Glyph } from './glyph';
 import { activeEquipment, APARTMENT_SLOTS } from '@/lib/game/equipment';
 import { Residents, HousePreview, EquipmentPlacement } from './residents';
@@ -83,7 +82,6 @@ import {
   nextNode,
   equip,
   packItem,
-  installPacked,
   finishRun,
   readSave,
   saveData,
@@ -473,7 +471,6 @@ export default function Game() {
   const [character, setCharacter] = useState('mechanic'),
     [chapter, setChapter] = useState(0),
     [help, setHelp] = useState(false),
-    [bagOpen, setBagOpen] = useState(false),
     [housingOpen, setHousingOpen] = useState(false),
     [notice, setNotice] = useState(''),
     [pending, setPending] = useState<{
@@ -542,10 +539,7 @@ export default function Game() {
         return;
       }
       if (run?.page === 'combat' && screen === 'play') return;
-      if (bagOpen) {
-        e.preventDefault();
-        setBagOpen(false);
-      } else if (help) {
+      if (help) {
         e.preventDefault();
         setHelp(false);
       } else if (result) {
@@ -568,7 +562,6 @@ export default function Game() {
     run?.page,
     screen,
     help,
-    bagOpen,
     housingOpen,
     meta.sceneProgress,
     result,
@@ -615,7 +608,6 @@ export default function Game() {
   }
   function back() {
     setHousingOpen(false);
-    setBagOpen(false);
     setScreen('hub');
     setNotice('');
   }
@@ -668,7 +660,9 @@ export default function Game() {
       return;
     let next = packItem(run, meta, id);
     if (next === run) {
-      ping('Склад заповнений. Встанови або розбери запасний модуль.');
+      ping(
+        'Забагато невстановлених предметів. Встанови або розбери запасний модуль у квартирах.',
+      );
       return;
     }
     next = {
@@ -684,7 +678,9 @@ export default function Game() {
       seen: [...new Set([...meta.seen, id])],
       unlocked: [...new Set([...meta.unlocked, id])],
     });
-    ping(`${ITEM_BY_ID[id].name} на складі.`);
+    ping(
+      `${ITEM_BY_ID[id].name} збережено. Встанови предмет через «Квартири й обладнання».`,
+    );
   }
   function acquire(
     id: string,
@@ -701,7 +697,7 @@ export default function Game() {
     let next = equip(run, id, slot, meta);
     if (next === run) {
       ping(
-        'Це місце зайняте або склад переповнений. Обери іншу клітинку квартири.',
+        'Це місце зайняте або забагато невстановлених предметів. Обери вільну клітинку квартири.',
       );
       return;
     }
@@ -719,7 +715,7 @@ export default function Game() {
     setRun(next);
     setPending(null);
     ping(
-      `${item.name} — квартира ${RESIDENT_BY_ID[APARTMENT_SLOTS[slot].resident].name}${run.items[slot] ? ' · попереднє обладнання повернуто на склад' : ''}.`,
+      `${item.name} — квартира ${RESIDENT_BY_ID[APARTMENT_SLOTS[slot].resident].name}${run.items[slot] ? ' · попередній предмет знято та збережено' : ''}.`,
     );
   }
   function research(id: string, cost: number) {
@@ -763,10 +759,6 @@ export default function Game() {
         <span>
           Обладнання у квартирах <b>{activeEquipment(run).length}</b>
         </span>
-        <button className="secondary bag-open" onClick={() => setBagOpen(true)}>
-          <Package size={18} /> Склад обладнання{' '}
-          <span>{run.backpack.length}</span>
-        </button>
       </div>
       <div className="stat-grid">
         <div>
@@ -820,6 +812,10 @@ export default function Game() {
         <span>
           <Wrench size={16} /> Польовий ремонт
         </span>
+        <p className="scrap-help">
+          Брухт — запчастини з боїв, подій і розібраного обладнання. Витрачай їх
+          на ремонт або обмін у подіях.
+        </p>
         <button
           className="secondary small"
           disabled={run.scrap < 3 || run.hp >= stats.health}
@@ -829,7 +825,9 @@ export default function Game() {
               scrap: run.scrap - 3,
               hp: Math.min(stats.health, run.hp + 35),
             });
-            ping('Відремонтовано +35 міцності.');
+            ping(
+              `Відремонтовано +${Math.min(35, Math.ceil(stats.health - run.hp))} міцності.`,
+            );
           }}
         >
           3 брухту → +35 <Heart size={13} />
@@ -1010,7 +1008,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.5.3 · Прогрес зберігається на цьому пристрої.
+              v0.5.4 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1440,39 +1438,6 @@ export default function Game() {
           )}
         </DialogContent>
       </Dialog>
-      <Dialog open={bagOpen && !!run} onOpenChange={setBagOpen}>
-        <DialogContent className="game-modal backpack-modal">
-          <DialogTitle>Склад обладнання</DialogTitle>
-          <DialogDescription>
-            Обери модуль, потім місце всередині квартири на плані будинку.
-            Попереднє обладнання повернеться на склад.
-          </DialogDescription>
-          {run && (
-            <Backpack
-              run={run}
-              meta={meta}
-              onInstall={(uid, slot) => {
-                const next = installPacked(run, meta, uid, slot);
-                if (next === run) {
-                  ping('Обери клітинку квартири без меблів.');
-                  return;
-                }
-                setRun(next);
-                ping('Модуль встановлено.');
-              }}
-              onScrap={(uid) => {
-                if (!run.backpack.some((i) => i.uid === uid)) return;
-                setRun({
-                  ...run,
-                  backpack: run.backpack.filter((i) => i.uid !== uid),
-                  scrap: run.scrap + 2,
-                });
-                setMeta({ ...meta, scrapped: meta.scrapped + 1 });
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
       <Dialog
         open={!!pending}
         onOpenChange={(open) => {
@@ -1482,9 +1447,9 @@ export default function Game() {
         <DialogContent className="game-modal">
           <DialogTitle>{pending && ITEM_BY_ID[pending.id].name}</DialogTitle>
           <DialogDescription>
-            Обери місце всередині квартири мешканця. Якщо там є модуль, він
-            повернеться на склад. Портрет мешканця та площа поза квартирами
-            недоступні.
+            Обери місце всередині квартири мешканця. Якщо там є модуль, його
+            буде знято та збережено для іншої квартири. Портрет мешканця та
+            площа поза квартирами недоступні.
           </DialogDescription>
           {run && pending && (
             <EquipmentPlacement
@@ -1501,11 +1466,12 @@ export default function Game() {
             disabled={!run || !pending || run.backpack.length >= 30}
             onClick={acquireToBag}
           >
-            <Package size={18} /> На склад
+            <Package size={18} /> Встановити пізніше
           </button>
           {run && pending && run.backpack.length >= 30 && (
             <p className="muted">
-              Склад заповнений. Встанови або розбери один із запасних модулів.
+              Забагато невстановлених предметів. Встанови або розбери один із
+              запасних модулів у квартирах.
             </p>
           )}
         </DialogContent>
@@ -1582,7 +1548,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.5.3 · 3 локації, 9 мешканців, 9 варіантів
+            ОСББ кінця світу · v0.5.4 · 3 локації, 9 мешканців, 9 варіантів
             босів і сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">

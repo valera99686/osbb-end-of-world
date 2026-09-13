@@ -907,6 +907,34 @@ h3 {
   background-image: radial-gradient(#638b8c22 0.8px, transparent 0.8px);
   background-size: 18px 18px;
 }
+.tree-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0 20px 16px;
+  color: #bdcdd2;
+  font-size: 14px;
+}
+.tree-summary span {
+  color: #93aeb9;
+}
+.tree-wide .tree-viewport {
+  overflow-x: auto;
+}
+.tree-wide .tree-canvas {
+  min-width: 820px;
+}
+.tree-wide .tree-node {
+  width: 104px;
+  max-width: 104px;
+}
+.tree-wide .tree-node b {
+  font-size: 14px;
+}
+.tree-wide .tree-node small {
+  font-size: 12px;
+}
 .tree-level {
   border: 0;
   padding: 0;

@@ -25,6 +25,7 @@ import {
   availableColumns,
   reachableColumns,
   routeTargets,
+  seeded,
   type NodeKind,
   type Run,
 } from '@/lib/game/model';
@@ -93,7 +94,16 @@ export const NODE_INFO: Record<
 
 const ROW_HEIGHT = 116;
 const TOP = 60;
-function point(row: number, col: number, count: number) {
+function point(row: number, col: number, count: number, run: Run) {
+  if (run.routeVersion === 5) {
+    const jitter =
+      (seeded(run.seed + run.chapter * 100003 + row * 733 + col * 83)() - 0.5) *
+      24;
+    return {
+      x: count === 1 ? 500 : 100 + (col * 800) / (count - 1) + jitter,
+      y: TOP + row * ROW_HEIGHT,
+    };
+  }
   const columns =
     count === 1
       ? [500]
@@ -125,13 +135,22 @@ export function RouteTree({
       ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
       : info.name;
   const height = TOP * 2 + (run.nodes.length - 1) * ROW_HEIGHT + 18;
+  const wide = run.routeVersion === 5;
   const focusCurrent = useCallback(() => {
-    if (viewport.current)
+    if (viewport.current) {
       viewport.current.scrollTop = Math.max(
         0,
         TOP + run.step * ROW_HEIGHT - viewport.current.clientHeight * 0.3,
       );
-  }, [run.step]);
+      const col = availableColumns(run)[0] ?? 0;
+      const pos = point(run.step, col, run.nodes[run.step].length, run);
+      viewport.current.scrollLeft = Math.max(
+        0,
+        (pos.x / 1000) * viewport.current.scrollWidth -
+          viewport.current.clientWidth / 2,
+      );
+    }
+  }, [run]);
   useEffect(() => {
     focusCurrent();
   }, [focusCurrent]);
@@ -146,7 +165,7 @@ export function RouteTree({
   }
 
   return (
-    <div className="route-tree">
+    <div className={`route-tree ${wide ? 'tree-wide' : ''}`}>
       <div className="tree-toolbar">
         <span>
           <GitBranch size={17} /> КАРТА РАЙОНУ
@@ -159,6 +178,10 @@ export function RouteTree({
           <LocateFixed size={16} /> Крок {run.step + 1} / {run.nodes.length}
         </button>
       </div>
+      <p className="tree-summary">
+        {run.nodes.flat().length} клітинок · {run.nodes.length} кроків до боса
+        {wide && <span>Прокручуй карту вбік і вниз</span>}
+      </p>
       <div className="tree-legend" aria-label="Позначення карти">
         <span className="legend-visited">Пройдено</span>
         <span className="legend-available">Можна йти</span>
@@ -174,7 +197,8 @@ export function RouteTree({
       <div
         className="tree-viewport"
         ref={viewport}
-        aria-label="Дерево маршрутів. Прокручуй, щоб оглянути шлях до боса."
+        aria-label="Дерево маршрутів. Прокручуй вбік і вниз, щоб оглянути шлях до боса."
+        tabIndex={0}
       >
         <div className="tree-canvas" style={{ height }}>
           <div
@@ -190,8 +214,13 @@ export function RouteTree({
             {run.nodes.flatMap((row, step) =>
               row.flatMap((_, col) =>
                 routeTargets(step, col, run.nodes).map((target) => {
-                  const from = point(step, col, row.length),
-                    to = point(step + 1, target, run.nodes[step + 1].length);
+                  const from = point(step, col, row.length, run),
+                    to = point(
+                      step + 1,
+                      target,
+                      run.nodes[step + 1].length,
+                      run,
+                    );
                   const traversed =
                     step >= run.historyStart &&
                     step + 1 < run.path.length &&
@@ -240,7 +269,7 @@ export function RouteTree({
                 const node =
                     NODE_INFO[run.revealed[`${step}:${col}`] ?? nodeKind],
                   C = node.icon;
-                const pos = point(step, col, row.length),
+                const pos = point(step, col, row.length, run),
                   status = state(step, col),
                   id = `${step}:${col}`;
                 const statusText =
@@ -322,9 +351,9 @@ export function RouteTree({
         </button>
       </div>
       <p className="tree-guidance">
-        {run.routeVersion === 4
-          ? '10 кроків у цій локації. На 10-му — бос. Обирай з’єднані клітинки; «?» відкриває випадкову кімнату, скриня дає один предмет.'
-          : 'Цей маршрут уже розпочато й збережено. Наступна локація або новий рейд матиме 10 кроків, знаки питання та скрині.'}
+        {wide
+          ? 'Обирай з’єднані клітинки. «?» відкриває випадкову кімнату, скриня дає один предмет. На 10-му кроці — бос.'
+          : 'Цей маршрут уже розпочато й збережено. Наступна локація або новий рейд матиме ширшу карту: 38 клітинок і 10 кроків до боса.'}
       </p>
     </div>
   );

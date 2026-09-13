@@ -76,7 +76,7 @@ export interface Run {
   character: string;
   step: number;
   nodes: NodeKind[][];
-  routeVersion: 2 | 3 | 4;
+  routeVersion: 2 | 3 | 4 | 5;
   campaignVersion: 1;
   bossVariants: number[];
   houseLevel: number;
@@ -168,7 +168,10 @@ export function previousCampaignTree(
                 ),
   );
 }
-export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+export function compactCampaignTree(
+  seed: number,
+  chapter: number,
+): NodeKind[][] {
   const rng = seeded(seed + chapter * 100003 + 417);
   const shuffle = (rooms: NodeKind[]) => {
     const result = [...rooms];
@@ -197,6 +200,52 @@ export function campaignTree(seed: number, chapter: number): NodeKind[][] {
     shuffle(['rest', 'shop', discovery()]),
     ['boss'],
   ];
+}
+export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+  const rng = seeded(seed + chapter * 100003 + 1705);
+  const shuffle = <T>(values: T[]): T[] => {
+    const result = [...values];
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  };
+  const widths = shuffle([3, 3, 4, 4, 5, 5, 6, 6]);
+  const combatRows = new Set(shuffle([2, 3, 4, 5, 6, 7]).slice(0, 3));
+  const supportRows = [1, 2, 3, 4, 5, 6, 7, 8].filter(
+    (row) => !combatRows.has(row),
+  );
+  const mysteryRows = new Set(shuffle(supportRows).slice(0, 2));
+  const chestRows = new Set(
+    shuffle(supportRows.filter((row) => row > 1)).slice(0, 2),
+  );
+  const shopRow = shuffle(supportRows.filter((row) => row >= 3 && row <= 6))[0];
+  const nodes: NodeKind[][] = [['battle']];
+  widths.forEach((width, i) => {
+    const row = i + 1;
+    const rooms: NodeKind[] = combatRows.has(row) ? ['battle', 'elite', 'mystery'] : [];
+    if (mysteryRows.has(row)) rooms.push('mystery');
+    if (chestRows.has(row)) rooms.push('chest');
+    if (row === shopRow) rooms.push('shop');
+    if (row === 8) rooms.push('rest');
+    const pool: NodeKind[] = combatRows.has(row)
+      ? [
+          'battle',
+          'battle',
+          'elite',
+          ...(chapter > 0 ? ['elite' as const] : []),
+        ]
+      : ['battle', 'event', 'mystery'];
+    while (rooms.length < width) {
+      const missing = pool.filter((kind) => !rooms.includes(kind));
+      const choices = missing.length ? missing : pool;
+      rooms.push(choices[Math.floor(rng() * choices.length)]);
+    }
+    nodes.push(shuffle(rooms));
+  });
+  nodes.push(['boss']);
+  return nodes;
 }
 export function mysteryKind(run: Run, nodeId: string): NodeKind {
   const col = Number(nodeId.split(':')[1]) || 0;
@@ -330,7 +379,7 @@ export function advanceLocation(run: Run, meta: Meta): Run {
     ...run,
     chapter,
     nodes: campaignTree(run.seed, chapter),
-    routeVersion: 4,
+    routeVersion: 5,
     step: 0,
     path: [],
     historyStart: 0,
@@ -520,7 +569,7 @@ export function makeRun(
     character: c.id,
     step: 0,
     nodes,
-    routeVersion: 4,
+    routeVersion: 5,
     campaignVersion: 1,
     bossVariants: [0, 1, 2].map((n) =>
       Math.floor(seeded(seed + n * 91237 + 919)() * 3),
@@ -1111,7 +1160,8 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
   const valid =
     (saved.routeVersion === 2 ||
       saved.routeVersion === 3 ||
-      saved.routeVersion === 4) &&
+      saved.routeVersion === 4 ||
+      saved.routeVersion === 5) &&
     Array.isArray(path) &&
     path.length === count &&
     path.every(
@@ -1234,7 +1284,7 @@ export function readSave(raw: string | null): {
       Number.isInteger(r.step) &&
       r.step >= 0 &&
       r.step <
-        (r.routeVersion === 4
+        (r.routeVersion === 4 || r.routeVersion === 5
           ? 10
           : r.campaignVersion === 1 && r.routeVersion !== 2
             ? 12
@@ -1251,7 +1301,10 @@ export function readSave(raw: string | null): {
         run.routeVersion = 2;
         run.houseLevel = 4;
       } else {
-        if (r.routeVersion !== 4) {
+        if (r.routeVersion === 4) {
+          run.nodes = compactCampaignTree(r.seed, run.chapter);
+          run.routeVersion = 4;
+        } else if (r.routeVersion !== 5) {
           run.nodes = previousCampaignTree(r.seed, run.chapter);
           run.routeVersion = 3;
         }
@@ -1455,13 +1508,13 @@ export function readSave(raw: string | null): {
       // An untouched map can adopt the new route without replaying a room or
       // discarding a checkpoint. Keep the house, inventory and resources.
       if (
-        run.routeVersion !== 4 &&
+        run.routeVersion !== 5 &&
         run.step === 0 &&
         run.page === 'map' &&
         run.path.length === 0
       ) {
         run.nodes = campaignTree(run.seed, run.chapter);
-        run.routeVersion = 4;
+        run.routeVersion = 5;
       }
     }
     return { meta: base, run };

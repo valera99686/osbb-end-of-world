@@ -30,7 +30,7 @@ function roomAt(run, meta, step, col = 0) {
       const options =
         row === run.step
           ? M.availableColumns(run)
-          : M.routeTargets(row - 1, path.at(-1), run.nodes);
+          : M.routeTargets(row - 1, path.at(-1), run.nodes, run);
       options.forEach((c) => {
         if (!endpoints.has(c)) endpoints.set(c, [...path, c]);
       });
@@ -53,19 +53,30 @@ function roomOfKind(run, meta, step, kind) {
   assert.ok(col >= 0, `Missing ${kind} on row ${step}`);
   return roomAt(run, meta, step, col);
 }
-test('Ten-step trees randomize widths from three to six with 38 reachable rooms and guaranteed discoveries', () => {
+test('Ten-step trees vary room counts, widths, room types and discoveries without unreachable branches', () => {
   const meta = M.initialMeta();
   const layouts = new Set();
   const widths = new Set();
   const chestPositions = new Set();
+  const roomCounts = new Set();
   for (let seed = 0; seed < 50; seed++)
     for (let chapter = 0; chapter < 3; chapter++) {
       const run = M.makeRun(meta, 'mechanic', chapter, seed);
       assert.equal(run.nodes.length, 10);
-      assert.equal(run.routeVersion, 5);
-      assert.equal(run.nodes.flat().length, 38);
+      assert.equal(run.routeVersion, 6);
+      const roomCount = run.nodes.flat().length;
+      assert.ok(roomCount >= 38 && roomCount <= 50);
+      roomCounts.add(roomCount);
       const profile = run.nodes.slice(1, -1).map((row) => row.length);
-      assert.deepEqual([...profile].sort(), [3, 3, 4, 4, 5, 5, 6, 6]);
+      assert.ok(profile.every((width) => width >= 3 && width <= 6));
+      for (const rooms of run.nodes.slice(1, -1)) {
+        assert.ok(new Set(rooms).size >= 3);
+        assert.ok(
+          rooms.every(
+            (kind) => rooms.filter((room) => room === kind).length <= 2,
+          ),
+        );
+      }
       widths.add(profile.join(','));
       chestPositions.add(
         run.nodes
@@ -80,12 +91,12 @@ test('Ten-step trees randomize widths from three to six with 38 reachable rooms 
       assert.ok(run.nodes.flat().filter((n) => n === 'chest').length >= 2);
       for (let row = 0; row < 8; row++)
         for (let col = 0; col < run.nodes[row].length; col++)
-          assert.ok(M.routeTargets(row, col, run.nodes).length >= 2);
+          assert.ok(M.routeTargets(row, col, run.nodes, run).length >= 1);
       let reached = [0];
       for (let row = 0; row < 9; row++) {
         let next = new Set();
         for (const col of reached) {
-          const targets = M.routeTargets(row, col, run.nodes);
+          const targets = M.routeTargets(row, col, run.nodes, run);
           assert.ok(targets.length);
           targets.forEach((n) => next.add(n));
         }
@@ -105,6 +116,7 @@ test('Ten-step trees randomize widths from three to six with 38 reachable rooms 
     'The shape of the tree must vary, not only room labels',
   );
   assert.ok(chestPositions.size > 80, 'Chest positions must not remain fixed');
+  assert.ok(roomCounts.size >= 6, 'Total room count should vary between runs');
 });
 test('Captain only, no free furniture or permanent recruitment; expensive floor expansions belong to the expedition', () => {
   let meta = M.initialMeta();
@@ -145,9 +157,88 @@ test('Captain only, no free furniture or permanent recruitment; expensive floor 
   assert.equal(after.rescued.length, 1);
   assert.equal(after.furniture.length, 0);
 });
+test('Random paths split and merge differently on identical-width trees, without crossings or dead ends', () => {
+  const signatures = new Set(),
+    degrees = new Set();
+  const nodes = [
+    ['battle'],
+    ...Array.from({ length: 8 }, () => Array(5).fill('battle')),
+    ['boss'],
+  ];
+  for (let seed = 0; seed < 50; seed++) {
+    const edges = M.campaignLinks(nodes, seed, 0);
+    signatures.add(JSON.stringify(edges));
+    assert.deepEqual(
+      M.campaignLinks(
+        nodes.map((row) => [...row]),
+        seed,
+        0,
+      ),
+      edges,
+    );
+    for (let row = 1; row < 8; row++) {
+      assert.deepEqual([...new Set(edges[row].flat())].sort(), [0, 1, 2, 3, 4]);
+      for (let col = 0; col < 5; col++) {
+        const targets = edges[row][col];
+        degrees.add(targets.length);
+        assert.ok(targets.length >= 1 && targets.length <= 3);
+        if (col < 4)
+          assert.ok(
+            Math.max(...targets) <= Math.min(...edges[row][col + 1]),
+            'Edges must not cross',
+          );
+      }
+    }
+    const run = M.makeRun(M.initialMeta(), 'mechanic', 0, seed);
+    for (let row = 1; row < 9; row++) {
+      let last = 0;
+      run.nodes[row].forEach((_, col) => {
+        const x = M.routeNodeX(run, row, col);
+        assert.ok(x >= 85 && x <= 915);
+        if (col)
+          assert.ok(
+            x - last >= 142,
+            'Labels must remain separated on the 820px canvas',
+          );
+        last = x;
+      });
+    }
+  }
+  assert.equal(signatures.size, 50);
+  assert.deepEqual([...degrees].sort(), [1, 2, 3]);
+});
+test('Wide v5 checkpoints keep their old connections while v6 selected rooms survive reload', () => {
+  const meta = M.initialMeta();
+  for (const version of [5, 6]) {
+    for (const kind of ['mystery', 'chest', 'shop', 'rest', 'boss']) {
+      let run = M.makeRun(meta, 'mechanic', 0, 503);
+      if (version === 5) {
+        run.routeVersion = 5;
+        run.nodes = M.wideCampaignTree(run.seed, run.chapter);
+      }
+      run = roomOfKind(run, meta, null, kind);
+      const loaded = M.readSave(M.saveData(meta, run)).run;
+      assert.equal(loaded.routeVersion, version);
+      for (const key of [
+        'nodes',
+        'path',
+        'kind',
+        'step',
+        'loot',
+        'revealed',
+        'offers',
+        'coins',
+        'items',
+      ])
+        assert.deepEqual(loaded[key], run[key], key);
+      assert.deepEqual(M.availableColumns(loaded), [run.path[run.step]]);
+      assert.deepEqual(M.readSave(M.saveData(meta, loaded)).run, loaded);
+    }
+  }
+});
 test('An untouched older map upgrades to ten steps without resetting the house or inventory', () => {
   const meta = M.initialMeta();
-  for (const version of [2, 3, 4]) {
+  for (const version of [2, 3, 4, 5]) {
     const old = M.makeRun(meta, 'mechanic', 2, 731);
     old.routeVersion = version;
     old.nodes =
@@ -155,13 +246,15 @@ test('An untouched older map upgrades to ten steps without resetting the house o
         ? M.legacyTree(old.seed)
         : version === 3
           ? M.previousCampaignTree(old.seed, old.chapter)
-          : M.compactCampaignTree(old.seed, old.chapter);
+          : version === 4
+            ? M.compactCampaignTree(old.seed, old.chapter)
+            : M.wideCampaignTree(old.seed, old.chapter);
     old.houseLevel = version === 2 ? 4 : 2;
     old.coins = 317;
     old.scrap = 13;
     const loaded = M.readSave(M.saveData(meta, old)).run;
     assert.equal(loaded.nodes.length, 10);
-    assert.equal(loaded.routeVersion, 5);
+    assert.equal(loaded.routeVersion, 6);
     for (const key of [
       'coins',
       'scrap',
@@ -208,7 +301,7 @@ test('Active twelve-step routes retain late rooms and mystery outcomes, then adv
     if (step === 11) {
       const next = M.advanceLocation(loaded, meta);
       assert.equal(next.nodes.length, 10);
-      assert.equal(next.routeVersion, 5);
+      assert.equal(next.routeVersion, 6);
       assert.equal(next.coins, old.coins);
     }
   }
@@ -260,7 +353,7 @@ test('Active compact routes retain encounters, rewards and choices after the wid
       assert.deepEqual(loaded[key], old[key], key);
     assert.deepEqual(M.readSave(M.saveData(meta, loaded)).run, loaded);
     if (step === 9)
-      assert.equal(M.advanceLocation(loaded, meta).routeVersion, 5);
+      assert.equal(M.advanceLocation(loaded, meta).routeVersion, 6);
   }
 });
 test('Boss transitions carry the same house and inventory, save the story, and only location three completes a run', () => {

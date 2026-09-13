@@ -25,6 +25,7 @@ import {
   availableColumns,
   reachableColumns,
   routeTargets,
+  routeNodeX,
   seeded,
   type NodeKind,
   type Run,
@@ -95,6 +96,8 @@ export const NODE_INFO: Record<
 const ROW_HEIGHT = 116;
 const TOP = 60;
 function point(row: number, col: number, count: number, run: Run) {
+  if (run.routeVersion === 6)
+    return { x: routeNodeX(run, row, col), y: TOP + row * ROW_HEIGHT };
   if (run.routeVersion === 5) {
     const jitter =
       (seeded(run.seed + run.chapter * 100003 + row * 733 + col * 83)() - 0.5) *
@@ -135,7 +138,7 @@ export function RouteTree({
       ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
       : info.name;
   const height = TOP * 2 + (run.nodes.length - 1) * ROW_HEIGHT + 18;
-  const wide = run.routeVersion === 5;
+  const wide = run.routeVersion >= 5;
   const focusCurrent = useCallback(() => {
     if (viewport.current) {
       viewport.current.scrollTop = Math.max(
@@ -213,7 +216,7 @@ export function RouteTree({
           >
             {run.nodes.flatMap((row, step) =>
               row.flatMap((_, col) =>
-                routeTargets(step, col, run.nodes).map((target) => {
+                routeTargets(step, col, run.nodes, run).map((target) => {
                   const from = point(step, col, row.length, run),
                     to = point(
                       step + 1,
@@ -351,9 +354,9 @@ export function RouteTree({
         </button>
       </div>
       <p className="tree-guidance">
-        {wide
+        {run.routeVersion === 6
           ? 'Обирай з’єднані клітинки. «?» відкриває випадкову кімнату, скриня дає один предмет. На 10-му кроці — бос.'
-          : 'Цей маршрут уже розпочато й збережено. Наступна локація або новий рейд матиме ширшу карту: 38 клітинок і 10 кроків до боса.'}
+          : 'Цей маршрут уже розпочато й збережено. Наступна локація або новий рейд матиме нові випадкові гілки й кімнати та 10 кроків до боса.'}
       </p>
     </div>
   );

@@ -81,12 +81,6 @@ export const FURNITURE_BY_ID: Record<string, (typeof FURNITURE)[number]> =
     Object.create(null),
     Object.fromEntries(FURNITURE.map((item) => [item.id, item])),
   );
-export function initialFurniture(): Furnishing[] {
-  return [
-    { uid: 1, id: 'bench', resident: null, cell: null },
-    { uid: 2, id: 'planter', resident: null, cell: null },
-  ];
-}
 export function furnitureEffect(id: string, resident: string | null) {
   const item = FURNITURE_BY_ID[id];
   const value =
@@ -124,7 +118,6 @@ export function restoreFurniture(
   raw: unknown,
   rooms: ResidentRoom[],
 ): Furnishing[] {
-  if (raw === undefined) return initialFurniture();
   if (!Array.isArray(raw)) return [];
   const items: Furnishing[] = [];
   for (const entry of raw) {

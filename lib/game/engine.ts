@@ -10,6 +10,8 @@ import { ITEM_BY_ID, FAMILY } from './data';
 import { seeded, statsFor, type Run, type Meta, type Stats } from './model';
 import { drawEnemy, preloadEnemyArt } from './enemy-art';
 import { hazardContains, drawHazard, type Hazard } from './bosses';
+import { MINIBOSS_TYPE, minibossFor, minibossPattern } from './minibosses';
+const isLeader = (type: number) => type === 99 || type === MINIBOSS_TYPE;
 export interface Enemy {
   x: number;
   y: number;
@@ -176,10 +178,12 @@ export class Battle {
     this.duration =
       run.kind === 'boss'
         ? 210
-        : 40 +
-          run.chapter * 6 +
-          run.step * 0.8 +
-          (run.kind === 'elite' ? 12 : 0);
+        : run.kind === 'miniboss'
+          ? 120
+          : 40 +
+            run.chapter * 6 +
+            run.step * 0.8 +
+            (run.kind === 'elite' ? 12 : 0);
     this.run.hp = Math.min(this.run.hp, this.stats.health);
   }
   start() {
@@ -217,7 +221,7 @@ export class Battle {
       const d = Math.hypot(e.x - this.x, e.y - this.y);
       if (d < 235) {
         this.damage(e, this.stats.damage * 3.5);
-        if (e.type !== 99) {
+        if (!isLeader(e.type)) {
           e.x += ((e.x - this.x) / Math.max(1, d)) * 60;
           e.y += ((e.y - this.y) / Math.max(1, d)) * 60;
         }
@@ -255,26 +259,33 @@ export class Battle {
   }
   spawn(type?: number) {
     const boss = type === 99;
+    const mini = type === MINIBOSS_TYPE;
+    const leaderFight =
+      this.run.kind === 'boss' || this.run.kind === 'miniboss';
     const angle = this.rng() * Math.PI * 2,
-      d = boss ? 320 : 430 + this.rng() * 100;
+      d = boss || mini ? 320 : 430 + this.rng() * 100;
     const pool = LOCATIONS[this.run.chapter].enemyTypes;
     const t = type ?? pool[Math.floor(this.rng() * pool.length)];
     const def = boss
       ? campaignBoss(this.run.chapter, this.run.bossVariants[this.run.chapter])
-      : ENEMY_DEFS[t];
+      : mini
+        ? minibossFor(this.run.chapter)
+        : ENEMY_DEFS[t];
     if (
       !def ||
       this.enemies.filter((e) => e.hp > 0).length >=
-        (this.run.kind === 'boss' ? 19 : 55 + this.run.chapter * 10)
+        (this.run.kind === 'miniboss'
+          ? 7
+          : leaderFight
+            ? 19
+            : 55 + this.run.chapter * 10)
     )
       return;
     const r = def.radius;
     const hp =
       def.health *
-      (boss
-        ? this.run.step === this.run.nodes.length - 1
-          ? 1
-          : 0.5
+      (boss || mini
+        ? 1
         : (1 + this.run.step * 0.025) * (this.run.kind === 'elite' ? 1.15 : 1));
     this.enemies.push({
       x: Math.max(50, Math.min(1550, this.x + Math.cos(angle) * d)),
@@ -313,10 +324,10 @@ export class Battle {
       this.burst(
         e.x,
         e.y,
-        e.type === 99
+        isLeader(e.type)
           ? LOCATIONS[this.run.chapter].color
           : ENEMY_DEFS[e.type].color,
-        e.type === 99 ? 55 : 12,
+        isLeader(e.type) ? 55 : 12,
       );
       this.drops.push({
         x: e.x,
@@ -347,11 +358,11 @@ export class Battle {
             child.y = e.y;
           }
         }
-      if (e.type === 99) {
+      if (isLeader(e.type)) {
         for (const drop of this.drops)
           if (drop.kind === 'coin') this.run.coins += drop.value;
         this.drops = [];
-        this.run.coins += [65, 90, 120][this.run.chapter];
+        if (e.type === 99) this.run.coins += [65, 90, 120][this.run.chapter];
         this.finish(true);
       }
     }
@@ -369,7 +380,7 @@ export class Battle {
         enemy: true,
         crit: false,
       });
-    if (e.type === 99 && e.pendingBoss) {
+    if (isLeader(e.type) && e.pendingBoss) {
       const pattern = e.pendingBoss;
       for (const s of pattern.shots) shot(s.angle, s.speed, s.damage);
       this.hazards.push(...pattern.hazards);
@@ -515,25 +526,26 @@ export class Battle {
       this.run.hp + this.stats.regen * dt,
     );
     this.spawnTimer -= dt;
-    if (this.run.kind === 'boss' && !this.bossSpawned) {
-      this.spawn(99);
+    const leaderFight =
+      this.run.kind === 'boss' || this.run.kind === 'miniboss';
+    if (leaderFight && !this.bossSpawned) {
+      this.spawn(this.run.kind === 'miniboss' ? MINIBOSS_TYPE : 99);
       this.bossSpawned = true;
     }
     if (this.spawnTimer <= 0) {
-      const count =
-        this.run.kind === 'boss'
-          ? 1
-          : 2 +
-            (this.elapsed > 30 ? 1 : 0) +
-            (this.run.kind === 'elite' ? 1 : 0);
+      const count = leaderFight
+        ? 1
+        : 2 + (this.elapsed > 30 ? 1 : 0) + (this.run.kind === 'elite' ? 1 : 0);
       for (let i = 0; i < count; i++) this.spawn();
       this.spawnTimer =
-        this.run.kind === 'boss'
-          ? 6 - this.run.chapter * 0.5
-          : Math.max(
-              1.5,
-              2.5 - this.run.chapter * 0.25 - this.run.step * 0.025,
-            );
+        this.run.kind === 'miniboss'
+          ? 8
+          : this.run.kind === 'boss'
+            ? 6 - this.run.chapter * 0.5
+            : Math.max(
+                1.5,
+                2.5 - this.run.chapter * 0.25 - this.run.step * 0.025,
+              );
     }
     this.shotTimer -= dt;
     if (this.shotTimer <= 0) {
@@ -564,15 +576,16 @@ export class Battle {
       if (Math.abs(ex) > 0.08) e.facing = ex < 0 ? -1 : 1;
       e.aim = Math.atan2(ey, ex);
       e.timer -= dt;
-      const def = e.type === 99 ? null : ENEMY_DEFS[e.type];
-      if (e.type === 99) e.phase = e.hp < e.max * 0.5 ? 1 : 0;
+      const leader = isLeader(e.type);
+      const def = leader ? null : ENEMY_DEFS[e.type];
+      if (leader) e.phase = e.hp < e.max * 0.5 ? 1 : 0;
       if ((e.windup ?? 0) > 0) {
         e.windup = Math.max(0, e.windup! - dt);
         e.aim = e.lockedAim ?? e.aim;
         if (e.windup === 0) this.enemyAttack(e);
       } else if (
         e.timer <= 0 &&
-        (e.type === 99 ||
+        (leader ||
           (def &&
             !['chase', 'shield'].includes(def.behavior) &&
             dist <= def.range))
@@ -580,18 +593,29 @@ export class Battle {
         e.lockedAim = e.aim;
         e.targetX = this.x;
         e.targetY = this.y;
-        e.windup = e.type === 99 ? 0.9 : def!.windup;
-        if (e.type === 99) {
-          e.pendingBoss = campaignBossPattern(
-            this.run.chapter,
-            this.run.bossVariants[this.run.chapter],
-            e.phase,
-            e.pattern++,
-            e.x,
-            e.y,
-            this.x,
-            this.y,
-          );
+        e.windup = leader ? 0.9 : def!.windup;
+        if (leader) {
+          e.pendingBoss =
+            e.type === MINIBOSS_TYPE
+              ? minibossPattern(
+                  this.run.chapter,
+                  e.phase,
+                  e.pattern++,
+                  e.x,
+                  e.y,
+                  this.x,
+                  this.y,
+                )
+              : campaignBossPattern(
+                  this.run.chapter,
+                  this.run.bossVariants[this.run.chapter],
+                  e.phase,
+                  e.pattern++,
+                  e.x,
+                  e.y,
+                  this.x,
+                  this.y,
+                );
           this.bossAttack = e.pendingBoss.name;
         }
       }
@@ -603,7 +627,7 @@ export class Battle {
       const moving =
         charging ||
         (!(e.windup ?? 0) &&
-          (e.type === 99 ||
+          (leader ||
             !def ||
             ['chase', 'charge', 'shield', 'pulse', 'brood'].includes(
               def.behavior,
@@ -625,9 +649,11 @@ export class Battle {
         e.attack = 0.18;
         const hit = Math.max(
           2,
-          (e.type === 99
-            ? 20 + this.run.chapter * 6
-            : ENEMY_DEFS[e.type].contactDamage) - this.stats.armor,
+          (e.type === MINIBOSS_TYPE
+            ? minibossFor(this.run.chapter).contactDamage
+            : e.type === 99
+              ? 20 + this.run.chapter * 6
+              : ENEMY_DEFS[e.type].contactDamage) - this.stats.armor,
         );
         this.run.hp -= hit;
         this.invincible = 0.7;
@@ -635,7 +661,7 @@ export class Battle {
         this.audio.play('hit');
         this.label(this.x, this.y - 55, '−' + hit, '#ff8e82');
         if (this.stats.thorns) this.damage(e, this.stats.thorns);
-        if (e.type !== 99) {
+        if (!leader) {
           e.x -= ex * 32;
           e.y -= ey * 32;
         }
@@ -759,7 +785,7 @@ export class Battle {
       return;
     }
     if (this.elapsed >= this.duration) {
-      if (this.run.kind === 'boss') {
+      if (leaderFight) {
         this.finish(false);
       } else {
         for (const d of this.drops)
@@ -772,7 +798,7 @@ export class Battle {
     this.hudTimer -= dt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.1;
-      const boss = this.enemies.find((e) => e.type === 99);
+      const boss = this.enemies.find((e) => isLeader(e.type));
       this.onHud({
         hp: this.run.hp,
         max: this.stats.health,

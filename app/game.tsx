@@ -2,6 +2,7 @@
 import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
 import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
 import { FURNITURE_BY_ID } from '@/lib/game/furniture';
+import { minibossFor } from '@/lib/game/minibosses';
 import {
   battleRewards,
   advanceLocation,
@@ -332,7 +333,9 @@ function Combat({
           <span className="micro">
             {run.kind === 'boss'
               ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
-              : NODE_INFO[run.kind].name}
+              : run.kind === 'miniboss'
+                ? minibossFor(run.chapter).name
+                : NODE_INFO[run.kind].name}
           </span>
           <strong>
             {Math.floor(remaining / 60)}:
@@ -353,8 +356,11 @@ function Combat({
       {hud.bossMax > 0 && (
         <div className="boss-health">
           <span>
-            {campaignBoss(run.chapter, run.bossVariants[run.chapter]).name} ·{' '}
-            {Math.ceil(hud.boss)} / {hud.bossMax}
+            {run.kind === 'miniboss'
+              ? `Мінібос · ${minibossFor(run.chapter).name}`
+              : campaignBoss(run.chapter, run.bossVariants[run.chapter])
+                  .name}{' '}
+            · {Math.ceil(hud.boss)} / {hud.bossMax}
           </span>
           <small className="boss-attack-cue">
             ФАЗА {hud.bossPhase + 1} · {hud.bossAttack || 'Готується до атаки'}
@@ -363,7 +369,9 @@ function Combat({
             value={hud.boss}
             max={hud.bossMax}
             color="#e69080"
-            label="Міцність боса"
+            label={
+              run.kind === 'miniboss' ? 'Міцність мінібоса' : 'Міцність боса'
+            }
           />
         </div>
       )}
@@ -384,7 +392,9 @@ function Combat({
             ? 'Рухайся й збирай лут. Будинок стріляє сам.'
             : run.kind === 'boss'
               ? 'Стеж за червоними снарядами. Ривок захищає від шкоди.'
-              : 'Переживи хвилю, щоб отримати новий модуль.'}
+              : run.kind === 'miniboss'
+                ? 'Знищ мінібоса. Виходь із позначених зон до удару; ривок захищає від шкоди.'
+                : 'Переживи хвилю, щоб отримати новий модуль.'}
         </div>
       )}
       <div className="battle-controls">
@@ -1008,7 +1018,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.5.4 · Прогрес зберігається на цьому пристрої.
+              v0.6.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1548,10 +1558,16 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.5.4 · 3 локації, 9 мешканців, 9 варіантів
-            босів і сюжетні катсцени.
+            ОСББ кінця світу · v0.6.0 · 3 локації, 9 мешканців, 9 варіантів
+            босів, 3 мінібоси й сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">
+            <p>
+              <b>Мінібоси.</b> Клітинка зі щитом веде до сильного ворога з
+              власною шкалою здоров’я. Мінібос може трапитися і в «?». Бос
+              локації чекає на останньому кроці; перемога над ним відкриває
+              наступну локацію.
+            </p>
             <p>
               <b>01 / Керуй будинком.</b> WASD або стрілки. На телефоні —
               джойстик ліворуч. Стрільба автоматична.

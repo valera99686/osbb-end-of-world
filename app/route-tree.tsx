@@ -1,5 +1,6 @@
 import { HelpCircle, Gift } from 'lucide-react';
 import { campaignBoss } from '@/lib/game/encounters';
+import { minibossFor } from '@/lib/game/minibosses';
 import {
   useEffect,
   useCallback,
@@ -18,6 +19,7 @@ import {
   LocateFixed,
   MapPin,
   Skull,
+  ShieldAlert,
   Swords,
   type LucideIcon,
 } from 'lucide-react';
@@ -38,7 +40,7 @@ export const NODE_INFO: Record<
   mystery: {
     name: 'Невідома кімната',
     short: '?',
-    desc: 'Може стати будь-якою кімнатою: боєм, елітою, магазином, подією, перепочинком, скринею або додатковим босом. Результат відкриється при вході.',
+    desc: 'Бій, еліта, магазин, подія, перепочинок, скриня або мінібос. Результат відкриється при вході. Бос локації чекає тільки на 10-му кроці.',
     icon: HelpCircle,
     color: '#c9b2ed',
   },
@@ -62,6 +64,13 @@ export const NODE_INFO: Record<
     desc: 'Довший бій і сильніші вороги. Вищий шанс на рідкісний модуль.',
     icon: Flame,
     color: '#e99477',
+  },
+  miniboss: {
+    name: 'Мінібос',
+    short: 'Мінібос',
+    desc: 'Окремий сильний ворог із власними атаками. Знищ його, щоб отримати предмет на вибір, монети й 4 брухту.',
+    icon: ShieldAlert,
+    color: '#efbd7d',
   },
   shop: {
     name: 'Нічний ринок',
@@ -96,7 +105,7 @@ export const NODE_INFO: Record<
 const ROW_HEIGHT = 116;
 const TOP = 60;
 function point(row: number, col: number, count: number, run: Run) {
-  if (run.routeVersion === 6)
+  if (run.routeVersion >= 6)
     return { x: routeNodeX(run, row, col), y: TOP + row * ROW_HEIGHT };
   if (run.routeVersion === 5) {
     const jitter =
@@ -136,7 +145,9 @@ export function RouteTree({
   const title =
     kind === 'boss'
       ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
-      : info.name;
+      : kind === 'miniboss'
+        ? minibossFor(run.chapter).name
+        : info.name;
   const height = TOP * 2 + (run.nodes.length - 1) * ROW_HEIGHT + 18;
   const wide = run.routeVersion >= 5;
   const focusCurrent = useCallback(() => {
@@ -194,6 +205,9 @@ export function RouteTree({
         </span>
         <span className="tree-node-key">
           <Gift size={15} /> Скриня
+        </span>
+        <span className="tree-node-key">
+          <ShieldAlert size={15} /> Мінібос
         </span>
         <ArrowDown size={14} aria-label="Рух униз до боса" />
       </div>
@@ -336,7 +350,9 @@ export function RouteTree({
           <p>
             {kind === 'boss'
               ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).guide
-              : info.desc}
+              : kind === 'miniboss'
+                ? minibossFor(run.chapter).guide
+                : info.desc}
           </p>
         </div>
         <button
@@ -354,7 +370,7 @@ export function RouteTree({
         </button>
       </div>
       <p className="tree-guidance">
-        {run.routeVersion === 6
+        {run.routeVersion >= 6
           ? 'Обирай з’єднані клітинки. «?» відкриває випадкову кімнату, скриня дає один предмет. На 10-му кроці — бос.'
           : 'Цей маршрут уже розпочато й збережено. Наступна локація або новий рейд матиме нові випадкові гілки й кімнати та 10 кроків до боса.'}
       </p>

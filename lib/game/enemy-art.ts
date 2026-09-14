@@ -1,4 +1,5 @@
 import { ENEMY_DEFS, campaignBoss } from './encounters';
+import { MINIBOSS_TYPE, minibossFor } from './minibosses';
 import type { Enemy } from './engine';
 
 export const ENEMY_PALETTES = [
@@ -154,11 +155,18 @@ export function drawEnemy(
   variant = 0,
 ) {
   const boss = enemy.type === 99;
-  const def = boss ? campaignBoss(chapter, variant) : ENEMY_DEFS[enemy.type];
+  const mini = enemy.type === MINIBOSS_TYPE;
+  const def = boss
+    ? campaignBoss(chapter, variant)
+    : mini
+      ? minibossFor(chapter)
+      : ENEMY_DEFS[enemy.type];
   const color = def?.color ?? '#efb96a';
   const size = boss
     ? campaignBoss(chapter, variant).size
-    : SIZES[def.artIndex] * ENEMY_DEFS[enemy.type].scale;
+    : mini
+      ? minibossFor(chapter).size
+      : SIZES[def.artIndex] * ENEMY_DEFS[enemy.type].scale;
   const sprite = boss
     ? atlas?.bosses[def.artIndex]
     : atlas?.enemies[def.artIndex];
@@ -214,15 +222,15 @@ export function drawEnemy(
     c.stroke();
   }
 
-  if (!dying && (boss || enemy.type === 7)) {
+  if (!dying && (boss || mini || enemy.type === 7)) {
     c.save();
     c.strokeStyle = color;
-    c.lineWidth = boss ? 3 : 5;
+    c.lineWidth = boss || mini ? 3 : 5;
     c.beginPath();
     if (enemy.type === 7)
       c.arc(0, 0, enemy.r + 8, enemy.aim - 0.95, enemy.aim + 0.95);
     else {
-      const sides = variant + 3;
+      const sides = mini ? 3 : variant + 3;
       for (let i = 0; i <= sides; i++) {
         const angle = (i * Math.PI * 2) / sides + time * 0.08;
         const x = Math.cos(angle) * (enemy.r + 12),

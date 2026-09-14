@@ -7,6 +7,7 @@ for (const name of [
   'data',
   'backpack',
   'bosses',
+  'minibosses',
   'lore',
   'residents',
   'furniture',

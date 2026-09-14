@@ -22,7 +22,10 @@ function fixtureRun(meta, character, chapter, seed, legacyRoute = true) {
     const room = R.residentSpace(run.residents, id, 4);
     if (room) run.residents.push(room);
   }
-  run.furniture = F.initialFurniture();
+  run.furniture = [
+    { uid: 1, id: 'bench', resident: null, cell: null },
+    { uid: 2, id: 'planter', resident: null, cell: null },
+  ];
   run.nextFurnitureId = 3;
   if (legacyRoute) {
     run.nodes = M.legacyTree(seed);
@@ -260,7 +263,7 @@ test('Old expanded floors are retained during migration without charging the pla
   assert.deepEqual(M.readSave(M.saveData(loaded.meta, loaded.run)), loaded);
 });
 
-test('Older saves gain starter furniture once; corrupt placements return items to stock', () => {
+test('Older saves do not gain free furniture; existing items survive corrupt placements', () => {
   const meta = M.initialMeta(),
     run = fixtureRun(meta, 'mechanic', 0, 95);
   delete meta.houseLevel;
@@ -268,7 +271,8 @@ test('Older saves gain starter furniture once; corrupt placements return items t
   delete run.nextFurnitureId;
   const saved = M.readSave(M.saveData(meta, run));
   assert.equal(saved.meta.houseLevel, 0);
-  assert.equal(saved.run.furniture.length, 2);
+  assert.equal(saved.run.furniture.length, 0);
+  assert.equal(saved.run.nextFurnitureId, 1);
   assert.deepEqual(M.readSave(M.saveData(saved.meta, saved.run)), saved);
   const raw = [
     { uid: 1, id: 'bench', resident: 'mechanic', cell: 1 },
@@ -285,6 +289,10 @@ test('Older saves gain starter furniture once; corrupt placements return items t
   assert.deepEqual(F.furnitureBonuses(restored, saved.run.residents).stats, {
     armor: 2,
   });
+  saved.run.furniture = restored;
+  const reloaded = M.readSave(M.saveData(saved.meta, saved.run));
+  assert.deepEqual(reloaded.run.furniture, restored);
+  assert.deepEqual(F.restoreFurniture(null, saved.run.residents), []);
 });
 
 test('Backpack shapes rotate, fill corners, and reject overlap and out-of-bounds moves', () => {

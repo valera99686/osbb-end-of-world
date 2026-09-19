@@ -9,6 +9,7 @@ export interface Hazard {
   damage: number;
   color: string;
   drain?: number;
+  slow?: number;
 }
 export const BOSS_GUIDES = [
   'Комендант стріляє віялом і б’є по позначеній ділянці. Рухайся поперек прицілу, виходь із кола.',

@@ -18,12 +18,15 @@ type Sprite = { body: HTMLCanvasElement; flash: HTMLCanvasElement };
 class EnemyAtlas {
   enemies: Sprite[] = [];
   bosses: Sprite[] = [];
+  regions: Sprite[][] = [];
   constructor() {
     if (typeof Image === 'undefined') return;
     this.load('/art/enemies-v1.png', false);
     this.load('/art/bosses-v1.png', true);
+    this.load('/art/enemies-rust-v2.webp', false, 0);
+    this.load('/art/enemies-green-v2.webp', false, 1);
   }
-  private load(url: string, boss: boolean) {
+  private load(url: string, boss: boolean, location?: number) {
     const atlas = new Image();
     atlas.decoding = 'async';
     atlas.onload = () => {
@@ -58,9 +61,13 @@ class EnemyAtlas {
       }
       const frames: Sprite[] = [];
       const cellWidth = atlas.naturalWidth / 3,
-        cellHeight = atlas.naturalHeight / 2;
-      for (let index = 0; index < (boss ? 5 : 6); index++) {
-        const size = boss ? 256 : 112;
+        cellHeight = atlas.naturalHeight / (location === undefined ? 2 : 3);
+      for (
+        let index = 0;
+        index < (location !== undefined ? 9 : boss ? 5 : 6);
+        index++
+      ) {
+        const size = boss ? 256 : location !== undefined ? 160 : 112;
         const body = document.createElement('canvas');
         body.width = body.height = size;
         const context = body.getContext('2d');
@@ -87,7 +94,8 @@ class EnemyAtlas {
         mask.fillRect(0, 0, size, size);
         frames.push({ body, flash });
       }
-      if (boss) this.bosses = frames;
+      if (location !== undefined) this.regions[location] = frames;
+      else if (boss) this.bosses = frames;
       else this.enemies = frames;
     };
     atlas.src = url;
@@ -153,23 +161,30 @@ export function drawEnemy(
   time: number,
   dying = 0,
   variant = 0,
+  miniVariant = 0,
 ) {
   const boss = enemy.type === 99;
   const mini = enemy.type === MINIBOSS_TYPE;
   const def = boss
     ? campaignBoss(chapter, variant)
     : mini
-      ? minibossFor(chapter)
+      ? minibossFor(chapter, miniVariant)
       : ENEMY_DEFS[enemy.type];
   const color = def?.color ?? '#efb96a';
   const size = boss
     ? campaignBoss(chapter, variant).size
     : mini
-      ? minibossFor(chapter).size
+      ? minibossFor(chapter, miniVariant).size
       : SIZES[def.artIndex] * ENEMY_DEFS[enemy.type].scale;
   const sprite = boss
     ? atlas?.bosses[def.artIndex]
-    : atlas?.enemies[def.artIndex];
+    : (atlas?.regions[def.location]?.[
+        mini
+          ? 6 + miniVariant
+          : enemy.type < 9
+            ? enemy.type % 3
+            : 3 + ((enemy.type - 9) % 3)
+      ] ?? atlas?.enemies[def.artIndex]);
   const phase = enemy.walk + enemy.visualSeed * 1.7;
   const hovering = def.artIndex === 4 || (boss && def.artIndex === 3);
   const bob = hovering
@@ -187,6 +202,22 @@ export function drawEnemy(
 
   // Readable windup tells the player where the existing ranged shot is going.
   if (!dying && (enemy.windup ?? 0) > 0) {
+    if (!mini && !boss && ENEMY_DEFS[enemy.type]?.behavior === 'blink') {
+      c.save();
+      c.strokeStyle = color;
+      c.lineWidth = 2;
+      c.setLineDash([5, 4]);
+      c.beginPath();
+      c.arc(
+        (enemy.targetX ?? enemy.x) - enemy.x,
+        (enemy.targetY ?? enemy.y) - enemy.y,
+        enemy.r + 8,
+        0,
+        Math.PI * 2,
+      );
+      c.stroke();
+      c.restore();
+    }
     const charge = 1 - (enemy.windup ?? 0) / 1.2;
     c.save();
     c.globalAlpha = 0.18 + charge * 0.5;
@@ -227,10 +258,10 @@ export function drawEnemy(
     c.strokeStyle = color;
     c.lineWidth = boss || mini ? 3 : 5;
     c.beginPath();
-    if (enemy.type === 7)
+    if (enemy.type === 7 || (mini && chapter === 2 && miniVariant === 1))
       c.arc(0, 0, enemy.r + 8, enemy.aim - 0.95, enemy.aim + 0.95);
     else {
-      const sides = mini ? 3 : variant + 3;
+      const sides = mini ? miniVariant + 3 : variant + 3;
       for (let i = 0; i <= sides; i++) {
         const angle = (i * Math.PI * 2) / sides + time * 0.08;
         const x = Math.cos(angle) * (enemy.r + 12),

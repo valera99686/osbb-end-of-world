@@ -77,9 +77,10 @@ export interface Run {
   character: string;
   step: number;
   nodes: NodeKind[][];
-  routeVersion: 2 | 3 | 4 | 5 | 6 | 7;
+  routeVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8;
   campaignVersion: 1;
   bossVariants: number[];
+  minibossVariants: Record<string, number>;
   houseLevel: number;
   rescued: string[];
   battlesSinceRescue: number;
@@ -315,7 +316,11 @@ export function previousRandomCampaignTree(
   });
   return [...nodes, ['boss']];
 }
-export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+export function previousMinibossCampaignTree(
+  seed: number,
+  chapter: number,
+  count = 2,
+): NodeKind[][] {
   const nodes = previousRandomCampaignTree(seed, chapter);
   const rng = seeded(seed + chapter * 100003 + 7001);
   const rows = [3, 4, 5, 6, 7];
@@ -344,9 +349,27 @@ export function campaignTree(seed: number, chapter: number): NodeKind[][] {
         );
     if (!options.length) continue;
     nodes[row][options[Math.floor(rng() * options.length)]] = 'miniboss';
-    if (++placed === 2) break;
+    if (++placed === count) break;
   }
   return nodes;
+}
+export function campaignTree(seed: number, chapter: number): NodeKind[][] {
+  const count = 1 + Math.floor(seeded(seed + chapter * 100003 + 8017)() * 4);
+  return previousMinibossCampaignTree(seed, chapter, count);
+}
+export function minibossVariant(
+  run: Run,
+  row = run.step,
+  col = run.path[row] ?? 0,
+): number {
+  const saved = run.minibossVariants?.[`${run.chapter}:${row}:${col}`];
+  return Number.isInteger(saved) && saved >= 0 && saved < 3
+    ? saved
+    : Math.floor(
+        seeded(
+          run.seed + run.chapter * 100003 + row * 887 + col * 397 + 8101,
+        )() * 3,
+      );
 }
 export function mysteryKind(run: Run, nodeId: string): NodeKind {
   const col = Number(nodeId.split(':')[1]) || 0;
@@ -487,7 +510,7 @@ export function advanceLocation(run: Run, meta: Meta): Run {
     ...run,
     chapter,
     nodes: campaignTree(run.seed, chapter),
-    routeVersion: 7,
+    routeVersion: 8,
     step: 0,
     path: [],
     historyStart: 0,
@@ -677,11 +700,12 @@ export function makeRun(
     character: c.id,
     step: 0,
     nodes,
-    routeVersion: 7,
+    routeVersion: 8,
     campaignVersion: 1,
     bossVariants: [0, 1, 2].map((n) =>
       Math.floor(seeded(seed + n * 91237 + 919)() * 3),
     ),
+    minibossVariants: {},
     houseLevel: 0,
     rescued: [c.id],
     battlesSinceRescue: 0,
@@ -1010,6 +1034,17 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
   const next: Run = {
     ...run,
     kind,
+    minibossVariants:
+      kind === 'miniboss'
+        ? {
+            ...run.minibossVariants,
+            [`${run.chapter}:${step}:${column}`]: minibossVariant(
+              run,
+              step,
+              column,
+            ),
+          }
+        : run.minibossVariants,
     revealed:
       original === 'mystery'
         ? { ...run.revealed, [nodeId]: kind }
@@ -1361,7 +1396,8 @@ function restoreRoute(run: Run, saved: Record<string, unknown>) {
       saved.routeVersion === 4 ||
       saved.routeVersion === 5 ||
       saved.routeVersion === 6 ||
-      saved.routeVersion === 7) &&
+      saved.routeVersion === 7 ||
+      saved.routeVersion === 8) &&
     Array.isArray(path) &&
     path.length === count &&
     path.every(
@@ -1470,8 +1506,15 @@ export function readSave(raw: string | null): {
       base.scenesSeen.includes(m.sceneProgress?.id) ? 3 : undefined,
     );
     if (m.storyRevision !== STORY_REVISION) {
-      base.scenesSeen = base.scenesSeen.filter((id) => id !== 'prologue');
-      base.sceneProgress = { id: 'prologue', index: 0 };
+      if (m.storyRevision === 4) {
+        base.scenesSeen = base.scenesSeen.filter(
+          (id) =>
+            !['arrival-0', 'arrival-1', 'arrival-2', 'origins'].includes(id),
+        );
+      } else {
+        base.scenesSeen = base.scenesSeen.filter((id) => id !== 'prologue');
+        base.sceneProgress = { id: 'prologue', index: 0 };
+      }
     }
     let run: Run | null = null;
     const r = o.run;
@@ -1489,7 +1532,8 @@ export function readSave(raw: string | null): {
         (r.routeVersion === 4 ||
         r.routeVersion === 5 ||
         r.routeVersion === 6 ||
-        r.routeVersion === 7
+        r.routeVersion === 7 ||
+        r.routeVersion === 8
           ? 10
           : r.campaignVersion === 1 && r.routeVersion !== 2
             ? 12
@@ -1515,7 +1559,10 @@ export function readSave(raw: string | null): {
         } else if (r.routeVersion === 6) {
           run.nodes = previousRandomCampaignTree(r.seed, run.chapter);
           run.routeVersion = 6;
-        } else if (r.routeVersion !== 7) {
+        } else if (r.routeVersion === 7) {
+          run.nodes = previousMinibossCampaignTree(r.seed, run.chapter);
+          run.routeVersion = 7;
+        } else if (r.routeVersion !== 8) {
           run.nodes = previousCampaignTree(r.seed, run.chapter);
           run.routeVersion = 3;
         }
@@ -1535,6 +1582,18 @@ export function readSave(raw: string | null): {
       run.bossVariants = [0, 1, 2].map((i) =>
         Math.floor(finite(r.bossVariants?.[i], 0, 2, run!.bossVariants[i])),
       );
+      if (r.minibossVariants && typeof r.minibossVariants === 'object')
+        for (const [key, value] of Object.entries(r.minibossVariants).slice(
+          0,
+          150,
+        ))
+          if (
+            /^[0-2]:\d{1,2}:[0-5]$/.test(key) &&
+            Number.isInteger(value) &&
+            Number(value) >= 0 &&
+            Number(value) < 3
+          )
+            run.minibossVariants[key] = Number(value);
       run.revealed = {};
       if (r.revealed && typeof r.revealed === 'object')
         for (const [key, value] of Object.entries(r.revealed))
@@ -1687,6 +1746,11 @@ export function readSave(raw: string | null): {
       }
       run.step = r.step;
       restoreRoute(run, r);
+      // Before variants existed, the active miniboss was always variant zero.
+      if (!r.minibossVariants && run.kind === 'miniboss' && r.page !== 'map')
+        run.minibossVariants[
+          `${run.chapter}:${run.step}:${run.path[run.step]}`
+        ] = 0;
       run.page = ['map', 'shop', 'event', 'reward'].includes(r.page)
         ? r.page
         : 'map';
@@ -1711,7 +1775,7 @@ export function readSave(raw: string | null): {
         run.loot = run.reward.map((id) => ({ kind: 'module', id }));
       for (const id of [...run.items, ...run.backpack.map((i) => i.id)])
         if (id && !base.unlocked.includes(id)) base.unlocked.push(id);
-      if (m.storyRevision === STORY_REVISION)
+      if (m.storyRevision === STORY_REVISION || m.storyRevision === 4)
         base.sceneProgress = restoreSceneProgress(
           m.sceneProgress,
           base.wins,
@@ -1721,13 +1785,13 @@ export function readSave(raw: string | null): {
       // An untouched map can adopt the new route without replaying a room or
       // discarding a checkpoint. Keep the house, inventory and resources.
       if (
-        run.routeVersion !== 7 &&
+        run.routeVersion !== 8 &&
         run.step === 0 &&
         run.page === 'map' &&
         run.path.length === 0
       ) {
         run.nodes = campaignTree(run.seed, run.chapter);
-        run.routeVersion = 7;
+        run.routeVersion = 8;
       }
     }
     return { meta: base, run };

@@ -7,7 +7,14 @@ import {
 import type { BossPattern } from './bosses';
 import { activeEquipment, equipmentTargets } from './equipment';
 import { ITEM_BY_ID, FAMILY } from './data';
-import { seeded, statsFor, type Run, type Meta, type Stats } from './model';
+import {
+  seeded,
+  statsFor,
+  minibossVariant,
+  type Run,
+  type Meta,
+  type Stats,
+} from './model';
 import { drawEnemy, preloadEnemyArt } from './enemy-art';
 import { hazardContains, drawHazard, type Hazard } from './bosses';
 import { MINIBOSS_TYPE, minibossFor, minibossPattern } from './minibosses';
@@ -155,6 +162,7 @@ export class Battle {
   frame = 0;
   last = 0;
   bossSpawned = false;
+  minibossVariant: number;
   rng: () => number;
   onHud: (h: Hud) => void;
   onEnd: (r: BattleResult) => void;
@@ -170,6 +178,7 @@ export class Battle {
     this.ctx = canvas?.getContext('2d') ?? null;
     if (canvas) preloadEnemyArt();
     this.run = { ...run, items: [...run.items] };
+    this.minibossVariant = minibossVariant(run);
     this.stats = statsFor(run, meta);
     this.audio = audio;
     this.onHud = onHud;
@@ -269,7 +278,7 @@ export class Battle {
     const def = boss
       ? campaignBoss(this.run.chapter, this.run.bossVariants[this.run.chapter])
       : mini
-        ? minibossFor(this.run.chapter)
+        ? minibossFor(this.run.chapter, this.minibossVariant)
         : ENEMY_DEFS[t];
     if (
       !def ||
@@ -309,11 +318,14 @@ export class Battle {
   damage(e: Enemy, amount: number, crit = false, incomingAngle?: number) {
     if (e.hp <= 0) return;
     if (
-      e.type === 7 &&
+      (e.type === 7 ||
+        (e.type === MINIBOSS_TYPE &&
+          this.run.chapter === 2 &&
+          this.minibossVariant === 1)) &&
       incomingAngle !== undefined &&
       Math.cos(incomingAngle + Math.PI - e.aim) > 0.25
     )
-      amount *= ENEMY_DEFS[7].frontalDamageMultiplier ?? 0.55;
+      amount *= 0.55;
     e.hp -= amount;
     e.hit = 0.12;
     this.burst(e.x, e.y, crit ? '#ffcd82' : '#b0ded4', crit ? 5 : 2);
@@ -358,6 +370,16 @@ export class Battle {
             child.y = e.y;
           }
         }
+      if (ENEMY_DEFS[e.type]?.behavior === 'burst')
+        this.hazards.push({
+          x: e.x,
+          y: e.y,
+          radius: 68,
+          age: -1.15,
+          duration: 0.35,
+          damage: ENEMY_DEFS[e.type].damage,
+          color: ENEMY_DEFS[e.type].color,
+        });
       if (isLeader(e.type)) {
         for (const drop of this.drops)
           if (drop.kind === 'coin') this.run.coins += drop.value;
@@ -414,6 +436,82 @@ export class Battle {
         color: def.color,
       });
     switch (def.behavior) {
+      case 'mine':
+        zone('circle', e.targetX ?? this.x, e.targetY ?? this.y, 38, 3.4);
+        break;
+      case 'weld':
+        this.hazards.push({
+          x: e.x,
+          y: e.y,
+          x2: e.x + Math.cos(angle) * 255,
+          y2: e.y + Math.sin(angle) * 255,
+          radius: 22,
+          age: -0.8,
+          duration: 0.4,
+          damage: def.damage,
+          color: def.color,
+        });
+        break;
+      case 'repair':
+        for (const ally of this.enemies
+          .filter(
+            (ally) =>
+              ally !== e &&
+              !isLeader(ally.type) &&
+              ally.hp > 0 &&
+              ally.hp < ally.max &&
+              Math.hypot(ally.x - e.x, ally.y - e.y) < 180,
+          )
+          .slice(0, 4)) {
+          ally.hp = Math.min(ally.max, ally.hp + 10);
+          this.burst(ally.x, ally.y, def.color, 3);
+        }
+        break;
+      case 'strafe':
+        for (const offset of [-0.14, 0.14])
+          shot(angle + offset, def.projectileSpeed, def.damage);
+        break;
+      case 'volley':
+        for (let i = -2; i <= 2; i++)
+          shot(angle + i * 0.27, def.projectileSpeed, def.damage);
+        break;
+      case 'blink':
+        this.burst(e.x, e.y, def.color, 8);
+        e.x = e.targetX ?? e.x;
+        e.y = e.targetY ?? e.y;
+        this.burst(e.x, e.y, def.color, 8);
+        shot(
+          Math.atan2(this.y - e.y, this.x - e.x),
+          def.projectileSpeed,
+          def.damage,
+        );
+        break;
+      case 'cross':
+        for (const a of [0, Math.PI / 2])
+          this.hazards.push({
+            x: (e.targetX ?? this.x) - Math.cos(a) * 240,
+            y: (e.targetY ?? this.y) - Math.sin(a) * 240,
+            x2: (e.targetX ?? this.x) + Math.cos(a) * 240,
+            y2: (e.targetY ?? this.y) + Math.sin(a) * 240,
+            radius: 15,
+            age: -1,
+            duration: 0.35,
+            damage: def.damage,
+            color: def.color,
+          });
+        break;
+      case 'jam':
+        this.hazards.push({
+          x: e.x,
+          y: e.y,
+          radius: 120,
+          age: -1,
+          duration: 3,
+          damage: def.damage,
+          color: def.color,
+          slow: 0.55,
+        });
+        break;
       case 'charge':
         e.chargeLeft = def.chargeDuration ?? 0.65;
         break;
@@ -519,8 +617,24 @@ export class Battle {
       dx = this.facing.x * 3.8;
       dy = this.facing.y * 3.8;
     }
-    this.x = Math.max(55, Math.min(1545, this.x + dx * this.stats.speed * dt));
-    this.y = Math.max(55, Math.min(945, this.y + dy * this.stats.speed * dt));
+    const slow =
+      this.dashing > 0
+        ? 1
+        : this.hazards.reduce(
+            (speed, hazard) =>
+              hazard.slow && hazardContains(hazard, this.x, this.y)
+                ? Math.min(speed, hazard.slow)
+                : speed,
+            1,
+          );
+    this.x = Math.max(
+      55,
+      Math.min(1545, this.x + dx * this.stats.speed * slow * dt),
+    );
+    this.y = Math.max(
+      55,
+      Math.min(945, this.y + dy * this.stats.speed * slow * dt),
+    );
     this.run.hp = Math.min(
       this.stats.health,
       this.run.hp + this.stats.regen * dt,
@@ -587,12 +701,22 @@ export class Battle {
         e.timer <= 0 &&
         (leader ||
           (def &&
-            !['chase', 'shield'].includes(def.behavior) &&
+            !['chase', 'shield', 'burst'].includes(def.behavior) &&
             dist <= def.range))
       ) {
         e.lockedAim = e.aim;
         e.targetX = this.x;
         e.targetY = this.y;
+        if (def?.behavior === 'blink') {
+          e.targetX = Math.max(
+            55,
+            Math.min(1545, this.x + Math.cos(e.aim + Math.PI / 2) * 145),
+          );
+          e.targetY = Math.max(
+            55,
+            Math.min(945, this.y + Math.sin(e.aim + Math.PI / 2) * 145),
+          );
+        }
         e.windup = leader ? 0.9 : def!.windup;
         if (leader) {
           e.pendingBoss =
@@ -605,6 +729,7 @@ export class Battle {
                   e.y,
                   this.x,
                   this.y,
+                  this.minibossVariant,
                 )
               : campaignBossPattern(
                   this.run.chapter,
@@ -629,20 +754,49 @@ export class Battle {
         (!(e.windup ?? 0) &&
           (leader ||
             !def ||
-            ['chase', 'charge', 'shield', 'pulse', 'brood'].includes(
-              def.behavior,
-            ) ||
+            [
+              'chase',
+              'charge',
+              'shield',
+              'pulse',
+              'brood',
+              'burst',
+              'strafe',
+              'jam',
+            ].includes(def.behavior) ||
             dist > def.range * 0.8));
       if (moving) {
         const speed = e.speed * (charging ? (def?.chargeMultiplier ?? 3) : 1);
+        const strafe = def?.behavior === 'strafe' && dist < def.range * 0.9;
+        const strafeDirection = e.visualSeed % 2 ? 1 : -1;
         e.walk += (dt * speed) / 12;
         e.x = Math.max(
           40,
-          Math.min(1560, e.x + (charging ? Math.cos(e.aim) : ex) * speed * dt),
+          Math.min(
+            1560,
+            e.x +
+              (charging
+                ? Math.cos(e.aim)
+                : strafe
+                  ? -ey * strafeDirection
+                  : ex) *
+                speed *
+                dt,
+          ),
         );
         e.y = Math.max(
           40,
-          Math.min(960, e.y + (charging ? Math.sin(e.aim) : ey) * speed * dt),
+          Math.min(
+            960,
+            e.y +
+              (charging
+                ? Math.sin(e.aim)
+                : strafe
+                  ? ex * strafeDirection
+                  : ey) *
+                speed *
+                dt,
+          ),
         );
       }
       if (dist < e.r + 24 && this.invincible <= 0) {
@@ -650,7 +804,7 @@ export class Battle {
         const hit = Math.max(
           2,
           (e.type === MINIBOSS_TYPE
-            ? minibossFor(this.run.chapter).contactDamage
+            ? minibossFor(this.run.chapter, this.minibossVariant).contactDamage
             : e.type === 99
               ? 20 + this.run.chapter * 6
               : ENEMY_DEFS[e.type].contactDamage) - this.stats.armor,
@@ -1005,6 +1159,7 @@ export class Battle {
           this.elapsed,
           actor.dying,
           this.run.bossVariants[this.run.chapter],
+          this.minibossVariant,
         );
       }
     }

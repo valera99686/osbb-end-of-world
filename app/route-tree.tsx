@@ -29,6 +29,7 @@ import {
   routeTargets,
   routeNodeX,
   seeded,
+  minibossVariant,
   type NodeKind,
   type Run,
 } from '@/lib/game/model';
@@ -146,7 +147,10 @@ export function RouteTree({
     kind === 'boss'
       ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
       : kind === 'miniboss'
-        ? minibossFor(run.chapter).name
+        ? minibossFor(
+            run.chapter,
+            minibossVariant(run, selectedRow, selectedCol),
+          ).name
         : info.name;
   const height = TOP * 2 + (run.nodes.length - 1) * ROW_HEIGHT + 18;
   const wide = run.routeVersion >= 5;
@@ -351,7 +355,10 @@ export function RouteTree({
             {kind === 'boss'
               ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).guide
               : kind === 'miniboss'
-                ? minibossFor(run.chapter).guide
+                ? minibossFor(
+                    run.chapter,
+                    minibossVariant(run, selectedRow, selectedCol),
+                  ).guide
                 : info.desc}
           </p>
         </div>

@@ -7,6 +7,192 @@ const M = require('../.test-build/model.js'),
   S = require('../.test-build/cutscenes.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
 const Mini = require('../.test-build/minibosses.js');
+
+function isolatedBattle(chapter = 0) {
+  const meta = M.initialMeta();
+  const b = new Battle(
+    null,
+    M.makeRun(meta, 'mechanic', chapter, 701),
+    meta,
+    new AudioEngine(),
+    () => {},
+    () => {},
+  );
+  b.spawnTimer = b.shotTimer = 999;
+  b.stats.regen = b.stats.thorns = b.stats.orbit = b.stats.drones = 0;
+  b.stats.health = b.run.hp = 10000;
+  return b;
+}
+
+test('Each location spawns its own six enemies and every summon stays local', () => {
+  const ids = new Set();
+  for (let chapter = 0; chapter < 3; chapter++) {
+    const pool = C.LOCATIONS[chapter].enemyTypes;
+    assert.equal(pool.length, 6);
+    for (const type of pool) {
+      assert.equal(C.ENEMY_DEFS[type].type, type);
+      assert.equal(C.ENEMY_DEFS[type].location, chapter);
+      assert.ok(!ids.has(type));
+      ids.add(type);
+    }
+    const engine = isolatedBattle(chapter),
+      seen = new Set();
+    for (let n = 0; n < 150; n++) {
+      engine.enemies = [];
+      engine.spawn();
+      engine.enemies.forEach((e) => {
+        assert.ok(pool.includes(e.type));
+        seen.add(e.type);
+      });
+    }
+    assert.equal(seen.size, 6);
+    for (let variant = 0; variant < 3; variant++)
+      for (let beat = 0; beat < 6; beat++) {
+        for (const pattern of [
+          C.campaignBossPattern(
+            chapter,
+            variant,
+            beat % 2,
+            beat,
+            500,
+            300,
+            800,
+            600,
+          ),
+          Mini.minibossPattern(
+            chapter,
+            beat % 2,
+            beat,
+            500,
+            300,
+            800,
+            600,
+            variant,
+          ),
+        ])
+          assert.ok(pattern.summons.every((type) => pool.includes(type)));
+      }
+  }
+  assert.equal(ids.size, 18);
+});
+
+test('Map previews, mystery encounters and reloads retain the same random miniboss variant', () => {
+  const meta = M.initialMeta(),
+    seen = [new Set(), new Set(), new Set()];
+  for (let chapter = 0; chapter < 3; chapter++)
+    for (let seed = 0; seed < 100; seed++) {
+      for (const kind of ['miniboss', 'mystery']) {
+        const start = M.makeRun(meta, 'mechanic', chapter, seed);
+        const row = start.nodes.findIndex((r) => r.includes(kind)),
+          col = start.nodes[row].indexOf(kind);
+        const preview = M.minibossVariant(start, row, col);
+        const run = roomAt(start, meta, row, col);
+        if (run.kind !== 'miniboss') continue;
+        seen[chapter].add(preview);
+        assert.equal(M.minibossVariant(run), preview);
+        assert.equal(run.minibossVariants[`${chapter}:${row}:${col}`], preview);
+        const saved = M.readSave(M.saveData(meta, run)).run;
+        assert.equal(M.minibossVariant(saved), preview);
+        assert.equal(
+          M.minibossVariant(M.enterNode(saved, meta, `${row}:${col}`)),
+          preview,
+        );
+      }
+    }
+  seen.forEach((variants) => assert.deepEqual([...variants].sort(), [0, 1, 2]));
+  let old = M.makeRun(meta, 'mechanic', 1, 48);
+  old.routeVersion = 7;
+  old.nodes = M.previousMinibossCampaignTree(old.seed, old.chapter);
+  old = roomOfKind(old, meta, null, 'miniboss');
+  old.page = 'combat';
+  delete old.minibossVariants;
+  const saved = M.readSave(M.saveData(meta, old)).run;
+  assert.equal(saved.routeVersion, 7);
+  assert.equal(M.minibossVariant(saved), 0);
+  assert.deepEqual(saved.nodes, old.nodes);
+});
+
+test('Phase drones and segmenters can damage a stationary house from their chosen attack distance', () => {
+  for (const type of [15, 16]) {
+    const b = isolatedBattle(2);
+    b.spawn(type);
+    b.enemies[0].x = b.x + 400;
+    b.enemies[0].y = b.y;
+    for (let i = 0; i < 1200; i++) b.update(0.025);
+    assert.ok(b.run.hp < 10000, C.ENEMY_DEFS[type].name);
+  }
+});
+
+test('Repair support heals nearby living regular enemies, and thorn death bursts give a warning', () => {
+  const b = isolatedBattle();
+  for (const type of [11, 0, 1, Mini.MINIBOSS_TYPE]) b.spawn(type);
+  const [repair, ally, dead, leader] = b.enemies;
+  for (const e of b.enemies) {
+    e.x = 700;
+    e.y = 500;
+    e.hp -= 12;
+  }
+  dead.hp = 0;
+  const captainHp = leader.hp,
+    droneHp = repair.hp,
+    oldHp = ally.hp;
+  b.enemyAttack(repair);
+  assert.equal(ally.hp, oldHp + 10);
+  assert.equal(leader.hp, captainHp);
+  assert.equal(repair.hp, droneHp);
+  assert.equal(dead.hp, 0);
+  const green = isolatedBattle(1);
+  green.spawn(14);
+  green.damage(green.enemies[0], 10000);
+  const hazard = green.hazards[0];
+  assert.ok(hazard.age < -1);
+  assert.equal(B.hazardContains(hazard, hazard.x, hazard.y), false);
+  hazard.age = 0;
+  assert.equal(B.hazardContains(hazard, hazard.x, hazard.y), true);
+});
+
+test('Slow fields affect movement only while active, and dash escapes at normal dash speed', () => {
+  const distance = (age, dash) => {
+    const b = isolatedBattle();
+    b.keys.add('KeyD');
+    b.invincible = 5;
+    b.hazards.push({
+      x: b.x,
+      y: b.y,
+      radius: 200,
+      age,
+      duration: 3,
+      damage: 7,
+      color: '#fff',
+      slow: 0.55,
+    });
+    if (dash) b.dash();
+    const x = b.x;
+    b.update(0.025);
+    return b.x - x;
+  };
+  assert.ok(Math.abs(distance(0, false) / distance(-1, false) - 0.55) < 0.001);
+  assert.equal(distance(0, true), distance(-1, true));
+});
+
+test('The new location story becomes available once without resetting an ongoing expedition or cutscene', () => {
+  const meta = M.initialMeta();
+  meta.storyRevision = 4;
+  meta.scenesSeen = ['prologue', 'origins', 'arrival-0', 'arrival-1'];
+  meta.sceneProgress = { id: 'victory-0', index: 1 };
+  const run = roomOfKind(
+    M.makeRun(meta, 'mechanic', 1, 44),
+    meta,
+    null,
+    'shop',
+  );
+  const saved = M.readSave(M.saveData(meta, run));
+  assert.deepEqual(saved.run, run);
+  assert.deepEqual(saved.meta.scenesSeen, ['prologue']);
+  assert.deepEqual(saved.meta.sceneProgress, meta.sceneProgress);
+  assert.equal(saved.meta.storyRevision, S.STORY_REVISION);
+  assert.deepEqual(M.readSave(M.saveData(saved.meta, saved.run)), saved);
+});
 test('A discovered locked item remains unlocked after a lost expedition, with purchased shop indices intact', () => {
   const meta = M.initialMeta();
   meta.unlocked.push('crown');
@@ -60,11 +246,12 @@ test('Ten-step trees vary room counts, widths, room types and discoveries withou
   const widths = new Set();
   const chestPositions = new Set();
   const roomCounts = new Set();
+  const minibossCounts = new Set();
   for (let seed = 0; seed < 50; seed++)
     for (let chapter = 0; chapter < 3; chapter++) {
       const run = M.makeRun(meta, 'mechanic', chapter, seed);
       assert.equal(run.nodes.length, 10);
-      assert.equal(run.routeVersion, 7);
+      assert.equal(run.routeVersion, 8);
       const roomCount = run.nodes.flat().length;
       assert.ok(roomCount >= 38 && roomCount <= 50);
       roomCounts.add(roomCount);
@@ -109,10 +296,11 @@ test('Ten-step trees vary room counts, widths, room types and discoveries withou
         run.nodes.flat().filter((kind) => kind === 'boss').length,
         1,
       );
-      assert.equal(
-        run.nodes.flat().filter((kind) => kind === 'miniboss').length,
-        2,
-      );
+      const miniCount = run.nodes
+        .flat()
+        .filter((kind) => kind === 'miniboss').length;
+      assert.ok(miniCount >= 1 && miniCount <= 4);
+      minibossCounts.add(miniCount);
       assert.ok(
         run.nodes.slice(0, 3).every((row) => !row.includes('miniboss')),
       );
@@ -128,6 +316,7 @@ test('Ten-step trees vary room counts, widths, room types and discoveries withou
     'The shape of the tree must vary, not only room labels',
   );
   assert.ok(chestPositions.size > 80, 'Chest positions must not remain fixed');
+  assert.deepEqual([...minibossCounts].sort(), [1, 2, 3, 4]);
   assert.ok(roomCounts.size >= 6, 'Total room count should vary between runs');
 });
 test('Captain only, no free furniture or permanent recruitment; expensive floor expansions belong to the expedition', () => {
@@ -219,16 +408,16 @@ test('Random paths split and merge differently on identical-width trees, without
   assert.equal(signatures.size, 50);
   assert.deepEqual([...degrees].sort(), [1, 2, 3]);
 });
-test('Older checkpoints keep their connections and v7 selected rooms survive reload', () => {
+test('Older checkpoints keep their connections and v7/v8 selected rooms survive reload', () => {
   const meta = M.initialMeta();
-  for (const version of [5, 6, 7]) {
+  for (const version of [5, 6, 7, 8]) {
     for (const kind of [
       'mystery',
       'chest',
       'shop',
       'rest',
       'boss',
-      ...(version === 7 ? ['miniboss'] : []),
+      ...(version >= 7 ? ['miniboss'] : []),
     ]) {
       let run = M.makeRun(meta, 'mechanic', 0, 503);
       if (version === 5) {
@@ -237,6 +426,9 @@ test('Older checkpoints keep their connections and v7 selected rooms survive rel
       } else if (version === 6) {
         run.routeVersion = 6;
         run.nodes = M.previousRandomCampaignTree(run.seed, run.chapter);
+      } else if (version === 7) {
+        run.routeVersion = 7;
+        run.nodes = M.previousMinibossCampaignTree(run.seed, run.chapter);
       }
       run = roomOfKind(run, meta, null, kind);
       const loaded = M.readSave(M.saveData(meta, run)).run;
@@ -260,7 +452,7 @@ test('Older checkpoints keep their connections and v7 selected rooms survive rel
 });
 test('An untouched older map upgrades to ten steps without resetting the house or inventory', () => {
   const meta = M.initialMeta();
-  for (const version of [2, 3, 4, 5, 6]) {
+  for (const version of [2, 3, 4, 5, 6, 7]) {
     const old = M.makeRun(meta, 'mechanic', 2, 731);
     old.routeVersion = version;
     old.nodes =
@@ -272,13 +464,15 @@ test('An untouched older map upgrades to ten steps without resetting the house o
             ? M.compactCampaignTree(old.seed, old.chapter)
             : version === 5
               ? M.wideCampaignTree(old.seed, old.chapter)
-              : M.previousRandomCampaignTree(old.seed, old.chapter);
+              : version === 6
+                ? M.previousRandomCampaignTree(old.seed, old.chapter)
+                : M.previousMinibossCampaignTree(old.seed, old.chapter);
     old.houseLevel = version === 2 ? 4 : 2;
     old.coins = 317;
     old.scrap = 13;
     const loaded = M.readSave(M.saveData(meta, old)).run;
     assert.equal(loaded.nodes.length, 10);
-    assert.equal(loaded.routeVersion, 7);
+    assert.equal(loaded.routeVersion, 8);
     for (const key of [
       'coins',
       'scrap',
@@ -325,7 +519,7 @@ test('Active twelve-step routes retain late rooms and mystery outcomes, then adv
     if (step === 11) {
       const next = M.advanceLocation(loaded, meta);
       assert.equal(next.nodes.length, 10);
-      assert.equal(next.routeVersion, 7);
+      assert.equal(next.routeVersion, 8);
       assert.equal(next.coins, old.coins);
     }
   }
@@ -377,7 +571,7 @@ test('Active compact routes retain encounters, rewards and choices after the wid
       assert.deepEqual(loaded[key], old[key], key);
     assert.deepEqual(M.readSave(M.saveData(meta, loaded)).run, loaded);
     if (step === 9)
-      assert.equal(M.advanceLocation(loaded, meta).routeVersion, 7);
+      assert.equal(M.advanceLocation(loaded, meta).routeVersion, 8);
   }
 });
 test('Boss transitions carry the same house and inventory, save the story, and only location three completes a run', () => {
@@ -465,94 +659,104 @@ test('Previously revealed mystery bosses become minibosses without rerolling rew
 
 test('Miniboss fights have distinct telegraphed attacks, require a kill and award normal route progress', () => {
   const names = new Set();
-  for (let chapter = 0; chapter < 3; chapter++) {
-    const meta = M.initialMeta();
-    let run = roomOfKind(
-      M.makeRun(meta, 'mechanic', chapter, 771),
-      meta,
-      null,
-      'miniboss',
-    );
-    const def = Mini.minibossFor(chapter);
-    names.add(def.name);
-    assert.ok(def.health < C.campaignBoss(chapter, 0).health / 2);
-    if (chapter) assert.ok(def.health > Mini.minibossFor(chapter - 1).health);
-    const attacks = new Set();
-    for (let phase = 0; phase < 2; phase++)
-      for (let beat = 0; beat < 2; beat++) {
-        const p = Mini.minibossPattern(
-          chapter,
-          phase,
-          beat,
-          500,
-          350,
-          850,
-          600,
-        );
-        attacks.add(p.name);
-        assert.ok(p.shots.length || p.hazards.length);
-        for (const h of p.hazards) {
-          assert.ok(h.age <= -1);
-          assert.equal(B.hazardContains(h, h.x, h.y), false);
+  for (let chapter = 0; chapter < 3; chapter++)
+    for (let variant = 0; variant < 3; variant++) {
+      const meta = M.initialMeta();
+      let run = roomOfKind(
+        M.makeRun(meta, 'mechanic', chapter, 771),
+        meta,
+        null,
+        'miniboss',
+      );
+      run.minibossVariants[`${chapter}:${run.step}:${run.path[run.step]}`] =
+        variant;
+      const def = Mini.minibossFor(chapter, variant);
+      names.add(def.name);
+      assert.ok(def.health < C.campaignBoss(chapter, 0).health / 2);
+      if (chapter)
+        assert.ok(def.health > Mini.minibossFor(chapter - 1, variant).health);
+      const attacks = new Set();
+      for (let phase = 0; phase < 2; phase++)
+        for (let beat = 0; beat < 2; beat++) {
+          const p = Mini.minibossPattern(
+            chapter,
+            phase,
+            beat,
+            500,
+            350,
+            850,
+            600,
+            variant,
+          );
+          attacks.add(p.name);
+          assert.ok(p.shots.length || p.hazards.length || p.summons.length);
+          assert.ok(
+            p.summons.every((type) =>
+              C.LOCATIONS[chapter].enemyTypes.includes(type),
+            ),
+          );
+          for (const h of p.hazards) {
+            assert.ok(h.age <= -1);
+            assert.equal(B.hazardContains(h, h.x, h.y), false);
+          }
         }
-      }
-    assert.equal(attacks.size, 2);
-    let result, hud;
-    const engine = new Battle(
-      null,
-      run,
-      meta,
-      new AudioEngine(),
-      (h) => (hud = h),
-      (r) => (result = r),
-    );
-    engine.update(0.025);
-    const leader = engine.enemies.find((e) => e.type === Mini.MINIBOSS_TYPE);
-    assert.ok(leader);
-    assert.equal(
-      engine.enemies.some((e) => e.type === 99),
-      false,
-    );
-    assert.equal(hud.bossMax, def.health);
-    engine.stats.damage = 0;
-    engine.invincible = 200;
-    for (let i = 0; i < 600; i++) engine.update(0.025);
-    assert.ok(engine.bossAttack);
-    assert.ok(engine.enemies.length <= 7);
-    assert.ok(
-      engine.enemies.every(
-        (e) => Number.isFinite(e.x) && Number.isFinite(e.hp),
-      ),
-    );
-    engine.damage(leader, leader.max);
-    assert.equal(result.won, true);
-    assert.equal(result.boss, false);
-    const reward = M.battleRewards(result.run, meta);
-    assert.equal(reward.scrap - result.run.scrap, 4);
-    assert.equal(reward.coins - result.run.coins, 40 + chapter * 6);
-    assert.equal(reward.loot.length, 3);
-    assert.equal(M.advanceLocation(reward, meta), reward);
-    const next = M.nextNode(reward);
-    assert.equal(next.chapter, chapter);
-    assert.equal(next.step, run.step + 1);
-    let timeout;
-    const slow = new Battle(
-      null,
-      run,
-      meta,
-      new AudioEngine(),
-      () => {},
-      (r) => (timeout = r),
-    );
-    slow.elapsed = slow.duration;
-    slow.update(0.025);
-    assert.equal(
-      timeout.won,
-      false,
-      'Waiting out the timer cannot defeat a miniboss',
-    );
-  }
-  assert.equal(names.size, 3);
+      assert.equal(attacks.size, 2);
+      let result, hud;
+      const engine = new Battle(
+        null,
+        run,
+        meta,
+        new AudioEngine(),
+        (h) => (hud = h),
+        (r) => (result = r),
+      );
+      engine.update(0.025);
+      const leader = engine.enemies.find((e) => e.type === Mini.MINIBOSS_TYPE);
+      assert.ok(leader);
+      assert.equal(
+        engine.enemies.some((e) => e.type === 99),
+        false,
+      );
+      assert.equal(hud.bossMax, def.health);
+      engine.stats.damage = 0;
+      engine.invincible = 200;
+      for (let i = 0; i < 600; i++) engine.update(0.025);
+      assert.ok(engine.bossAttack);
+      assert.ok(engine.enemies.length <= 7);
+      assert.ok(
+        engine.enemies.every(
+          (e) => Number.isFinite(e.x) && Number.isFinite(e.hp),
+        ),
+      );
+      engine.damage(leader, leader.max);
+      assert.equal(result.won, true);
+      assert.equal(result.boss, false);
+      const reward = M.battleRewards(result.run, meta);
+      assert.equal(reward.scrap - result.run.scrap, 4);
+      assert.equal(reward.coins - result.run.coins, 40 + chapter * 6);
+      assert.equal(reward.loot.length, 3);
+      assert.equal(M.advanceLocation(reward, meta), reward);
+      const next = M.nextNode(reward);
+      assert.equal(next.chapter, chapter);
+      assert.equal(next.step, run.step + 1);
+      let timeout;
+      const slow = new Battle(
+        null,
+        run,
+        meta,
+        new AudioEngine(),
+        () => {},
+        (r) => (timeout = r),
+      );
+      slow.elapsed = slow.duration;
+      slow.update(0.025);
+      assert.equal(
+        timeout.won,
+        false,
+        'Waiting out the timer cannot defeat a miniboss',
+      );
+    }
+  assert.equal(names.size, 9);
 });
 test('A chest contains exactly one furniture or module, locked modules survive acquiring and reloading', () => {
   const meta = M.initialMeta();
@@ -679,7 +883,7 @@ test('Nine bosses have distinct attacks, warnings and escalating health, and all
       assert.ok(Number.isFinite(result.run.hp));
     }
   assert.equal(signatures.size, 9);
-  assert.equal(new Set(C.ENEMY_DEFS.map((e) => e.behavior)).size, 9);
+  assert.equal(new Set(C.ENEMY_DEFS.map((e) => e.behavior)).size, 18);
   for (const def of C.ENEMY_DEFS) {
     const meta = M.initialMeta(),
       run = M.makeRun(meta, 'mechanic', def.location, 200);

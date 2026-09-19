@@ -9,7 +9,7 @@ export const LOCATIONS = [
     color: '#e7aa70',
     desc: 'Покинуті майстерні й службові машини. Знайди вихід до теплиць.',
     objective: 'Зупини охоронця кварталу та відкрий шлюз до Зелених куполів.',
-    enemyTypes: [0, 1, 2],
+    enemyTypes: [0, 1, 2, 9, 10, 11],
     bossVariants: [0, 1, 2],
     background: ['#282c32', '#141e26'],
   },
@@ -20,7 +20,7 @@ export const LOCATIONS = [
     desc: 'Автоматичні теплиці вважають людей шкідниками. Коріння перекриває шлях до центру.',
     objective:
       'Вимкни вартового теплиць і дістань ключ доступу до Серця мережі.',
-    enemyTypes: [3, 4, 5],
+    enemyTypes: [3, 4, 5, 12, 13, 14],
     bossVariants: [0, 1, 2],
     background: ['#233630', '#11231e'],
   },
@@ -30,7 +30,7 @@ export const LOCATIONS = [
     color: '#93cfee',
     desc: 'Центральна система відновлює аварію о 04:17. Її останні захисники пам’ятають попередні спроби.',
     objective: 'Переможи захисника ядра та вимкни протокол повторення аварії.',
-    enemyTypes: [6, 7, 8],
+    enemyTypes: [6, 7, 8, 15, 16, 17],
     bossVariants: [0, 1, 2],
     background: ['#222d43', '#111b2e'],
   },
@@ -45,7 +45,16 @@ export type EnemyBehavior =
   | 'brood'
   | 'snipe'
   | 'shield'
-  | 'pulse';
+  | 'pulse'
+  | 'mine'
+  | 'weld'
+  | 'repair'
+  | 'strafe'
+  | 'volley'
+  | 'burst'
+  | 'blink'
+  | 'cross'
+  | 'jam';
 
 export interface CampaignEnemyDefinition {
   type: number;
@@ -75,7 +84,7 @@ export interface CampaignEnemyDefinition {
   deathSummonCount?: number;
 }
 
-export const ENEMY_DEFS: readonly CampaignEnemyDefinition[] = [
+const ORIGINAL_ENEMIES: readonly CampaignEnemyDefinition[] = [
   {
     type: 0,
     location: 0,
@@ -259,6 +268,176 @@ export const ENEMY_DEFS: readonly CampaignEnemyDefinition[] = [
     scale: 1.1,
     guide:
       'Наближається й заряджає імпульс навколо себе. Вийди з кола або використай ривок.',
+  },
+];
+
+export const ENEMY_DEFS: readonly CampaignEnemyDefinition[] = [
+  ...ORIGINAL_ENEMIES,
+  {
+    ...ORIGINAL_ENEMIES[2],
+    type: 9,
+    name: 'Мінувальник',
+    behavior: 'mine',
+    health: 39,
+    speed: 34,
+    radius: 16,
+    cooldown: 4.6,
+    windup: 1.1,
+    range: 270,
+    damage: 9,
+    color: '#d6b566',
+    artIndex: 2,
+    scale: 0.85,
+    guide:
+      'Закладає міну на твоєму попередньому місці. Жовте коло попереджає про вибух; обходь його, поки не згасне.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[2],
+    type: 10,
+    name: 'Зварювальник',
+    behavior: 'weld',
+    health: 33,
+    speed: 49,
+    radius: 13,
+    cooldown: 3.8,
+    windup: 1,
+    range: 230,
+    damage: 10,
+    color: '#ffc484',
+    artIndex: 0,
+    scale: 1.05,
+    guide:
+      'Підходить близько й ріже короткою смугою полум’я. Відійди вбік, коли засвітиться пальник.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[2],
+    type: 11,
+    name: 'Ремонтний дрон',
+    behavior: 'repair',
+    health: 28,
+    speed: 46,
+    radius: 12,
+    cooldown: 5.5,
+    windup: 1,
+    range: 380,
+    damage: 0,
+    contactDamage: 5,
+    color: '#9cdbd0',
+    artIndex: 4,
+    scale: 0.8,
+    guide:
+      'Латає пошкоджених звичайних ворогів поруч. Знищ його першим, щоб ремонт не затягував бій.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[4],
+    type: 12,
+    name: 'Пилковий метелик',
+    behavior: 'strafe',
+    health: 41,
+    speed: 71,
+    radius: 12,
+    cooldown: 3.4,
+    windup: 0.9,
+    range: 310,
+    damage: 8,
+    projectileSpeed: 155,
+    color: '#d8d999',
+    artIndex: 4,
+    scale: 0.95,
+    guide:
+      'Кружляє збоку від будинку й випускає парні снаряди. Міняй напрямок, щоб не потрапити в оточення.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[4],
+    type: 13,
+    name: 'Насіннєвий стрілець',
+    behavior: 'volley',
+    health: 60,
+    speed: 26,
+    radius: 17,
+    cooldown: 4.3,
+    windup: 1.2,
+    range: 430,
+    damage: 10,
+    projectileSpeed: 165,
+    color: '#92c899',
+    artIndex: 3,
+    scale: 1.15,
+    guide:
+      'Стріляє широким віялом із п’яти насінин. Між снарядами залишаються проходи.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[3],
+    type: 14,
+    name: 'Колючий повзун',
+    behavior: 'burst',
+    health: 62,
+    speed: 61,
+    radius: 16,
+    cooldown: 4,
+    range: 0,
+    damage: 12,
+    contactDamage: 16,
+    color: '#bcc57c',
+    artIndex: 1,
+    scale: 1,
+    guide:
+      'Наздоганяє будинок. Після загибелі розкидає колючки: відійди від позначеного кола до спалаху.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[6],
+    type: 15,
+    name: 'Фазовий дрон',
+    behavior: 'blink',
+    health: 68,
+    speed: 42,
+    radius: 14,
+    cooldown: 5.2,
+    windup: 1.2,
+    range: 460,
+    damage: 11,
+    projectileSpeed: 180,
+    color: '#acd4fa',
+    artIndex: 1,
+    scale: 1,
+    guide:
+      'Позначає точку збоку від будинку й переноситься туди. Враховуй місце появи, плануючи відступ.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[6],
+    type: 16,
+    name: 'Сегментатор',
+    behavior: 'cross',
+    health: 86,
+    speed: 30,
+    radius: 18,
+    cooldown: 4.5,
+    windup: 1.1,
+    range: 420,
+    damage: 12,
+    color: '#9caeea',
+    artIndex: 0,
+    scale: 1.02,
+    guide:
+      'Випускає дві лазерні смуги навхрест. Виходь із розмітки по діагоналі до спалаху.',
+  },
+  {
+    ...ORIGINAL_ENEMIES[8],
+    type: 17,
+    name: 'Вузол придушення',
+    behavior: 'jam',
+    health: 79,
+    speed: 38,
+    radius: 17,
+    cooldown: 5.8,
+    windup: 1.2,
+    range: 230,
+    damage: 7,
+    color: '#c3a4e5',
+    artIndex: 3,
+    scale: 1.15,
+    guide:
+      'Створює поле, яке сповільнює будинок. Вийди з кола; ривок дозволяє швидко вирватися.',
   },
 ];
 

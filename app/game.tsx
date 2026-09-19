@@ -5,6 +5,7 @@ import { FURNITURE_BY_ID } from '@/lib/game/furniture';
 import { minibossFor } from '@/lib/game/minibosses';
 import {
   battleRewards,
+  minibossVariant,
   advanceLocation,
   claimFurniture,
   buyFurniture,
@@ -334,7 +335,7 @@ function Combat({
             {run.kind === 'boss'
               ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
               : run.kind === 'miniboss'
-                ? minibossFor(run.chapter).name
+                ? minibossFor(run.chapter, minibossVariant(run)).name
                 : NODE_INFO[run.kind].name}
           </span>
           <strong>
@@ -357,7 +358,7 @@ function Combat({
         <div className="boss-health">
           <span>
             {run.kind === 'miniboss'
-              ? `Мінібос · ${minibossFor(run.chapter).name}`
+              ? `Мінібос · ${minibossFor(run.chapter, minibossVariant(run)).name}`
               : campaignBoss(run.chapter, run.bossVariants[run.chapter])
                   .name}{' '}
             · {Math.ceil(hud.boss)} / {hud.bossMax}
@@ -1018,7 +1019,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.6.0 · Прогрес зберігається на цьому пристрої.
+              v0.7.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1558,15 +1559,16 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.6.0 · 3 локації, 9 мешканців, 9 варіантів
-            босів, 3 мінібоси й сюжетні катсцени.
+            ОСББ кінця світу · v0.7.0 · 3 локації, 9 мешканців, 9 варіантів
+            босів, 9 мінібосів, 18 видів ворогів і сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">
             <p>
               <b>Мінібоси.</b> Клітинка зі щитом веде до сильного ворога з
-              власною шкалою здоров’я. Мінібос може трапитися і в «?». Бос
-              локації чекає на останньому кроці; перемога над ним відкриває
-              наступну локацію.
+              власною шкалою здоров’я. На карті випадково з’являється 1–4 такі
+              клітинки; кожна обирає одного з трьох місцевих мінібосів. Мінібос
+              може трапитися і в «?». Бос локації чекає на останньому кроці;
+              перемога над ним відкриває наступну локацію.
             </p>
             <p>
               <b>01 / Керуй будинком.</b> WASD або стрілки. На телефоні —

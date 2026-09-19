@@ -148,6 +148,10 @@ export class Battle {
   duration: number;
   spawnTimer = 0;
   shotTimer = 0;
+  housingHealTimer = 12;
+  housingStrainTimer = 10;
+  housingDefenseTimer = 20;
+  housingVolley = 0;
   droneTimer = 0;
   hudTimer = 0;
   dashCd = 0;
@@ -639,6 +643,42 @@ export class Battle {
       this.stats.health,
       this.run.hp + this.stats.regen * dt,
     );
+    const home = this.stats.housing;
+    this.housingHealTimer -= dt;
+    this.housingStrainTimer -= dt;
+    this.housingDefenseTimer -= dt;
+    if (this.housingHealTimer <= 0) {
+      this.housingHealTimer += 12;
+      if (home.medicine) {
+        const healed = Math.min(home.medicine, this.stats.health - this.run.hp);
+        this.run.hp += healed;
+        if (healed > 0)
+          this.label(
+            this.x,
+            this.y - 60,
+            `Аптека +${Math.round(healed)}`,
+            '#96d5b5',
+          );
+      }
+    }
+    if (this.housingStrainTimer <= 0) {
+      this.housingStrainTimer += 10;
+      if (home.strain) {
+        this.run.hp = Math.max(1, this.run.hp - home.strain);
+        this.label(this.x, this.y - 60, `Витік −${home.strain}`, '#ffae84');
+      }
+    }
+    if (this.housingDefenseTimer <= 0) {
+      this.housingDefenseTimer += 20;
+      if (home.defense) {
+        this.pulseRing = 0.55;
+        this.label(this.x, this.y - 65, 'Спільна оборона', '#96d5b5');
+        for (const enemy of this.enemies)
+          if (Math.hypot(enemy.x - this.x, enemy.y - this.y) <= 220)
+            this.damage(enemy, home.defense);
+        if (this.ended) return;
+      }
+    }
     this.spawnTimer -= dt;
     const leaderFight =
       this.run.kind === 'boss' || this.run.kind === 'miniboss';
@@ -666,6 +706,11 @@ export class Battle {
       const enemy = this.nearest(this.x, this.y, this.stats.range);
       if (enemy) {
         this.shoot(this.x, this.y - 20, enemy);
+        this.housingVolley++;
+        if (home.echo && this.housingVolley % 4 === 0) {
+          this.shoot(this.x, this.y - 20, enemy);
+          this.label(this.x, this.y - 60, 'Відлуння', '#cfb4f1');
+        }
         this.shotTimer = 1 / this.stats.rate;
       }
     }

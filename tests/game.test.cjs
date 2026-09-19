@@ -707,7 +707,10 @@ test('Research is snapshotted per run, modules change stats, and adjacency is sp
   run.items[E.apartmentSlot('lev', 2)] = 'battery';
   const far = M.statsFor(run, meta);
   assert.ok(near.rate > far.rate);
-  assert.equal(near.synergies.length, 1);
+  assert.equal(
+    near.synergies.filter((s) => s.startsWith('Електромережа:')).length,
+    1,
+  );
   const next = M.equip(run, 'armor', 2, meta);
   assert.ok(M.statsFor(next, meta).health > M.statsFor(run, meta).health);
 });

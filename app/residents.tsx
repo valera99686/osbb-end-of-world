@@ -1,5 +1,18 @@
 import { ITEM_BY_ID, FAMILY } from '@/lib/game/data';
 import {
+  apartmentEffects,
+  apartmentWalls,
+  linkedIds,
+  planRoomMove,
+  roomsTouch,
+  type RoomLink,
+} from '@/lib/game/apartments';
+import {
+  joinApartments,
+  splitApartments,
+  setApartmentMode,
+} from '@/lib/game/model';
+import {
   apartmentSlot,
   equipmentTargets,
   canEquipAt,
@@ -12,7 +25,7 @@ import { RotateCw, Home, Move, UserPlus, Check } from 'lucide-react';
 import {
   RESIDENT_BY_ID,
   residentCells,
-  canHouse,
+  residentBonuses,
   residentSpace,
   residentGroups,
   roomGeometry,
@@ -80,20 +93,24 @@ export function ResidentShape({
 
 function HousePlan({
   rooms,
+  links = [],
   level = 0,
   furniture = [],
   items = [],
   selected,
   target,
+  targets,
   valid,
   compact = false,
 }: {
   rooms: ResidentRoom[];
+  links?: RoomLink[];
   level?: number;
   furniture?: Furnishing[];
   items?: (string | null)[];
   selected?: string;
   target?: ResidentRoom | null;
+  targets?: ResidentRoom[];
   valid?: boolean;
   compact?: boolean;
 }) {
@@ -156,17 +173,25 @@ function HousePlan({
           cells = residentCells(room.id, room.rotation);
         const [x, y] = cells[0],
           geometry = roomGeometry(room.id, room.rotation);
-        const chosen = room.id === selected;
+        const chosen =
+          room.id === selected ||
+          links.some(
+            (pair) => pair.includes(room.id) && pair.includes(selected ?? ''),
+          );
         return (
           <g
             key={room.id}
             transform={`translate(${room.x * 100} ${room.y * 100})`}
-            opacity={target?.id === room.id ? 0.35 : 1}
+            opacity={
+              targets?.some((r) => r.id === room.id) || target?.id === room.id
+                ? 0.35
+                : 1
+            }
           >
             <path d={geometry.floor} fill="#14262b" />
             <path d={geometry.floor} fill={`url(#${uid}-${room.id})`} />
             <path
-              d={geometry.walls}
+              d={apartmentWalls(room, rooms, links)}
               fill="none"
               stroke={chosen ? '#edc080' : '#789087'}
               strokeWidth={chosen ? 3.5 : 2}
@@ -278,8 +303,11 @@ function HousePlan({
           </g>
         );
       })}
-      {target && (
-        <g transform={`translate(${target.x * 100} ${target.y * 100})`}>
+      {(targets ?? (target ? [target] : [])).map((target) => (
+        <g
+          key={target.id}
+          transform={`translate(${target.x * 100} ${target.y * 100})`}
+        >
           <path
             d={roomGeometry(target.id, target.rotation).floor}
             fill={valid ? '#87c6ad' : '#ef837d'}
@@ -293,7 +321,7 @@ function HousePlan({
             strokeDasharray="8 5"
           />
         </g>
-      )}
+      ))}
       <rect
         width={size.width * 100}
         height={size.height * 100}
@@ -323,6 +351,7 @@ export function HousePreview({
     >
       <HousePlan
         rooms={run.residents}
+        links={run.roomLinks}
         level={level}
         furniture={run.furniture}
         items={run.items}
@@ -356,6 +385,7 @@ export function EquipmentPlacement({
       >
         <HousePlan
           rooms={run.residents}
+          links={run.roomLinks}
           level={level}
           furniture={run.furniture}
           items={run.items}
@@ -441,7 +471,48 @@ export function Residents({
     ),
   );
   const target = placing && ghost ? { id: selected, ...ghost, rotation } : null;
-  const valid = !!target && canHouse(run.residents, target, run.houseLevel);
+  const planned = target ? planRoomMove(run, target) : null;
+  const valid = !!planned;
+  const selectedGroup = linkedIds(run, selected);
+  const ghostRooms = target
+    ? planRoomMove(run, target, false)?.filter((r) =>
+        selectedGroup.includes(r.id),
+      )
+    : undefined;
+  function planningEffects(state: Run) {
+    const result = apartmentEffects(state);
+    result.effects.unshift(
+      ...residentBonuses(state.residents).synergies.map((text) => ({
+        id: `legacy:${text}`,
+        title: 'Сусідство',
+        text,
+        residents: [],
+      })),
+    );
+    return result;
+  }
+  const currentEffects = planningEffects(run);
+  const futureEffects = planned
+    ? planningEffects({ ...run, residents: planned })
+    : null;
+  const gained =
+    futureEffects?.effects.filter(
+      (e) =>
+        !currentEffects.effects.some(
+          (old) => old.id === e.id && old.text === e.text,
+        ),
+    ) ?? [];
+  const lost = futureEffects
+    ? currentEffects.effects.filter(
+        (e) =>
+          !futureEffects.effects.some(
+            (next) => next.id === e.id && next.text === e.text,
+          ),
+      )
+    : [];
+  const neighbors = room
+    ? run.residents.filter((r) => r.id !== selected && roomsTouch(room, r))
+    : [];
 
   function stopDrag() {
     const active = drag.current;
@@ -476,7 +547,9 @@ export function Residents({
     setGhost(null);
     setPlacing(false);
     setMessage(
-      `${RESIDENT_BY_ID[nextRoom.id].name} — у будинку. Бонус активний.`,
+      selectedGroup.length > 1
+        ? 'Об’єднану секцію переміщено разом із меблями й обладнанням.'
+        : `${RESIDENT_BY_ID[nextRoom.id].name} — у будинку. Бонус активний.`,
     );
   }
   function beginPlacement() {
@@ -534,11 +607,13 @@ export function Residents({
             >
               <HousePlan
                 rooms={run.residents}
+                links={run.roomLinks}
                 level={run.houseLevel}
                 furniture={run.furniture}
                 items={run.items}
                 selected={selected}
                 target={target}
+                targets={ghostRooms}
                 valid={valid}
               />
               <div
@@ -730,6 +805,86 @@ export function Residents({
               <span>Спільна стіна → бонус сусідства</span>
             </div>
           </div>
+          <section className="apartment-effects" aria-label="Вплив планування">
+            <h3>{placing ? 'Після розміщення' : 'Як працює твій будинок'}</h3>
+            {placing && !valid ? (
+              <p className="apartment-negative">
+                Фігура не вміщується. Об’єднані квартири потребують місця для
+                обох мешканців.
+              </p>
+            ) : placing ? (
+              <div aria-live="polite">
+                {!gained.length && !lost.length && (
+                  <p>Бонуси й недоліки залишаться без змін.</p>
+                )}
+                {gained.map((e) => (
+                  <p
+                    key={e.id}
+                    className={
+                      e.negative ? 'apartment-negative' : 'apartment-positive'
+                    }
+                  >
+                    <b>З’явиться: {e.title}.</b> {e.text}
+                  </p>
+                ))}
+                {lost.map((e) => (
+                  <p
+                    key={e.id}
+                    className={
+                      e.negative ? 'apartment-positive' : 'apartment-negative'
+                    }
+                  >
+                    <b>Зникне: {e.title}.</b> {e.text}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <>
+                {!currentEffects.effects.length && (
+                  <p>
+                    Посели мешканців через спільну стіну. Кухня підсилює
+                    сусідів; майстерня допомагає вартовому, але заважає медику.
+                  </p>
+                )}
+                {currentEffects.effects.map((e) => (
+                  <p
+                    key={e.id}
+                    className={
+                      e.negative ? 'apartment-negative' : 'apartment-positive'
+                    }
+                  >
+                    <b>{e.title}.</b> {e.text}
+                  </p>
+                ))}
+              </>
+            )}
+            <details className="apartment-recipes">
+              <summary>
+                Сусідства й відкриття · локація {run.chapter + 1}/3
+              </summary>
+              <p>
+                <b>Від початку.</b> Ніна: +6% темпу за кожну сусідню квартиру.
+                Петрович + Микола: +4 шкоди. Петрович + Марта: −0,3 лікування/с
+                через шум.
+              </p>
+              <p>
+                <b>{run.chapter >= 1 ? 'Відкрито' : 'З другої локації'}.</b>{' '}
+                Марта + Флора: аптечка на 6 міцності кожні 12 с. Петрович +
+                Микола: бойовий дрон.
+              </p>
+              <p>
+                <b>{run.chapter >= 2 ? 'Відкрито' : 'З третьої локації'}.</b>{' '}
+                Квартиру Іскри можна зробити лабораторією, Соломії — часовою
+                аномалією. Увімкни режим у картці мешканця; потрібна хоча б одна
+                сусідня квартира.
+              </p>
+              <p>
+                <b>Знесення стін.</b> Об’єднай дві сусідні квартири: захисна
+                хвиля кожні 20 с, але −6 швидкості. Спільна аптека лікує на 8
+                замість 6. Кожна квартира входить лише в одну пару.
+              </p>
+            </details>
+          </section>
           <div className="house-expansion">
             <div>
               <b>Розширення дому</b>
@@ -857,11 +1012,119 @@ export function Residents({
                   : 'Урятовано · потрібна квартира'}
               </span>
               <p className="resident-effect">{person.effect}</p>
+              {room && !placing && (
+                <div className="apartment-renovation">
+                  <h4>Спільна квартира</h4>
+                  {selectedGroup.length > 1 ? (
+                    <>
+                      <p>
+                        Об’єднано з{' '}
+                        {
+                          RESIDENT_BY_ID[
+                            selectedGroup.find((id) => id !== selected)!
+                          ].name
+                        }
+                        . Переміщення та поворот — разом.
+                      </p>
+                      <button
+                        className="secondary small"
+                        onClick={() => {
+                          onChange(splitApartments(run, meta, selected));
+                          setMessage(
+                            'Стіну відновлено. Квартири знову можна переміщувати окремо.',
+                          );
+                        }}
+                      >
+                        Відновити стіну · безкоштовно
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        Захисна хвиля: 24 шкоди кожні 20 с у радіусі 220. Ціна:
+                        −6 швидкості та одна велика фігура.
+                      </p>
+                      {!neighbors.length && (
+                        <p>
+                          Спочатку розмісти іншу квартиру через спільну стіну.
+                        </p>
+                      )}
+                      {neighbors.map((neighbor) => (
+                        <button
+                          key={neighbor.id}
+                          className="secondary small"
+                          disabled={linkedIds(run, neighbor.id).length > 1}
+                          onClick={() => {
+                            const next = joinApartments(
+                              run,
+                              meta,
+                              selected,
+                              neighbor.id,
+                            );
+                            onChange(next);
+                            setMessage(
+                              'Стіну знесено. Дві квартири тепер рухаються й обертаються разом.',
+                            );
+                          }}
+                        >
+                          Знести стіну: {RESIDENT_BY_ID[neighbor.id].name}
+                          {linkedIds(run, neighbor.id).length > 1
+                            ? ' · вже об’єднано'
+                            : ''}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {(selected === 'spark' || selected === 'solomia') && (
+                    <div className="apartment-mode">
+                      <h4>
+                        {selected === 'spark'
+                          ? 'Експериментальна лабораторія'
+                          : 'Часова аномалія'}
+                      </h4>
+                      <p>
+                        {selected === 'spark'
+                          ? 'Зі сусідом: +6 шкоди та ланцюговий удар. Кожні 10 с −3 міцності; Петрович поруч усуває витік.'
+                          : 'Зі сусідом: повтор кожного четвертого залпу, але −15% темпу стрільби.'}
+                      </p>
+                      <button
+                        className="secondary small"
+                        disabled={run.chapter < 2}
+                        aria-pressed={!!run.roomModes?.[selected]}
+                        onClick={() => {
+                          onChange(
+                            setApartmentMode(
+                              run,
+                              meta,
+                              selected,
+                              run.roomModes?.[selected]
+                                ? 'normal'
+                                : selected === 'spark'
+                                  ? 'lab'
+                                  : 'anomaly',
+                            ),
+                          );
+                        }}
+                      >
+                        {run.chapter < 2
+                          ? 'Відкриється в третій локації'
+                          : run.roomModes?.[selected]
+                            ? 'Повернути звичайну квартиру'
+                            : 'Увімкнути ризикований режим'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="housing-actions">
                 {!placing ? (
                   <button className="primary small" onClick={beginPlacement}>
                     {room ? <Move size={16} /> : <UserPlus size={16} />}
-                    {room ? 'Перемістити кімнату' : 'Заселити в будинок'}
+                    {room
+                      ? selectedGroup.length > 1
+                        ? 'Перемістити спільну квартиру'
+                        : 'Перемістити кімнату'
+                      : 'Заселити в будинок'}
                   </button>
                 ) : (
                   <>

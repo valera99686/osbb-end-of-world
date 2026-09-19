@@ -731,3 +731,54 @@
     font-size: 12px;
   }
 }
+.apartment-effects,
+.apartment-renovation {
+  padding: 18px;
+  margin-top: 16px;
+  border: 1px solid #354f57;
+  border-radius: 12px;
+  background: #112229;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.apartment-effects h3,
+.apartment-renovation h4 {
+  margin: 0 0 12px;
+  color: #e1e9dc;
+  font-size: 16px;
+}
+.apartment-effects p,
+.apartment-renovation p {
+  margin: 10px 0;
+}
+.apartment-effects .apartment-positive {
+  border-left: 3px solid #81c4a9;
+  padding-left: 12px;
+  color: #b4dbc8;
+}
+.apartment-effects .apartment-negative {
+  border-left: 3px solid #e3a078;
+  padding-left: 12px;
+  color: #efba9c;
+}
+.apartment-recipes {
+  border-top: 1px solid #354f57;
+  padding-top: 12px;
+  margin-top: 16px;
+}
+.apartment-recipes summary {
+  cursor: pointer;
+  color: #efc47b;
+  min-height: 32px;
+}
+.apartment-renovation .secondary {
+  width: 100%;
+  margin-top: 8px;
+  white-space: normal;
+  min-height: 44px;
+}
+.apartment-mode {
+  border-top: 1px solid #354f57;
+  margin-top: 16px;
+  padding-top: 16px;
+}

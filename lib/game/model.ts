@@ -1,4 +1,14 @@
 import { CAMPAIGN_EVENTS, type EventEffect } from './campaign-content';
+import {
+  apartmentEffects,
+  linkedIds,
+  planRoomMove,
+  restoreRoomLinks,
+  restoreRoomModes,
+  roomsTouch,
+  type RoomLink,
+  type RoomMode,
+} from './apartments';
 import { RESIDENTS, RESIDENT_BY_ID } from './residents';
 import { FURNITURE } from './furniture';
 import {
@@ -19,7 +29,6 @@ import {
   initialHouse,
   restoreResidents,
   residentBonuses,
-  canHouse,
   residentSpace,
   type ResidentRoom,
   HOUSE_EXPANSION_COSTS,
@@ -98,6 +107,8 @@ export interface Run {
   backpack: PackedItem[];
   nextBagId: number;
   residents: ResidentRoom[];
+  roomLinks: RoomLink[];
+  roomModes: Record<string, RoomMode>;
   furniture: Furnishing[];
   nextFurnitureId: number;
   coins: number;
@@ -118,6 +129,7 @@ export interface Run {
 }
 export interface Stats extends Record<Stat, number> {
   synergies: string[];
+  housing: ReturnType<typeof apartmentEffects>;
 }
 export const SAVE_KEY = 'osbb.save.v1';
 export function legacyTree(seed: number): NodeKind[][] {
@@ -723,6 +735,8 @@ export function makeRun(
     backpack: [],
     nextBagId: 1,
     residents: initialHouse(c.id),
+    roomLinks: [],
+    roomModes: {},
     furniture: [],
     nextFurnitureId: 1,
     coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
@@ -771,6 +785,7 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
     luck: 0,
     thorns: 0,
     synergies: [],
+    housing: apartmentEffects(run),
   };
   let rate = run.character === 'spark' ? 0.15 : 0;
   const household = residentBonuses(
@@ -781,6 +796,11 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
     else s[key as Stat] += val;
   }
   s.synergies.push(...household.synergies);
+  for (const [key, value] of Object.entries(s.housing.stats)) {
+    if (key === 'rate') rate += value;
+    else s[key as Stat] += value;
+  }
+  s.synergies.push(...s.housing.effects.map((e) => `${e.title}: ${e.text}`));
   const furnished = furnitureBonuses(
     run.furniture ?? [],
     run.residents ?? initialHouse(run.character),
@@ -843,7 +863,7 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   s.drones = Math.min(6, s.drones);
   s.orbit = Math.min(8, s.orbit);
   s.crit = Math.min(0.8, s.crit);
-  s.regen = Math.min(4, s.regen);
+  s.regen = Math.max(0, Math.min(4, s.regen));
   s.armor = Math.min(12, s.armor);
   s.rate = Math.min(4.5, s.rate);
   s.speed = Math.min(260, s.speed);
@@ -1274,24 +1294,74 @@ export function expandRunHouse(run: Run): Run {
     : { ...run, coins: run.coins - cost, houseLevel: run.houseLevel + 1 };
 }
 export function houseResident(run: Run, meta: Meta, room: ResidentRoom): Run {
-  if (
-    run.page === 'combat' ||
-    !run.rescued.includes(room.id) ||
-    !canHouse(run.residents, room, run.houseLevel)
-  )
+  const residents = planRoomMove(run, room);
+  if (run.page === 'combat' || !run.rescued.includes(room.id) || !residents)
     return run;
   const next = {
     ...run,
-    residents: run.residents.some((r) => r.id === room.id)
-      ? run.residents.map((r) => (r.id === room.id ? room : r))
-      : [...run.residents, room],
+    residents,
   };
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
+export function joinApartments(
+  run: Run,
+  meta: Meta,
+  a: string,
+  b: string,
+): Run {
+  const ra = run.residents.find((r) => r.id === a),
+    rb = run.residents.find((r) => r.id === b);
+  if (
+    run.page === 'combat' ||
+    a === b ||
+    !ra ||
+    !rb ||
+    !roomsTouch(ra, rb) ||
+    linkedIds(run, a).length > 1 ||
+    linkedIds(run, b).length > 1
+  )
+    return run;
+  const next = {
+    ...run,
+    roomLinks: [...(run.roomLinks ?? []), [a, b] as RoomLink],
+  };
+  return equipmentHealth(run, next, meta);
+}
+export function splitApartments(run: Run, meta: Meta, id: string): Run {
+  if (run.page === 'combat' || linkedIds(run, id).length < 2) return run;
+  return equipmentHealth(
+    run,
+    { ...run, roomLinks: run.roomLinks.filter((pair) => !pair.includes(id)) },
+    meta,
+  );
+}
+export function setApartmentMode(
+  run: Run,
+  meta: Meta,
+  id: string,
+  mode: RoomMode | 'normal',
+): Run {
+  if (
+    run.page === 'combat' ||
+    !run.residents.some((r) => r.id === id) ||
+    (mode !== 'normal' &&
+      (run.chapter < 2 ||
+        !(
+          (id === 'spark' && mode === 'lab') ||
+          (id === 'solomia' && mode === 'anomaly')
+        )))
+  )
+    return run;
+  const roomModes = { ...run.roomModes };
+  if (mode === 'normal') delete roomModes[id];
+  else roomModes[id] = mode;
+  return equipmentHealth(run, { ...run, roomModes }, meta);
+}
 export function reserveResident(run: Run, meta: Meta, id: string): Run {
   if (
     run.page === 'combat' ||
+    linkedIds(run, id).length > 1 ||
     id === run.character ||
     !run.residents.some((r) => r.id === id)
   )
@@ -1312,6 +1382,9 @@ export function reserveResident(run: Run, meta: Meta, id: string): Run {
       APARTMENT_SLOTS[slot]?.resident === id ? null : item,
     ),
     residents: run.residents.filter((r) => r.id !== id),
+    roomModes: Object.fromEntries(
+      Object.entries(run.roomModes ?? {}).filter(([key]) => key !== id),
+    ),
     furniture: run.furniture.map((item) =>
       item.resident === id ? { ...item, resident: null, cell: null } : item,
     ),
@@ -1691,6 +1764,8 @@ export function readSave(raw: string | null): {
         run.houseLevel,
       );
       run.furniture = restoreFurniture(r.furniture, run.residents);
+      run.roomLinks = restoreRoomLinks(r.roomLinks, run.residents);
+      run.roomModes = restoreRoomModes(r.roomModes, run.residents, run.chapter);
       run.nextFurnitureId = Math.max(
         Math.floor(finite(r.nextFurnitureId, 1, 1e8, 1)),
         ...run.furniture.map((item) => item.uid + 1),

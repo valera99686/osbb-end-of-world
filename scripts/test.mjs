@@ -10,6 +10,7 @@ for (const name of [
   'minibosses',
   'lore',
   'residents',
+  'apartments',
   'furniture',
   'equipment',
   'cutscenes',
@@ -31,7 +32,12 @@ for (const name of [
 }
 const test = spawnSync(
   process.execPath,
-  ['--test', 'tests/game.test.cjs', 'tests/campaign.test.cjs'],
+  [
+    '--test',
+    'tests/game.test.cjs',
+    'tests/campaign.test.cjs',
+    'tests/apartments.test.cjs',
+  ],
   {
     stdio: 'inherit',
   },

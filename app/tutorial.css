@@ -1,0 +1,292 @@
+.tutorial-modal[data-slot='dialog-content'] {
+  width: min(640px, calc(100vw - 24px));
+  padding: 28px;
+  gap: 18px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+.tutorial-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--teal);
+}
+.tutorial-top button {
+  font-size: 14px;
+  letter-spacing: 0;
+  padding: 6px 0;
+}
+.tutorial-progress {
+  display: flex;
+  gap: 6px;
+}
+.tutorial-progress span {
+  height: 3px;
+  flex: 1;
+  background: #29424c;
+  border-radius: 2px;
+}
+.tutorial-progress .done {
+  background: #efbd68;
+}
+.tutorial-modal p {
+  line-height: 1.65;
+  font-size: 15px;
+  color: #aac1c8;
+  margin: 0;
+}
+.tutorial-intro {
+  padding: 24px 16px;
+  background: #132830;
+  border: 1px solid #314b53;
+  border-radius: 12px;
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  text-align: center;
+}
+.tutorial-intro > svg {
+  color: #efbd68;
+}
+.tutorial-intro > strong {
+  font-size: 22px;
+}
+.tutorial-intro > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+.tutorial-intro span {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.tutorial-origin {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: var(--teal);
+}
+.tutorial-branches {
+  height: 25px;
+  border: 2px solid #48646e;
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  margin: 0 15%;
+}
+.tutorial-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.tutorial-options button {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 20px 8px;
+  border: 1px solid #3c5861;
+  border-radius: 10px;
+  background: #172d36;
+}
+.tutorial-options button[aria-pressed='true'],
+.tutorial-floor button.placed {
+  border-color: #efbd68;
+  background: #514532;
+  color: #ffe0a5;
+}
+.tutorial-controls,
+.tutorial-housing {
+  display: grid;
+  gap: 14px;
+}
+.tutorial-arena {
+  position: relative;
+  height: 170px;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 33px, #20363e 34px),
+    repeating-linear-gradient(90deg, #102129 0 33px, #20363e 34px);
+  border: 1px solid #3b535c;
+  border-radius: 10px;
+}
+.tutorial-arena:focus-visible {
+  outline: 2px solid #efbd68;
+  outline-offset: 3px;
+}
+.tutorial-house {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: #efbd68;
+  transition:
+    left 0.18s,
+    top 0.18s;
+}
+.tutorial-house.dash {
+  filter: drop-shadow(-12px 0 3px #65bbed);
+}
+.tutorial-house.pulse {
+  outline: 3px solid #65bbed;
+  outline-offset: 22px;
+  border-radius: 50%;
+}
+.tutorial-target {
+  position: absolute;
+  right: 12px;
+  top: 15px;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  color: #83a4ae;
+  font-size: 12px;
+}
+.tutorial-arena-caption {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  font-size: 12px;
+  color: #87a1aa;
+}
+.tutorial-practice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tutorial-dpad {
+  display: flex;
+  gap: 4px;
+}
+.tutorial-practice-buttons button {
+  min-width: 40px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #45616c;
+  border-radius: 8px;
+  background: #1a323c;
+  padding: 8px;
+  font-size: 14px;
+}
+.tutorial-checks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: #79929c;
+}
+.tutorial-checks li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.tutorial-checks .done {
+  color: #8fd5ba;
+}
+.tutorial-floor {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  background: #0e2028;
+  border: 1px solid #465f68;
+  min-height: 140px;
+  padding: 12px;
+}
+.tutorial-floor > div,
+.tutorial-floor > button {
+  border: 2px solid #547671;
+  background: #203c3b;
+  padding: 12px 4px;
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.8;
+}
+.tutorial-floor svg {
+  margin: 8px auto;
+}
+.tutorial-floor button {
+  background: #1b303a;
+  border-style: dashed;
+}
+.tutorial-summary {
+  display: grid;
+  gap: 18px;
+}
+.tutorial-summary > p {
+  display: flex;
+  gap: 14px;
+}
+.tutorial-summary svg {
+  flex-shrink: 0;
+  color: #efbd68;
+  margin-top: 3px;
+}
+.tutorial-summary b {
+  display: block;
+  color: #eeeede;
+  margin-bottom: 4px;
+}
+.tutorial-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #304851;
+}
+.tutorial-footer button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 12px 20px;
+}
+.tutorial-footer button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+@media (max-width: 480px) {
+  .tutorial-modal[data-slot='dialog-content'] {
+    padding: 18px;
+    gap: 14px;
+  }
+  .tutorial-top {
+    align-items: flex-start;
+    font-size: 11px;
+  }
+  .tutorial-top button {
+    max-width: 125px;
+    text-align: right;
+  }
+  .tutorial-intro > div {
+    gap: 14px;
+  }
+  .tutorial-intro span {
+    max-width: 130px;
+  }
+  .tutorial-floor {
+    padding: 6px;
+  }
+  .tutorial-floor > div,
+  .tutorial-floor > button {
+    font-size: 12px;
+  }
+  .tutorial-footer button {
+    padding: 12px 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-house {
+    transition: none;
+  }
+}

@@ -82,6 +82,8 @@ export interface Meta {
   scenesSeen: string[];
   storyRevision: number;
   sceneProgress: { id: string; index: number } | null;
+  tutorialDone: boolean;
+  tutorialStep: number;
 }
 export type NodeKind =
   | 'battle'
@@ -697,6 +699,8 @@ export function initialMeta(): Meta {
     scenesSeen: [],
     storyRevision: STORY_REVISION,
     sceneProgress: null,
+    tutorialDone: false,
+    tutorialStep: 0,
   };
 }
 export function seeded(seed: number) {
@@ -1614,6 +1618,10 @@ export function readSave(raw: string | null): {
     const o = JSON.parse(raw);
     if (o.version !== 1 || !o.meta) throw Error('save version');
     const m = o.meta;
+    // Profiles created before onboarding keep their progress and can replay from Help.
+    base.tutorialDone =
+      typeof m.tutorialDone === 'boolean' ? m.tutorialDone : true;
+    base.tutorialStep = Math.floor(finite(m.tutorialStep, 0, 4, 0));
     for (const k of [
       'wins',
       'runs',

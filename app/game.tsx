@@ -1,4 +1,5 @@
 'use client';
+import { Tutorial } from './tutorial';
 import { Workshop } from './workshop';
 import { blueprintInfo } from '@/lib/game/progression';
 import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
@@ -74,7 +75,6 @@ import {
   CHAPTERS,
   CHARACTERS,
   UNLOCK_TEXT,
-  RESEARCH,
   type Item,
 } from '@/lib/game/data';
 import {
@@ -543,6 +543,11 @@ export default function Game() {
   }, [meta, run, ready]);
   useEffect(() => {
     const back = (e: Event) => {
+      if (!meta.tutorialDone) {
+        e.preventDefault();
+        setMeta((m) => ({ ...m, tutorialDone: true }));
+        return;
+      }
       if (meta.sceneProgress) {
         e.preventDefault();
         closeScene();
@@ -579,6 +584,7 @@ export default function Game() {
     help,
     housingOpen,
     meta.sceneProgress,
+    meta.tutorialDone,
     result,
     pending,
     abandon,
@@ -1014,7 +1020,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.9.0 · Прогрес зберігається на цьому пристрої.
+              v0.9.1 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1510,9 +1516,18 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.9.0 · 3 локації, 9 мешканців, 9 варіантів
+            ОСББ кінця світу · v0.9.1 · 3 локації, 9 мешканців, 9 варіантів
             босів, 9 мінібосів, 18 видів ворогів і сюжетні катсцени.
           </DialogDescription>
+          <button
+            className="primary"
+            onClick={() => {
+              setHelp(false);
+              setMeta((m) => ({ ...m, tutorialDone: false, tutorialStep: 0 }));
+            }}
+          >
+            Пройти навчання <ArrowRight size={18} />
+          </button>
           <div className="help-list">
             <p>
               <b>Будуй свій білд.</b> Квартири взаємодіють через спільну стіну.
@@ -1564,9 +1579,9 @@ export default function Game() {
               босів. Повторний перегляд — у «Історії» в притулку.
             </p>
             <p>
-              <b>06 / Заверши історію.</b> Кожна перемога відкриває новий район
-              і механіки. П’ята веде до справжнього фіналу. Предмети можна
-              дозбирати після нього.
+              <b>06 / Заверши історію.</b> Переможи босів трьох локацій за один
+              рейд, щоб завершити евакуацію. Нові спроби відкривають інші
+              предмети й комбінації.
             </p>
           </div>
           <p className="privacy-note">
@@ -1606,7 +1621,14 @@ export default function Game() {
           </button>
         </DialogContent>
       </Dialog>
-      {ready && meta.sceneProgress && (
+      {ready && !meta.tutorialDone && (
+        <Tutorial
+          step={meta.tutorialStep}
+          onStep={(tutorialStep) => setMeta((m) => ({ ...m, tutorialStep }))}
+          onFinish={() => setMeta((m) => ({ ...m, tutorialDone: true }))}
+        />
+      )}
+      {ready && meta.tutorialDone && meta.sceneProgress && (
         <CutscenePlayer
           progress={meta.sceneProgress}
           onAdvance={(index) =>

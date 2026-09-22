@@ -352,3 +352,23 @@ test('Special furniture needs an installed room and the named adjacent resident;
     assert.equal(S.specialEffects(r)[key], off);
   }
 });
+test('First-visit tutorial resumes its step, remembers completion, and preserves legacy expeditions', () => {
+  const fresh = M.readSave(null);
+  assert.equal(fresh.meta.tutorialDone,false);
+  assert.equal(fresh.meta.tutorialStep,0);
+  fresh.meta.tutorialStep=3;
+  const resumed=M.readSave(M.saveData(fresh.meta,null));
+  assert.equal(resumed.meta.tutorialStep,3);
+  assert.equal(resumed.meta.tutorialDone,false);
+  resumed.meta.tutorialDone=true;
+  assert.equal(M.readSave(M.saveData(resumed.meta,null)).meta.tutorialDone,true);
+  const legacy=M.initialMeta();delete legacy.tutorialDone;delete legacy.tutorialStep;
+  const run=M.makeRun(legacy,'mechanic',0,123);run.coins=77;
+  const restored=M.readSave(M.saveData(legacy,run));
+  assert.equal(restored.meta.tutorialDone,true);
+  assert.equal(restored.run.seed,123);assert.equal(restored.run.coins,77);
+  for(const invalid of [-9,100,'no',null]) {
+    const meta=M.readSave(M.saveData({...fresh.meta,tutorialStep:invalid},null)).meta;
+    assert.ok(Number.isInteger(meta.tutorialStep) && meta.tutorialStep>=0 && meta.tutorialStep<=4);
+  }
+});

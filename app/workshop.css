@@ -1,0 +1,255 @@
+.workshop-page {
+  max-width: 1240px;
+  margin: auto;
+}
+.workshop-wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  color: var(--gold, #efb85f);
+  font-size: 16px;
+}
+.workshop-wallet b {
+  font-size: 32px;
+}
+.workshop-flow {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  background: #14252d;
+  border: 1px solid #354a52;
+  padding: 24px;
+  border-radius: 12px;
+  margin: 22px 0 36px;
+}
+.workshop-flow span {
+  flex: 1;
+  color: #a8bcc5;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.workshop-flow b {
+  display: block;
+  color: #f3d092;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+.workshop-flow > svg {
+  flex-shrink: 0;
+  color: #749a9d;
+}
+.workshop-section-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  margin: 30px 0 12px;
+}
+.workshop-section-title h3 {
+  font-size: 24px;
+}
+.workshop-section-title > span,
+.workshop-note {
+  font-size: 14px;
+  color: #a9bec7;
+  line-height: 1.7;
+}
+.workshop-section-title .eyebrow {
+  margin: 0 0 8px;
+}
+.workshop-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px 0;
+}
+.workshop-filters button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid #3b535b;
+  border-radius: 8px;
+  color: #bfd0d7;
+  font-size: 14px;
+}
+.workshop-filters button.active {
+  background: #efb85f;
+  color: #172129;
+  border-color: #efb85f;
+}
+.blueprint-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.blueprint-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  background: #14232c;
+  border: 1px solid #354852;
+  border-radius: 12px;
+  min-width: 0;
+}
+.blueprint-card.ready {
+  border-top: 3px solid #efb85f;
+}
+.blueprint-card.owned {
+  border-color: #58897c;
+}
+.blueprint-card h3 {
+  font-size: 20px;
+  line-height: 1.35;
+}
+.blueprint-card > p {
+  font-size: 16px;
+  line-height: 1.65;
+  color: #bed0d6;
+  flex: 1;
+}
+.blueprint-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #a9bbc5;
+}
+.blueprint-top > span:not(.blueprint-icon) {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+.blueprint-icon {
+  color: #efb85f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #26343b;
+  border-radius: 8px;
+  width: 50px;
+  height: 50px;
+  flex-shrink: 0;
+}
+.blueprint-gate {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  color: #a8c6c0;
+}
+.blueprint-gate span {
+  display: flex;
+  align-items: start;
+  gap: 7px;
+}
+.blueprint-gate svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.blueprint-gate b {
+  white-space: nowrap;
+}
+.blueprint-card progress {
+  width: 100%;
+  height: 5px;
+  accent-color: #86bfae;
+}
+.blueprint-card > button {
+  min-height: 48px;
+  width: 100%;
+  font-size: 14px;
+  white-space: normal;
+  justify-content: center;
+}
+.blueprint-card > button:disabled {
+  opacity: 0.7;
+}
+.workshop-career {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 20px 0;
+}
+.workshop-career span {
+  padding: 18px;
+  background: #13222a;
+  color: #a8bec8;
+  font-size: 14px;
+  border-radius: 8px;
+}
+.workshop-career b {
+  display: block;
+  font-size: 26px;
+  color: #f4deae;
+  margin-top: 8px;
+}
+.workshop-empty {
+  padding: 30px;
+  background: #14252d;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.raid-core-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 24px;
+}
+.raid-core-breakdown span {
+  padding: 8px 12px;
+  border: 1px solid #3b555d;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.raid-projects {
+  margin: 20px 0;
+  padding: 20px;
+  border: 1px solid #667858;
+  border-radius: 10px;
+  background: #1c2c2c;
+}
+.raid-projects h3 {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+.raid-projects p {
+  font-size: 14px;
+  color: #bcced0;
+}
+.raid-projects ul {
+  margin-top: 12px;
+  font-size: 16px;
+  line-height: 1.8;
+}
+@media (max-width: 1000px) {
+  .blueprint-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .blueprint-grid {
+    grid-template-columns: 1fr;
+  }
+  .workshop-flow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 18px;
+  }
+  .workshop-flow > svg {
+    transform: rotate(90deg);
+    align-self: center;
+  }
+  .workshop-section-title {
+    align-items: start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .workshop-career {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .workshop-page .collection-title {
+    align-items: start;
+    flex-wrap: wrap;
+  }
+}

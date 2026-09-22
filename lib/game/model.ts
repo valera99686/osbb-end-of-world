@@ -1,3 +1,10 @@
+import { specialEffects } from './specials';
+import {
+  BLUEPRINTS,
+  BLUEPRINT_BY_ID,
+  blueprintReady,
+  blueprintPool,
+} from './progression';
 import { CAMPAIGN_EVENTS, type EventEffect } from './campaign-content';
 import {
   apartmentEffects,
@@ -21,7 +28,14 @@ import {
   activeEquipment,
   emptyEquipment,
 } from './equipment';
-import { ITEMS, ITEM_BY_ID, CHARACTERS, type Stat, type Item } from './data';
+import {
+  ITEMS,
+  ITEM_BY_ID,
+  RESEARCH,
+  CHARACTERS,
+  type Stat,
+  type Item,
+} from './data';
 import { type PackedItem } from './backpack';
 import { loreForProgress } from './lore';
 import {
@@ -46,6 +60,10 @@ import {
   STORY_REVISION,
 } from './cutscenes';
 export interface Meta {
+  blueprints: string[];
+  totalBosses: number;
+  totalMinibosses: number;
+  totalRescues: number;
   version: 1;
   wins: number;
   runs: number;
@@ -80,6 +98,8 @@ export interface Loot {
   id: string;
 }
 export interface Run {
+  blueprints: string[];
+  minibossKills: number;
   research: Record<string, number>;
   seed: number;
   chapter: number;
@@ -411,7 +431,7 @@ export function furnitureOffers(run: Run, count = 2) {
   const rng = seeded(
     run.seed + run.chapter * 100003 + run.step * 617 + 83 + run.rerolls * 199,
   );
-  return [...FURNITURE]
+  return FURNITURE.filter((i) => blueprintPool(run, i.id))
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((i) => ({ id: i.id, n: rng() }))
     .sort((a, b) => a.n - b.n)
@@ -433,12 +453,14 @@ export function randomLoot(
     const kind = forced ?? (rng() < (any ? 0.5 : 0.3) ? 'furniture' : 'module');
     const pool =
       kind === 'furniture'
-        ? FURNITURE.map((i) => i.id)
-        : ITEMS.filter((i) => any || meta.unlocked.includes(i.id)).flatMap(
+        ? FURNITURE.filter((i) => blueprintPool(run, i.id)).map((i) => i.id)
+        : ITEMS.filter(
             (i) =>
-              Array(
-                rare ? [0, 1, 3, 5, 3][i.rarity] : [0, 12, 6, 3, 1][i.rarity],
-              ).fill(i.id),
+              blueprintPool(run, i.id) && (any || meta.unlocked.includes(i.id)),
+          ).flatMap((i) =>
+            Array(
+              rare ? [0, 1, 3, 5, 3][i.rarity] : [0, 12, 6, 3, 1][i.rarity],
+            ).fill(i.id),
           );
     const available = pool.filter(
       (id) => !out.some((l) => l.kind === kind && l.id === id),
@@ -646,6 +668,10 @@ export function repairShop(run: Run, meta: Meta): Run {
 }
 export function initialMeta(): Meta {
   return {
+    blueprints: [],
+    totalBosses: 0,
+    totalMinibosses: 0,
+    totalRescues: 0,
     version: 1,
     wins: 0,
     runs: 0,
@@ -657,7 +683,14 @@ export function initialMeta(): Meta {
     best: 0,
     unlocked: ITEMS.filter((i) => i.unlock === 'start').map((i) => i.id),
     seen: [],
-    research: { hull: 0, supplies: 0, garage: 0 },
+    research: {
+      hull: 0,
+      supplies: 0,
+      garage: 0,
+      salvage: 0,
+      servos: 0,
+      maintenance: 0,
+    },
     sound: true,
     lore: loreForProgress([], 0),
     residents: residentRoster([], 0),
@@ -681,6 +714,7 @@ export function unlock(meta: Meta): string[] {
   for (const i of ITEMS) {
     const k = i.unlock;
     const ok =
+      (k === 'blueprint' && meta.blueprints.includes(i.id)) ||
       k === 'start' ||
       (k.startsWith('win') && meta.wins >= Number(k.slice(3))) ||
       (k === 'kills50' && meta.kills >= 50) ||
@@ -706,6 +740,8 @@ export function makeRun(
   chapter = Math.max(0, Math.min(2, Math.floor(chapter || 0)));
   const nodes = campaignTree(seed, chapter);
   const run: Run = {
+    blueprints: [...meta.blueprints],
+    minibossKills: 0,
     research: { ...meta.research },
     seed: Number.isFinite(seed) ? seed : Date.now(),
     chapter,
@@ -768,18 +804,20 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   const s: Stats = {
     damage: 16 + (research.garage ?? 0) * 3,
     rate: 1.65,
-    speed: 155,
+    speed: 155 + (research.servos ?? 0) * 3,
     health:
       110 + (research.hull ?? 0) * 10 + (run.character === 'mechanic' ? 15 : 0),
     armor: 0,
-    regen: run.character === 'flora' ? 0.8 : 0,
+    regen:
+      (run.character === 'flora' ? 0.8 : 0) +
+      (research.maintenance ?? 0) * 0.06,
     range: 410,
     crit: 0.05,
     shots: 1,
     chain: 0,
     explosion: 0,
     vampire: 0,
-    magnet: 80,
+    magnet: 80 + (research.salvage ?? 0) * 10,
     drones: 0,
     orbit: 0,
     luck: 0,
@@ -863,9 +901,29 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   s.drones = Math.min(6, s.drones);
   s.orbit = Math.min(8, s.orbit);
   s.crit = Math.min(0.8, s.crit);
+  const specials = specialEffects(run);
+  s.regen += specials.gardenRegen;
+  if (specials.shields)
+    s.synergies.push(
+      `Аварійний захист: ${specials.shields} заблокованих ударів за бій`,
+    );
+  if (specials.dashShot)
+    s.synergies.push('Маховик: наступний залп після ривка +60% шкоди');
+  if (specials.pulseHeal)
+    s.synergies.push(
+      `Лікувальна хвиля: +${specials.pulseHeal} міцності при влучанні`,
+    );
+  if (specials.lastStand)
+    s.synergies.push('Червоний протокол: +30% шкоди залпів нижче 35% міцності');
+  if (specials.dashCooldown < 3.8)
+    s.synergies.push('Зарядне крісло: перезаряджання ривка 3,2 с');
+  if (specials.gardenRegen)
+    s.synergies.push(
+      'Бібліотека насіння: сусідство з Флорою +0,35 відновлення/с',
+    );
   s.regen = Math.max(0, Math.min(4, s.regen));
   s.armor = Math.min(12, s.armor);
-  s.rate = Math.min(4.5, s.rate);
+  s.rate = Math.min(4.5, s.rate) * (s.housing.echo ? 0.85 : 1);
   s.speed = Math.min(260, s.speed);
   return s;
 }
@@ -877,7 +935,9 @@ export function offers(
   rare = false,
 ): string[] {
   const rng = seeded(run.seed + run.chapter * 100003 + run.step * 301 + salt);
-  const pool = ITEMS.filter((i) => meta.unlocked.includes(i.id));
+  const pool = ITEMS.filter(
+    (i) => blueprintPool(run, i.id) && meta.unlocked.includes(i.id),
+  );
   const out: string[] = [];
   for (let j = 0; j < count; j++) {
     const available = pool.filter((i) => !out.includes(i.id));
@@ -1426,7 +1486,13 @@ export function finishRun(
   meta: Meta,
   run: Run,
   won: boolean,
-): { meta: Meta; unlocks: string[]; cores: number } {
+): {
+  meta: Meta;
+  unlocks: string[];
+  cores: number;
+  projects: string[];
+  coreBreakdown: { label: string; amount: number }[];
+} {
   const n: Meta = {
     ...meta,
     unlocked: [...meta.unlocked],
@@ -1440,17 +1506,35 @@ export function finishRun(
     ],
   };
   n.runs++;
+  const bosses = Math.min(3, run.bossesDefeated + (won ? 1 : 0));
+  n.totalBosses += bosses;
+  n.totalMinibosses += run.minibossKills ?? 0;
+  n.totalRescues += Math.max(0, new Set(run.rescued).size - 1);
   n.kills += run.kills;
   n.dashes += run.dashes;
   n.best = Math.max(n.best, run.kills);
   if (won && run.chapter === 2) n.wins = Math.min(5, n.wins + 1);
-  const cores =
-    Math.min(4, Math.floor(run.kills / 100)) +
-    [0, 2, 5, 10][Math.min(3, run.bossesDefeated + (won ? 1 : 0))];
+  const coreBreakdown = [
+    { label: 'Польові дані', amount: Math.min(3, Math.floor(run.kills / 25)) },
+    { label: 'Мінібоси', amount: Math.min(3, run.minibossKills ?? 0) },
+    { label: 'Боси локацій', amount: [0, 2, 5, 10][bosses] },
+  ];
+  const cores = coreBreakdown.reduce((sum, r) => sum + r.amount, 0);
   n.cores += cores;
   n.lore = loreForProgress(meta.lore, n.wins, run.chapter);
   n.residents = residentRoster(meta.residents, n.wins);
-  return { meta: n, unlocks: unlock(n), cores };
+  return {
+    meta: n,
+    unlocks: unlock(n),
+    cores,
+    coreBreakdown,
+    projects: BLUEPRINTS.filter(
+      (b) =>
+        blueprintReady(n, b.id) &&
+        !blueprintReady(meta, b.id) &&
+        !n.blueprints.includes(b.id),
+    ).map((b) => b.id),
+  };
 }
 function finite(n: unknown, min: number, max: number, fallback: number) {
   return typeof n === 'number' && Number.isFinite(n)
@@ -1538,14 +1622,27 @@ export function readSave(raw: string | null): {
       'scrapped',
       'cores',
       'best',
+      'totalBosses',
+      'totalMinibosses',
+      'totalRescues',
     ] as const)
       base[k] = Math.floor(finite(m[k], 0, k === 'wins' ? 5 : 1e8, 0));
+    base.totalBosses = Math.max(base.totalBosses, base.wins * 3);
+    base.blueprints = Array.isArray(m.blueprints)
+      ? [
+          ...new Set<string>(
+            m.blueprints.filter(
+              (id: unknown) => typeof id === 'string' && !!BLUEPRINT_BY_ID[id],
+            ),
+          ),
+        ]
+      : [];
     base.sound = m.sound !== false;
     base.houseLevel = Math.floor(finite(m.houseLevel, 0, 3, 0));
     base.seen = Array.isArray(m.seen)
       ? m.seen.filter((id: unknown) => typeof id === 'string' && ITEM_BY_ID[id])
       : [];
-    for (const k of ['hull', 'supplies', 'garage'])
+    for (const k of RESEARCH.map((r) => r.id))
       base.research[k] = Math.floor(finite(m.research?.[k], 0, 5, 0));
     base.unlocked = [
       ...new Set([
@@ -1711,8 +1808,19 @@ export function readSave(raw: string | null): {
       run.repairUsed = !!r.repairUsed;
       run.eventResult =
         typeof r.eventResult === 'string' ? r.eventResult.slice(0, 1000) : '';
+      run.blueprints = Array.isArray(r.blueprints)
+        ? [
+            ...new Set<string>(
+              r.blueprints.filter(
+                (id: unknown) =>
+                  typeof id === 'string' && base.blueprints.includes(id),
+              ),
+            ),
+          ]
+        : [];
+      run.minibossKills = Math.floor(finite(r.minibossKills, 0, 100, 0));
       if (r.research)
-        for (const key of ['hull', 'supplies', 'garage'])
+        for (const key of RESEARCH.map((r) => r.id))
           run.research[key] = Math.floor(
             finite(r.research[key], 0, base.research[key], 0),
           );
@@ -1831,7 +1939,10 @@ export function readSave(raw: string | null): {
         : 'map';
       run.offers = Array.isArray(r.offers)
         ? r.offers
-            .filter((id: string) => base.unlocked.includes(id))
+            .filter(
+              (id: string) =>
+                base.unlocked.includes(id) && blueprintPool(run!, id),
+            )
             .slice(0, 4)
         : [];
       run.reward = Array.isArray(r.reward)

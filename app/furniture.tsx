@@ -2,6 +2,11 @@ import { apartmentSlot } from '@/lib/game/equipment';
 import { ITEM_BY_ID } from '@/lib/game/data';
 import {
   Wrench,
+  Hammer,
+  Heart,
+  Footprints,
+  Wifi,
+  ScanEye,
   Coffee,
   Sprout,
   BriefcaseMedical,
@@ -23,6 +28,11 @@ import {
 } from '@/lib/game/model';
 
 const ICONS = {
+  hammer: Hammer,
+  heart: Heart,
+  footprints: Footprints,
+  wifi: Wifi,
+  scan: ScanEye,
   wrench: Wrench,
   coffee: Coffee,
   sprout: Sprout,

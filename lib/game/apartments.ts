@@ -263,7 +263,7 @@ export function apartmentEffects(state: ApartmentState) {
     const neighbors = rooms.filter((r) => r !== radio && roomsTouch(radio, r));
     if (neighbors.length) {
       echo = true;
-      add('rate', -0.15);
+      // The multiplicative penalty is applied after the firing-rate cap.
       effect(
         'echo',
         'Часове відлуння',
@@ -284,7 +284,7 @@ export function apartmentEffects(state: ApartmentState) {
     effect(
       'joined',
       'Спільна оборона',
-      `Об’єднані квартири: захисна хвиля кожні 20 с, ${links.length * 24} шкоди ворогам у радіусі 220.`,
+      `Об’єднані квартири: перша захисна хвиля через 6 с, потім кожні 20 с, ${links.length * 24} шкоди ворогам у радіусі 220.`,
       links.flat(),
     );
     effect(

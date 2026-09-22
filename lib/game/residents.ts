@@ -18,7 +18,7 @@ export interface ResidentRoom {
 }
 export const HOUSE_WIDTH = 4,
   HOUSE_HEIGHT = 4;
-export const HOUSE_EXPANSION_COSTS = [160, 280, 420];
+export const HOUSE_EXPANSION_COSTS = [200, 360, 520];
 export function houseSize(level = 0) {
   const sizes = [
     { width: 4, height: 4 },

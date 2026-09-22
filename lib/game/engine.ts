@@ -1,3 +1,4 @@
+import { specialEffects } from './specials';
 import {
   LOCATIONS,
   ENEMY_DEFS,
@@ -150,8 +151,11 @@ export class Battle {
   shotTimer = 0;
   housingHealTimer = 12;
   housingStrainTimer = 10;
-  housingDefenseTimer = 20;
+  housingDefenseTimer = 6;
   housingVolley = 0;
+  specials: ReturnType<typeof specialEffects>;
+  shieldCharges = 0;
+  dashCharged = false;
   droneTimer = 0;
   hudTimer = 0;
   dashCd = 0;
@@ -184,6 +188,8 @@ export class Battle {
     this.run = { ...run, items: [...run.items] };
     this.minibossVariant = minibossVariant(run);
     this.stats = statsFor(run, meta);
+    this.specials = specialEffects(run);
+    this.shieldCharges = this.specials.shields;
     this.audio = audio;
     this.onHud = onHud;
     this.onEnd = onEnd;
@@ -217,7 +223,11 @@ export class Battle {
   }
   dash() {
     if (this.dashCd > 0 || this.paused || this.ended) return;
-    this.dashCd = 3.8;
+    this.dashCd = this.specials.dashCooldown;
+    if (this.specials.dashShot) {
+      this.dashCharged = true;
+      this.label(this.x, this.y - 60, 'МАХОВИК ГОТОВИЙ', '#efbd68');
+    }
     this.dashing = 0.22;
     this.invincible = 0.55;
     this.run.dashes++;
@@ -230,6 +240,18 @@ export class Battle {
     this.pulseRing = 0.55;
     this.shake = 7;
     this.audio.play('pulse');
+    const landed = this.enemies.some(
+      (e) => e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < 235,
+    );
+    if (landed && this.specials.pulseHeal) {
+      const healed = Math.min(
+        this.specials.pulseHeal,
+        this.stats.health - this.run.hp,
+      );
+      this.run.hp += healed;
+      if (healed > 0)
+        this.label(this.x, this.y - 65, '+' + Math.round(healed), '#8acdb6');
+    }
     for (const e of this.enemies) {
       const d = Math.hypot(e.x - this.x, e.y - this.y);
       if (d < 235) {
@@ -240,6 +262,16 @@ export class Battle {
         }
       }
     }
+  }
+  receiveHit(amount: number) {
+    if (this.shieldCharges > 0) {
+      this.shieldCharges--;
+      this.burst(this.x, this.y, '#7cbef4', 22);
+      this.label(this.x, this.y - 55, 'УДАР ЗАБЛОКОВАНО', '#7cbef4');
+      return 0;
+    }
+    this.run.hp -= amount;
+    return amount;
   }
   burst(x: number, y: number, color: string, n: number) {
     for (let i = 0; i < n; i++) {
@@ -385,6 +417,8 @@ export class Battle {
           color: ENEMY_DEFS[e.type].color,
         });
       if (isLeader(e.type)) {
+        if (e.type === MINIBOSS_TYPE)
+          this.run.minibossKills = (this.run.minibossKills ?? 0) + 1;
         for (const drop of this.drops)
           if (drop.kind === 'coin') this.run.coins += drop.value;
         this.drops = [];
@@ -554,10 +588,16 @@ export class Battle {
     }
     return best;
   }
-  shoot(x: number, y: number, e: Enemy, drone = false) {
+  shoot(
+    x: number,
+    y: number,
+    e: Enemy,
+    drone = false,
+    replay?: { damage: number; crit: boolean; shots: number },
+  ) {
     const a = Math.atan2(e.y - y, e.x - x);
-    const shots = drone ? 1 : this.stats.shots;
-    const crit = this.rng() < this.stats.crit;
+    const shots = replay?.shots ?? (drone ? 1 : this.stats.shots);
+    const crit = replay?.crit ?? this.rng() < this.stats.crit;
     let damage =
       this.stats.damage *
       (1 + Math.min(0.6, (this.run.level - 1) * 0.04)) *
@@ -565,12 +605,22 @@ export class Battle {
       (drone ? 0.45 : 1);
     if (
       !drone &&
+      !replay &&
       activeEquipment(this.run).some((item) => item.id === 'coinshot') &&
       this.run.coins > 0
     ) {
       this.run.coins--;
       damage *= 3;
     }
+    if (!drone && !replay) {
+      if (this.dashCharged) {
+        damage *= 1.6;
+        this.dashCharged = false;
+      }
+      if (this.specials.lastStand && this.run.hp < this.stats.health * 0.35)
+        damage *= 1.3;
+    }
+    if (replay) damage = replay.damage;
     for (let i = 0; i < shots; i++) {
       const angle = a + (i - (shots - 1) / 2) * 0.12;
       this.bullets.push({
@@ -585,6 +635,7 @@ export class Battle {
       });
     }
     if (!drone) this.audio.play('shoot');
+    return { damage, crit, shots };
   }
   finish(won: boolean) {
     if (this.ended) return;
@@ -705,10 +756,10 @@ export class Battle {
     if (this.shotTimer <= 0) {
       const enemy = this.nearest(this.x, this.y, this.stats.range);
       if (enemy) {
-        this.shoot(this.x, this.y - 20, enemy);
+        const volley = this.shoot(this.x, this.y - 20, enemy);
         this.housingVolley++;
         if (home.echo && this.housingVolley % 4 === 0) {
-          this.shoot(this.x, this.y - 20, enemy);
+          this.shoot(this.x, this.y - 20, enemy, false, volley);
           this.label(this.x, this.y - 60, 'Відлуння', '#cfb4f1');
         }
         this.shotTimer = 1 / this.stats.rate;
@@ -854,11 +905,11 @@ export class Battle {
               ? 20 + this.run.chapter * 6
               : ENEMY_DEFS[e.type].contactDamage) - this.stats.armor,
         );
-        this.run.hp -= hit;
+        const taken = this.receiveHit(hit);
         this.invincible = 0.7;
         this.shake = 5;
         this.audio.play('hit');
-        this.label(this.x, this.y - 55, '−' + hit, '#ff8e82');
+        if (taken) this.label(this.x, this.y - 55, '−' + taken, '#ff8e82');
         if (this.stats.thorns) this.damage(e, this.stats.thorns);
         if (!leader) {
           e.x -= ex * 32;
@@ -876,8 +927,11 @@ export class Battle {
     for (const hazard of this.hazards) {
       hazard.age += dt;
       if (this.invincible <= 0 && hazardContains(hazard, this.x, this.y)) {
-        this.run.hp -= Math.max(2, hazard.damage - this.stats.armor);
-        this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
+        const taken = this.receiveHit(
+          Math.max(2, hazard.damage - this.stats.armor),
+        );
+        if (taken)
+          this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
         this.invincible = 0.7;
         this.shake = 5;
         this.audio.play('hit');
@@ -894,7 +948,7 @@ export class Battle {
           Math.hypot(b.x - this.x, b.y - this.y) < 27 &&
           this.invincible <= 0
         ) {
-          this.run.hp -= Math.max(2, b.damage - this.stats.armor);
+          this.receiveHit(Math.max(2, b.damage - this.stats.armor));
           this.invincible = 0.45;
           b.life = 0;
           this.shake = 3;

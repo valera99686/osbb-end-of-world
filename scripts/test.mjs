@@ -16,6 +16,8 @@ for (const name of [
   'cutscenes',
   'campaign-content',
   'encounters',
+  'progression',
+  'specials',
   'model',
   'enemy-art',
   'engine',
@@ -37,6 +39,7 @@ const test = spawnSync(
     'tests/game.test.cjs',
     'tests/campaign.test.cjs',
     'tests/apartments.test.cjs',
+    'tests/progression.test.cjs',
   ],
   {
     stdio: 'inherit',

@@ -1,4 +1,6 @@
 'use client';
+import { Workshop } from './workshop';
+import { blueprintInfo } from '@/lib/game/progression';
 import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
 import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
 import { FURNITURE_BY_ID } from '@/lib/game/furniture';
@@ -137,6 +139,8 @@ type Result = {
   cores: number;
   unlocks: string[];
   final: boolean;
+  projects: string[];
+  coreBreakdown: { label: string; amount: number }[];
 };
 function ItemCard({
   item,
@@ -647,6 +651,8 @@ export default function Game() {
         won: b.won,
         run: b.run,
         cores: f.cores,
+        projects: f.projects,
+        coreBreakdown: f.coreBreakdown,
         unlocks: f.unlocks,
         final: b.won,
       });
@@ -728,17 +734,6 @@ export default function Game() {
     ping(
       `${item.name} — квартира ${RESIDENT_BY_ID[APARTMENT_SLOTS[slot].resident].name}${run.items[slot] ? ' · попередній предмет знято та збережено' : ''}.`,
     );
-  }
-  function research(id: string, cost: number) {
-    const level = meta.research[id] ?? 0,
-      price = cost * (level + 1);
-    if (level >= 5 || meta.cores < price) return;
-    setMeta({
-      ...meta,
-      cores: meta.cores - price,
-      research: { ...meta.research, [id]: level + 1 },
-    });
-    ping('Дослідження завершено. Покращення діє з наступного рейду.');
   }
   const stats = run ? statsFor(run, meta) : null;
   const inventory = run && stats && (
@@ -1019,7 +1014,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.8.0 · Прогрес зберігається на цьому пристрої.
+              v0.9.0 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1272,86 +1267,12 @@ export default function Game() {
         </>
       )}
       {screen === 'workshop' && (
-        <section className="collection-page">
-          <button className="text-button" onClick={back}>
-            <ArrowLeft size={16} /> Головне меню
-          </button>
-          <p className="eyebrow">ТЕ, ЩО ЗАЛИШАЄТЬСЯ З ТОБОЮ</p>
-          <div className="collection-title">
-            <div>
-              <h2>Майстерня</h2>
-              <p className="lead">
-                Ядра з рейдів відкривають покращення для всіх майбутніх
-                будинків.
-              </p>
-            </div>
-            <Currency amount={meta.cores} cores />
-          </div>
-          <div className="research-grid">
-            {RESEARCH.map((r) => {
-              const level = meta.research[r.id] ?? 0,
-                cost = r.cost * (level + 1);
-              return (
-                <article className="research-card" key={r.id}>
-                  <span className="research-icon">
-                    <Glyph name={r.icon} size={32} />
-                  </span>
-                  <h3>{r.name}</h3>
-                  <p>{r.desc}</p>
-                  <div className="research-levels">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <span key={i} className={i < level ? 'done' : ''} />
-                    ))}
-                  </div>
-                  <button
-                    className="secondary"
-                    disabled={level >= 5 || meta.cores < cost}
-                    onClick={() => research(r.id, r.cost)}
-                  >
-                    {level >= 5 ? (
-                      'Завершено'
-                    ) : (
-                      <>
-                        Дослідити <Currency amount={cost} cores />
-                      </>
-                    )}
-                  </button>
-                </article>
-              );
-            })}
-          </div>
-          <div className="progression-list">
-            <h3>Креслення за повторні проходження</h3>
-            {CHAPTERS.map((c, i) => (
-              <div key={i} className={meta.wins > i ? 'completed' : ''}>
-                <span>
-                  {meta.wins > i ? <Check size={20} /> : <Lock size={20} />}
-                </span>
-                <div>
-                  <b>Експедиція {i + 1}</b>
-                  <p>{c.unlock}</p>
-                </div>
-                <small>
-                  {meta.wins > i ? 'ВІДКРИТО' : `ПРОХОДЖЕННЯ ${i + 1}`}
-                </small>
-              </div>
-            ))}
-          </div>
-          <div className="career-stats">
-            <span>
-              Рейди <b>{meta.runs}</b>
-            </span>
-            <span>
-              Відкрито рівнів креслень <b>{meta.wins}/5</b>
-            </span>
-            <span>
-              Вороги <b>{meta.kills}</b>
-            </span>
-            <span>
-              Рекорд рейду <b>{meta.best}</b>
-            </span>
-          </div>
-        </section>
+        <Workshop
+          meta={meta}
+          onChange={setMeta}
+          onBack={back}
+          onMessage={ping}
+        />
       )}
       {screen === 'codex' && (
         <section className="collection-page">
@@ -1529,6 +1450,36 @@ export default function Game() {
                 </span>
                 <Currency amount={result.cores} cores />
               </div>
+              <div className="raid-core-breakdown">
+                {result.coreBreakdown.map((r) => (
+                  <span key={r.label}>
+                    {r.label}: +{r.amount}
+                  </span>
+                ))}
+              </div>
+              {result.projects.length > 0 && (
+                <div className="raid-projects">
+                  <h3>Нові проєкти в майстерні</h3>
+                  <p>
+                    Умови виконано. Придбай креслення за ядра, щоб предмети
+                    з’являлися в наступних рейдах.
+                  </p>
+                  <ul>
+                    {result.projects.map((id) => (
+                      <li key={id}>{blueprintInfo(id).name}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <button
+                className="secondary"
+                onClick={() => {
+                  setResult(null);
+                  setScreen('workshop');
+                }}
+              >
+                Відкрити майстерню <ArrowRight size={18} />
+              </button>
               {result.won && (
                 <button
                   className="secondary"
@@ -1559,7 +1510,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.8.0 · 3 локації, 9 мешканців, 9 варіантів
+            ОСББ кінця світу · v0.9.0 · 3 локації, 9 мешканців, 9 варіантів
             босів, 9 мінібосів, 18 видів ворогів і сюжетні катсцени.
           </DialogDescription>
           <div className="help-list">

@@ -10,6 +10,120 @@ export interface Furnishing {
 }
 export const FURNITURE = [
   {
+    id: 'firedoor',
+    name: 'Протипожежна перегородка',
+    icon: 'wrench',
+    cost: 38,
+    stat: 'health' as Stat,
+    value: 8,
+    unit: 'міцності',
+    favorites: [],
+    bonus:
+      'У квартирі поруч із Борисом: блокує один ворожий удар за бій. Дублікати не додають зарядів',
+  },
+  {
+    id: 'soupstation',
+    name: 'Супова станція',
+    icon: 'coffee',
+    cost: 34,
+    stat: 'health' as Stat,
+    value: 8,
+    unit: 'міцності',
+    favorites: [],
+    bonus:
+      'У квартирі поруч із Ніною: хвиля, що влучила у живого ворога, лікує 4 міцності. Раз за хвилю, ефект дублікатів не складається',
+  },
+  {
+    id: 'chargingseat',
+    name: 'Зарядне крісло',
+    icon: 'wifi',
+    cost: 38,
+    stat: 'speed' as Stat,
+    value: 4,
+    unit: 'швидкості',
+    favorites: [],
+    bonus:
+      'У квартирі поруч з Іскрою: перезаряджання ривка 3,2 с замість 3,8 с. Ефект дублікатів не складається',
+  },
+  {
+    id: 'seedlibrary',
+    name: 'Бібліотека насіння',
+    icon: 'sprout',
+    cost: 36,
+    stat: 'regen' as Stat,
+    value: 0.1,
+    unit: 'відновлення/с',
+    favorites: [],
+    bonus:
+      'У квартирі поруч із Флорою: додатково +0,35 відновлення/с на будинок. Ефект дублікатів не складається',
+  },
+  {
+    id: 'toolwall',
+    name: 'Стіна інструментів',
+    icon: 'hammer',
+    cost: 30,
+    stat: 'damage' as Stat,
+    value: 4,
+    unit: 'шкоди',
+    favorites: ['mechanic', 'lev'],
+    bonus: 'Петрович або Микола: +8 шкоди',
+  },
+  {
+    id: 'hammock',
+    name: 'Підвісне ліжко',
+    icon: 'heart',
+    cost: 30,
+    stat: 'health' as Stat,
+    value: 18,
+    unit: 'міцності',
+    favorites: ['nina', 'marta'],
+    bonus: 'Ніна або Марта: +36 міцності',
+  },
+  {
+    id: 'ramp',
+    name: 'Тренажер кур’єра',
+    icon: 'footprints',
+    cost: 32,
+    stat: 'speed' as Stat,
+    value: 8,
+    unit: 'швидкості',
+    favorites: ['danilo'],
+    bonus: 'Данило: +16 швидкості',
+  },
+  {
+    id: 'relayDesk',
+    name: 'Пульт координації',
+    icon: 'wifi',
+    cost: 35,
+    stat: 'rate' as Stat,
+    value: 0.1,
+    unit: 'темпу',
+    favorites: ['solomia', 'spark'],
+    bonus: 'Соломія або Іскра: +20% темпу',
+  },
+  {
+    id: 'aquarium',
+    name: 'Біоакваріум',
+    icon: 'sprout',
+    cost: 32,
+    stat: 'regen' as Stat,
+    value: 0.25,
+    unit: 'відновлення/с',
+    favorites: ['flora'],
+    bonus: 'Флора: +0,5 відновлення/с',
+  },
+  {
+    id: 'starchart',
+    name: 'Мапа зірок',
+    icon: 'scan',
+    cost: 38,
+    stat: 'crit' as Stat,
+    value: 0.04,
+    unit: 'шансу критичного удару',
+    favorites: ['solomia', 'lev'],
+    bonus: 'Соломія або Микола: +8% критичного удару',
+  },
+  {
     id: 'bench',
     name: 'Верстак',
     icon: 'wrench',
@@ -85,14 +199,13 @@ export function furnitureEffect(id: string, resident: string | null) {
   const item = FURNITURE_BY_ID[id];
   const value =
     item.value * (resident && item.favorites.includes(resident) ? 2 : 1);
-  const amount = (item.stat === 'rate' ? value * 100 : value).toLocaleString(
-    'uk-UA',
-    { maximumFractionDigits: 2 },
-  );
+  const amount = (
+    ['rate', 'crit'].includes(item.stat) ? value * 100 : value
+  ).toLocaleString('uk-UA', { maximumFractionDigits: 2 });
   return {
     stat: item.stat,
     value,
-    label: `+${amount}${item.stat === 'rate' ? '%' : ''} ${item.unit}`,
+    label: `+${amount}${['rate', 'crit'].includes(item.stat) ? '%' : ''} ${item.unit}${['firedoor', 'soupstation', 'chargingseat', 'seedlibrary'].includes(id) ? '. ' + item.bonus : ''}`,
   };
 }
 export function canFurnish(

@@ -335,10 +335,10 @@ test('Captain only, no free furniture or permanent recruitment; expensive floor 
   run = M.battleRewards(roomAt(run, meta, 0), meta);
   assert.equal(run.rescued.length, 2);
   assert.equal(run.residents.length, 2);
-  run = { ...run, page: 'map', coins: 159 };
+  run = { ...run, page: 'map', coins: 199 };
   assert.equal(M.expandRunHouse(run), run);
-  run.coins = 860;
-  for (const cost of [160, 280, 420]) {
+  run.coins = 1080;
+  for (const cost of [200, 360, 520]) {
     const before = run;
     run = M.expandRunHouse(run);
     assert.equal(run.coins, before.coins - cost);

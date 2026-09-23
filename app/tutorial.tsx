@@ -134,203 +134,206 @@ export function Tutorial({
             <span key={i} className={i <= step ? 'done' : ''} />
           ))}
         </div>
-        <DialogTitle>{TITLES[step]}</DialogTitle>
-        <DialogDescription>{DESCRIPTIONS[step]}</DialogDescription>
-        {step === 0 && (
-          <div className="tutorial-intro">
-            <Home size={64} />
-            <strong>Будинок №17 — твій герой</strong>
-            <div>
-              <span>
-                <Users />
-                Рятуй людей
-              </span>
-              <span>
-                <Hammer />
-                Облаштовуй квартири
-              </span>
-              <span>
-                <Crosshair />
-                Перемагай босів
-              </span>
+        <div className="tutorial-body" key={step}>
+          <DialogTitle>{TITLES[step]}</DialogTitle>
+          <DialogDescription>{DESCRIPTIONS[step]}</DialogDescription>
+          {step === 0 && (
+            <div className="tutorial-intro">
+              <Home size={64} />
+              <strong>Будинок №17 — твій герой</strong>
+              <div>
+                <span>
+                  <Users />
+                  Рятуй людей
+                </span>
+                <span>
+                  <Hammer />
+                  Облаштовуй квартири
+                </span>
+                <span>
+                  <Crosshair />
+                  Перемагай босів
+                </span>
+              </div>
+              <p>
+                Бос переможений → продовження історії → нова карта з іншими
+                ворогами.
+              </p>
             </div>
-            <p>
-              Бос переможений → продовження історії → нова карта з іншими
-              ворогами.
-            </p>
-          </div>
-        )}
-        {step === 1 && (
-          <div className="tutorial-routes">
-            <div className="tutorial-origin">
-              <Home /> Ти тут
-            </div>
-            <div className="tutorial-branches" aria-hidden="true" />
-            <div className="tutorial-options">
-              {[
-                ['fight', 'Бій', Crosshair],
-                ['mystery', '?', CircleHelp],
-                ['chest', 'Скриня', Gift],
-              ].map(([id, label, Icon]) => {
-                const Glyph = Icon as typeof Home;
-                return (
-                  <button
-                    key={id as string}
-                    aria-pressed={route === id}
-                    onClick={() => setRoute(id as string)}
-                  >
-                    <Glyph />
-                    <b>{label as string}</b>
-                  </button>
-                );
-              })}
-            </div>
-            <p role="status">
-              {route === 'fight'
-                ? 'Бій: переживи хвилю й отримай нагороду.'
-                : route === 'mystery'
-                  ? '«?» приховує кімнату: це може бути подія, скриня або навіть мінібос. Бос локації тут не з’явиться.'
-                  : route === 'chest'
-                    ? 'Скриня дає один випадковий предмет: меблі або обладнання.'
-                    : 'Порівнюй нагороду й ризик. Обери будь-яку з’єднану клітинку.'}
-            </p>
-          </div>
-        )}
-        {step === 2 && (
-          <div className="tutorial-controls">
-            <div
-              className="tutorial-arena"
-              tabIndex={0}
-              aria-label="Тренувальне поле: WASD або стрілки — рух, пробіл — ривок, E — хвиля"
-            >
-              <span className="tutorial-target">
-                <Crosshair /> Мішень
-              </span>
-              <span
-                className={`tutorial-house ${effect}`}
-                style={{ left: position.x + '%', top: position.y + '%' }}
-              >
-                <Home size={35} />
-              </span>
-              <span className="tutorial-arena-caption">
-                Безпечне тренування · без шкоди
-              </span>
-            </div>
-            <div className="tutorial-practice-buttons">
-              <div className="tutorial-dpad">
+          )}
+          {step === 1 && (
+            <div className="tutorial-routes">
+              <div className="tutorial-origin">
+                <Home /> Ти тут
+              </div>
+              <div className="tutorial-branches" aria-hidden="true" />
+              <div className="tutorial-options">
                 {[
-                  [0, -10, 'Вгору', ArrowUp],
-                  [-10, 0, 'Ліворуч', ArrowLeft],
-                  [0, 10, 'Вниз', ArrowDown],
-                  [10, 0, 'Праворуч', ArrowRight],
-                ].map(([x, y, label, Icon]) => {
+                  ['fight', 'Бій', Crosshair],
+                  ['mystery', '?', CircleHelp],
+                  ['chest', 'Скриня', Gift],
+                ].map(([id, label, Icon]) => {
                   const Glyph = Icon as typeof Home;
                   return (
                     <button
-                      key={label as string}
-                      aria-label={label as string}
-                      onClick={() => act('move', x as number, y as number)}
+                      key={id as string}
+                      aria-pressed={route === id}
+                      onClick={() => setRoute(id as string)}
                     >
                       <Glyph />
+                      <b>{label as string}</b>
                     </button>
                   );
                 })}
               </div>
-              <button onClick={() => act('dash', 16, 0)}>
-                <Footprints />
-                Ривок
-              </button>
-              <button onClick={() => act('pulse')}>
-                <Zap />
-                Хвиля
-              </button>
+              <p role="status">
+                {route === 'fight'
+                  ? 'Бій: переживи хвилю й отримай нагороду.'
+                  : route === 'mystery'
+                    ? '«?» приховує кімнату: це може бути подія, скриня або навіть мінібос. Бос локації тут не з’явиться.'
+                    : route === 'chest'
+                      ? 'Скриня дає один випадковий предмет: меблі або обладнання.'
+                      : 'Порівнюй нагороду й ризик. Обери будь-яку з’єднану клітинку.'}
+              </p>
             </div>
-            <ul className="tutorial-checks">
-              {[
-                ['move', 'WASD / стрілки — рух'],
-                ['dash', 'Пробіл — ривок із коротким захистом'],
-                ['pulse', 'E — хвиля проти ворогів поруч'],
-              ].map(([id, label]) => (
-                <li key={id} className={actions.includes(id) ? 'done' : ''}>
-                  <Check size={16} />
-                  {label}
-                </li>
-              ))}
-            </ul>
-            <p>
-              На телефоні: джойстик зліва, ривок і хвиля справа. У бою
-              здібностям потрібен час на відновлення.
-            </p>
-          </div>
-        )}
-        {step === 3 && (
-          <div className="tutorial-housing">
-            <div className="tutorial-floor">
-              <div className="tutorial-petrovych">
-                Петрович
-                <br />
-                <WrenchIcon />
+          )}
+          {step === 2 && (
+            <div className="tutorial-controls">
+              <div
+                className="tutorial-arena"
+                tabIndex={0}
+                aria-label="Тренувальне поле: WASD або стрілки — рух, пробіл — ривок, E — хвиля"
+              >
+                <span className="tutorial-target">
+                  <Crosshair /> Мішень
+                </span>
+                <span
+                  className={`tutorial-house ${effect}`}
+                  style={{ left: position.x + '%', top: position.y + '%' }}
+                >
+                  <Home size={35} />
+                </span>
+                <span className="tutorial-arena-caption">
+                  Безпечне тренування · без шкоди
+                </span>
               </div>
-              <button
-                className={neighbor === 'near' ? 'placed' : ''}
-                onClick={() => setNeighbor('near')}
-              >
-                Ніна
-                <br />
-                Поруч
-              </button>
-              <span />
-              <button
-                className={neighbor === 'far' ? 'placed' : ''}
-                onClick={() => setNeighbor('far')}
-              >
-                Ніна
-                <br />
-                Окремо
-              </button>
+              <div className="tutorial-practice-buttons">
+                <div className="tutorial-dpad">
+                  {[
+                    [0, -10, 'Вгору', ArrowUp],
+                    [-10, 0, 'Ліворуч', ArrowLeft],
+                    [0, 10, 'Вниз', ArrowDown],
+                    [10, 0, 'Праворуч', ArrowRight],
+                  ].map(([x, y, label, Icon]) => {
+                    const Glyph = Icon as typeof Home;
+                    return (
+                      <button
+                        key={label as string}
+                        aria-label={label as string}
+                        onClick={() => act('move', x as number, y as number)}
+                      >
+                        <Glyph />
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={() => act('dash', 16, 0)}>
+                  <Footprints />
+                  Ривок
+                </button>
+                <button onClick={() => act('pulse')}>
+                  <Zap />
+                  Хвиля
+                </button>
+              </div>
+              <ul className="tutorial-checks">
+                {[
+                  ['move', 'WASD / стрілки — рух'],
+                  ['dash', 'Пробіл — ривок із коротким захистом'],
+                  ['pulse', 'E — хвиля проти ворогів поруч'],
+                ].map(([id, label]) => (
+                  <li key={id} className={actions.includes(id) ? 'done' : ''}>
+                    <Check size={16} />
+                    {label}
+                  </li>
+                ))}
+              </ul>
+              <p>
+                На телефоні: джойстик зліва, ривок і хвиля справа. У бою
+                здібностям потрібен час на відновлення.
+              </p>
             </div>
-            <p role="status">
-              {neighbor === 'near'
-                ? 'Є спільна стіна! Кухня Ніни додає +6% темпу за сусіда. Так планування посилює дім.'
-                : neighbor === 'far'
-                  ? 'Між квартирами є проміжок — бонус сусідства не працює. Спробуй поставити Ніну ближче.'
-                  : 'Натисни «Поруч» або «Окремо», щоб перевірити сусідство.'}
-            </p>
-            <p>
-              Став меблі й обладнання у вільні слоти всередині квартир. Бонуси
-              працюють лише у встановлених речей та заселених мешканців.
-            </p>
-          </div>
-        )}
-        {step === 4 && (
-          <div className="tutorial-summary">
-            <p>
-              <Users />
-              <span>
-                <b>Команда й предмети</b>Рятуй людей у рейді. Здобувай меблі та
-                модулі після боїв, у скринях, подіях і магазинах.
-              </span>
-            </p>
-            <p>
-              <Coins />
-              <span>
-                <b>Монети й брухт — на цю спробу</b>Монети витрачай у магазинах
-                і на дорогу добудову дому. Брухтом ремонтуй пошкодження.
-              </span>
-            </p>
-            <p>
-              <Hexagon />
-              <span>
-                <b>Ядра й креслення залишаються</b>Після рейду купуй дослідження
-                в майстерні. Відкриті предмети можуть траплятися в наступних
-                спробах.
-              </span>
-            </p>
-            <p>
-              Повторити навчання можна через кнопку «?» → «Пройти навчання».
-            </p>
-          </div>
-        )}
+          )}
+          {step === 3 && (
+            <div className="tutorial-housing">
+              <div className="tutorial-floor">
+                <div className="tutorial-petrovych">
+                  Петрович
+                  <br />
+                  <WrenchIcon />
+                </div>
+                <button
+                  className={neighbor === 'near' ? 'placed' : ''}
+                  onClick={() => setNeighbor('near')}
+                >
+                  Ніна
+                  <br />
+                  Поруч
+                </button>
+                <span />
+                <button
+                  className={neighbor === 'far' ? 'placed' : ''}
+                  onClick={() => setNeighbor('far')}
+                >
+                  Ніна
+                  <br />
+                  Окремо
+                </button>
+              </div>
+              <p role="status">
+                {neighbor === 'near'
+                  ? 'Є спільна стіна! Кухня Ніни додає +6% темпу за сусіда. Так планування посилює дім.'
+                  : neighbor === 'far'
+                    ? 'Між квартирами є проміжок — бонус сусідства не працює. Спробуй поставити Ніну ближче.'
+                    : 'Натисни «Поруч» або «Окремо», щоб перевірити сусідство.'}
+              </p>
+              <p>
+                Став меблі й обладнання у вільні слоти всередині квартир. Бонуси
+                працюють лише у встановлених речей та заселених мешканців.
+              </p>
+            </div>
+          )}
+          {step === 4 && (
+            <div className="tutorial-summary">
+              <p>
+                <Users />
+                <span>
+                  <b>Команда й предмети</b>Рятуй людей у рейді. Здобувай меблі
+                  та модулі після боїв, у скринях, подіях і магазинах.
+                </span>
+              </p>
+              <p>
+                <Coins />
+                <span>
+                  <b>Монети й брухт — на цю спробу</b>Монети витрачай у
+                  магазинах і на дорогу добудову дому. Брухтом ремонтуй
+                  пошкодження.
+                </span>
+              </p>
+              <p>
+                <Hexagon />
+                <span>
+                  <b>Ядра й креслення залишаються</b>Після рейду купуй
+                  дослідження в майстерні. Відкриті предмети можуть траплятися в
+                  наступних спробах.
+                </span>
+              </p>
+              <p>
+                Повторити навчання можна через кнопку «?» → «Пройти навчання».
+              </p>
+            </div>
+          )}
+        </div>
         <div className="tutorial-footer">
           <button
             className="secondary"

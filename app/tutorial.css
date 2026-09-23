@@ -1,9 +1,31 @@
-.tutorial-modal[data-slot='dialog-content'] {
+.game-modal.tutorial-modal[data-slot='dialog-content'] {
   width: min(640px, calc(100vw - 24px));
+  max-width: 640px;
   padding: 28px;
   gap: 18px;
   max-height: calc(100dvh - 24px);
+  overflow: hidden;
+}
+.tutorial-body {
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.tutorial-body > * {
+  flex-shrink: 0;
+}
+.tutorial-modal .tutorial-body [data-slot='dialog-title'],
+.tutorial-modal .tutorial-body [data-slot='dialog-description'] {
+  margin: 0;
+  padding: 0;
+}
+.tutorial-top,
+.tutorial-progress,
+.tutorial-footer {
+  flex-shrink: 0;
 }
 .tutorial-top {
   display: flex;
@@ -256,7 +278,7 @@
   cursor: not-allowed;
 }
 @media (max-width: 480px) {
-  .tutorial-modal[data-slot='dialog-content'] {
+  .game-modal.tutorial-modal[data-slot='dialog-content'] {
     padding: 18px;
     gap: 14px;
   }
@@ -270,6 +292,22 @@
   }
   .tutorial-intro > div {
     gap: 14px;
+  }
+  .tutorial-intro {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+  .tutorial-intro > svg {
+    width: 44px;
+    height: 44px;
+  }
+  .tutorial-intro > div {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .tutorial-intro span {
+    font-size: 12px;
   }
   .tutorial-intro span {
     max-width: 130px;

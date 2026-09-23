@@ -1,4 +1,9 @@
 'use client';
+import {
+  PROFILE_BACKUP_KEY,
+  resetProfile,
+  restoreProfile,
+} from '@/lib/game/profile';
 import { Tutorial } from './tutorial';
 import { Workshop } from './workshop';
 import { blueprintInfo } from '@/lib/game/progression';
@@ -486,6 +491,10 @@ export default function Game() {
   const [character, setCharacter] = useState('mechanic'),
     [chapter, setChapter] = useState(0),
     [help, setHelp] = useState(false),
+    [profileAction, setProfileAction] = useState<'reset' | 'restore' | null>(
+      null,
+    ),
+    [hasProfileBackup, setHasProfileBackup] = useState(false),
     [housingOpen, setHousingOpen] = useState(false),
     [notice, setNotice] = useState(''),
     [pending, setPending] = useState<{
@@ -504,6 +513,7 @@ export default function Game() {
     setNative(navigator.userAgent.includes('OSBBAndroid'));
     preloadEnemyArt();
     try {
+      setHasProfileBackup(!!localStorage.getItem(PROFILE_BACKUP_KEY));
       const s = readSave(localStorage.getItem(SAVE_KEY));
       setMeta({
         ...s.meta,
@@ -543,6 +553,11 @@ export default function Game() {
   }, [meta, run, ready]);
   useEffect(() => {
     const back = (e: Event) => {
+      if (profileAction) {
+        e.preventDefault();
+        setProfileAction(null);
+        return;
+      }
       if (!meta.tutorialDone) {
         e.preventDefault();
         setMeta((m) => ({ ...m, tutorialDone: true }));
@@ -585,6 +600,7 @@ export default function Game() {
     housingOpen,
     meta.sceneProgress,
     meta.tutorialDone,
+    profileAction,
     result,
     pending,
     abandon,
@@ -1020,7 +1036,7 @@ export default function Game() {
               <span className="divider">/</span> РЕЙДІВ: {meta.runs}
             </span>
             <span className="muted">
-              v0.9.1 · Прогрес зберігається на цьому пристрої.
+              v0.9.2 · Прогрес зберігається на цьому пристрої.
             </span>
           </div>
         </section>
@@ -1516,7 +1532,7 @@ export default function Game() {
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>
           <DialogDescription>
-            ОСББ кінця світу · v0.9.1 · 3 локації, 9 мешканців, 9 варіантів
+            ОСББ кінця світу · v0.9.2 · 3 локації, 9 мешканців, 9 варіантів
             босів, 9 мінібосів, 18 видів ворогів і сюжетні катсцени.
           </DialogDescription>
           <button
@@ -1528,6 +1544,26 @@ export default function Game() {
           >
             Пройти навчання <ArrowRight size={18} />
           </button>
+          <button
+            className="secondary"
+            onClick={() => {
+              setHelp(false);
+              setProfileAction('reset');
+            }}
+          >
+            Скинути весь прогрес
+          </button>
+          {hasProfileBackup && (
+            <button
+              className="secondary"
+              onClick={() => {
+                setHelp(false);
+                setProfileAction('restore');
+              }}
+            >
+              Відновити прогрес до скидання
+            </button>
+          )}
           <div className="help-list">
             <p>
               <b>Будуй свій білд.</b> Квартири взаємодіють через спільну стіну.
@@ -1598,6 +1634,47 @@ export default function Game() {
               <Download size={17} /> Завантажити Android APK
             </a>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={profileAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setProfileAction(null);
+        }}
+      >
+        <DialogContent className="game-modal">
+          <DialogTitle>
+            {profileAction === 'restore'
+              ? 'Відновити попередній профіль?'
+              : 'Почати з нуля?'}
+          </DialogTitle>
+          <DialogDescription>
+            {profileAction === 'restore'
+              ? 'Поточну спробу буде замінено збереженням перед останнім скиданням.'
+              : 'Рейд, ядра, покупки, відкриття та історія почнуться заново. Навчання відкриється з першого кроку. Збережемо копію: її можна повернути через «Як грати» → «Відновити прогрес до скидання».'}
+          </DialogDescription>
+          <button
+            className="primary"
+            onClick={() => {
+              try {
+                if (profileAction === 'restore') restoreProfile(localStorage);
+                else resetProfile(localStorage, saveData(meta, run));
+                window.location.reload();
+              } catch {
+                setNotice(
+                  'Не вдалося записати збереження. Профіль не скинуто. Перевір доступ до сховища браузера.',
+                );
+                setProfileAction(null);
+              }
+            }}
+          >
+            {profileAction === 'restore'
+              ? 'Відновити збереження'
+              : 'Скинути й почати заново'}
+          </button>
+          <button className="secondary" onClick={() => setProfileAction(null)}>
+            Скасувати
+          </button>
         </DialogContent>
       </Dialog>
       <Dialog open={abandon} onOpenChange={setAbandon}>

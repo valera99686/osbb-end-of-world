@@ -354,21 +354,73 @@ test('Special furniture needs an installed room and the named adjacent resident;
 });
 test('First-visit tutorial resumes its step, remembers completion, and preserves legacy expeditions', () => {
   const fresh = M.readSave(null);
-  assert.equal(fresh.meta.tutorialDone,false);
-  assert.equal(fresh.meta.tutorialStep,0);
-  fresh.meta.tutorialStep=3;
-  const resumed=M.readSave(M.saveData(fresh.meta,null));
-  assert.equal(resumed.meta.tutorialStep,3);
-  assert.equal(resumed.meta.tutorialDone,false);
-  resumed.meta.tutorialDone=true;
-  assert.equal(M.readSave(M.saveData(resumed.meta,null)).meta.tutorialDone,true);
-  const legacy=M.initialMeta();delete legacy.tutorialDone;delete legacy.tutorialStep;
-  const run=M.makeRun(legacy,'mechanic',0,123);run.coins=77;
-  const restored=M.readSave(M.saveData(legacy,run));
-  assert.equal(restored.meta.tutorialDone,true);
-  assert.equal(restored.run.seed,123);assert.equal(restored.run.coins,77);
-  for(const invalid of [-9,100,'no',null]) {
-    const meta=M.readSave(M.saveData({...fresh.meta,tutorialStep:invalid},null)).meta;
-    assert.ok(Number.isInteger(meta.tutorialStep) && meta.tutorialStep>=0 && meta.tutorialStep<=4);
+  assert.equal(fresh.meta.tutorialDone, false);
+  assert.equal(fresh.meta.tutorialStep, 0);
+  fresh.meta.tutorialStep = 3;
+  const resumed = M.readSave(M.saveData(fresh.meta, null));
+  assert.equal(resumed.meta.tutorialStep, 3);
+  assert.equal(resumed.meta.tutorialDone, false);
+  resumed.meta.tutorialDone = true;
+  assert.equal(
+    M.readSave(M.saveData(resumed.meta, null)).meta.tutorialDone,
+    true,
+  );
+  const legacy = M.initialMeta();
+  delete legacy.tutorialDone;
+  delete legacy.tutorialStep;
+  const run = M.makeRun(legacy, 'mechanic', 0, 123);
+  run.coins = 77;
+  const restored = M.readSave(M.saveData(legacy, run));
+  assert.equal(restored.meta.tutorialDone, true);
+  assert.equal(restored.run.seed, 123);
+  assert.equal(restored.run.coins, 77);
+  for (const invalid of [-9, 100, 'no', null]) {
+    const meta = M.readSave(
+      M.saveData({ ...fresh.meta, tutorialStep: invalid }, null),
+    ).meta;
+    assert.ok(
+      Number.isInteger(meta.tutorialStep) &&
+        meta.tutorialStep >= 0 &&
+        meta.tutorialStep <= 4,
+    );
   }
+});
+test('Profile reset retains a recoverable backup and never resets without saving it first', () => {
+  const P = require('../.test-build/profile.js');
+  const meta = M.initialMeta();
+  meta.kills = 350;
+  meta.cores = 17;
+  meta.tutorialDone = true;
+  const run = M.makeRun(meta, 'mechanic', 0, 42),
+    original = M.saveData(meta, run);
+  const data = new Map([
+    [M.SAVE_KEY, original],
+    ['unrelated', 'keep'],
+  ]);
+  const storage = {
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => data.set(k, v),
+  };
+  P.resetProfile(storage, original);
+  const fresh = M.readSave(storage.getItem(M.SAVE_KEY));
+  assert.equal(fresh.meta.kills, 0);
+  assert.equal(fresh.meta.cores, 0);
+  assert.equal(fresh.run, null);
+  assert.equal(fresh.meta.tutorialDone, false);
+  assert.equal(storage.getItem(P.PROFILE_BACKUP_KEY), original);
+  assert.equal(storage.getItem('unrelated'), 'keep');
+  P.restoreProfile(storage);
+  assert.equal(storage.getItem(M.SAVE_KEY), original);
+  assert.throws(() =>
+    P.resetProfile(
+      {
+        ...storage,
+        setItem: () => {
+          throw Error('storage full');
+        },
+      },
+      original,
+    ),
+  );
+  assert.equal(storage.getItem(M.SAVE_KEY), original);
 });

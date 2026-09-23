@@ -19,6 +19,7 @@ for (const name of [
   'progression',
   'specials',
   'model',
+  'profile',
   'enemy-art',
   'engine',
 ]) {

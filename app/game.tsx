@@ -6,8 +6,6 @@ import {
   resetProfile,
   restoreProfile,
 } from '@/lib/game/profile';
-import { Tutorial } from './tutorial';
-import { Workshop } from './workshop';
 import { blueprintInfo, runDepth } from '@/lib/game/progression';
 import { LOCATIONS } from '@/lib/game/encounters';
 import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
@@ -108,12 +106,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { RouteTree } from './route-tree';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
 import { Glyph } from './glyph';
 import { activeEquipment, APARTMENT_SLOTS } from '@/lib/game/equipment';
 import { Residents, HousePreview, EquipmentPlacement } from './residents';
-import { CutscenePlayer, StoryLibrary } from './cutscenes';
 import { DialoguePlayer, ProtocolCard } from './dialogue';
 import { onSpeaking, setVoice } from './voice';
 import { CasePage } from './case-file';
@@ -172,6 +168,22 @@ import { evolutionHint, type WeaponId } from '@/lib/game/weapons';
 // The battle engine is the heaviest part of the game: load it with the first raid.
 const Combat = lazy(() =>
   import('./combat').then((m) => ({ default: m.Combat })),
+);
+// Screens that are not needed at start load on first use.
+const Tutorial = lazy(() =>
+  import('./tutorial').then((m) => ({ default: m.Tutorial })),
+);
+const Workshop = lazy(() =>
+  import('./workshop').then((m) => ({ default: m.Workshop })),
+);
+const StoryLibrary = lazy(() =>
+  import('./cutscenes').then((m) => ({ default: m.StoryLibrary })),
+);
+const CutscenePlayer = lazy(() =>
+  import('./cutscenes').then((m) => ({ default: m.CutscenePlayer })),
+);
+const RouteTree = lazy(() =>
+  import('./route-tree').then((m) => ({ default: m.RouteTree })),
 );
 // Injected by vite.game.config.ts; other bundlers leave it undefined.
 const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
@@ -1322,15 +1334,17 @@ export default function Game() {
                         </div>
                       </section>
                     )}
-                    <RouteTree
-                      key={`${run.seed}-${run.chapter}-${run.step}`}
-                      run={run}
-                      onEnter={(id) => {
-                        audio.current!.unlock();
-                        setNotice('');
-                        setRun(enterNode(run, meta, id));
-                      }}
-                    />
+                    <Suspense fallback={null}>
+                      <RouteTree
+                        key={`${run.seed}-${run.chapter}-${run.step}`}
+                        run={run}
+                        onEnter={(id) => {
+                          audio.current!.unlock();
+                          setNotice('');
+                          setRun(enterNode(run, meta, id));
+                        }}
+                      />
+                    </Suspense>
                     <div className="map-note">
                       <Target size={20} />
                       <span>
@@ -1557,12 +1571,14 @@ export default function Game() {
         </>
       )}
       {screen === 'workshop' && (
-        <Workshop
-          meta={meta}
-          onChange={setMeta}
-          onBack={back}
-          onMessage={ping}
-        />
+        <Suspense fallback={null}>
+          <Workshop
+            meta={meta}
+            onChange={setMeta}
+            onBack={back}
+            onMessage={ping}
+          />
+        </Suspense>
       )}
       {screen === 'codex' && (
         <section className="collection-page">
@@ -1641,7 +1657,9 @@ export default function Game() {
         </section>
       )}
       {screen === 'lore' && (
-        <StoryLibrary meta={meta} onBack={back} onPlay={playScene} />
+        <Suspense fallback={null}>
+          <StoryLibrary meta={meta} onBack={back} onPlay={playScene} />
+        </Suspense>
       )}
       {screen === 'stats' && <StatsPage meta={meta} onBack={back} />}
       {screen === 'case' && <CasePage meta={meta} onBack={back} />}
@@ -2053,11 +2071,13 @@ export default function Game() {
         </DialogContent>
       </Dialog>
       {ready && !meta.tutorialDone && (
-        <Tutorial
-          step={meta.tutorialStep}
-          onStep={(tutorialStep) => setMeta((m) => ({ ...m, tutorialStep }))}
-          onFinish={() => setMeta((m) => ({ ...m, tutorialDone: true }))}
-        />
+        <Suspense fallback={null}>
+          <Tutorial
+            step={meta.tutorialStep}
+            onStep={(tutorialStep) => setMeta((m) => ({ ...m, tutorialStep }))}
+            onFinish={() => setMeta((m) => ({ ...m, tutorialDone: true }))}
+          />
+        </Suspense>
       )}
       {ready &&
         meta.tutorialDone &&
@@ -2083,11 +2103,13 @@ export default function Game() {
               onClose={() => closeScene()}
             />
           ) : (
-            <CutscenePlayer
-              progress={meta.sceneProgress}
-              onAdvance={advance}
-              onClose={() => closeScene()}
-            />
+            <Suspense fallback={null}>
+              <CutscenePlayer
+                progress={meta.sceneProgress}
+                onAdvance={advance}
+                onClose={() => closeScene()}
+              />
+            </Suspense>
           );
         })()}
     </main>

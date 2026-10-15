@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ua.osbb.lastdistrict" android:versionCode="23" android:versionName="0.11.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ua.osbb.lastdistrict" android:versionCode="24" android:versionName="0.12.0">
   <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <application android:label="ОСББ кінця світу" android:icon="@drawable/ic_launcher" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false" android:hardwareAccelerated="true" android:supportsRtl="true">

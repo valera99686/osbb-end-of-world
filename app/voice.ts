@@ -1,5 +1,6 @@
 // Voice-over playback: one line at a time, the next one cuts the previous.
 // Volume and the master mute come from the profile (Game calls setVoice).
+import { asset } from '@/lib/game/assets';
 import { voiceId } from '@/lib/game/voice';
 import { VOICE_IDS } from '@/lib/game/voice-manifest';
 
@@ -30,7 +31,7 @@ export function speak(key: string | null, text: string) {
   if (!key || !enabled || volume <= 0 || typeof Audio === 'undefined') return;
   const id = voiceId(key, text);
   if (!VOICE_IDS.has(id)) return;
-  const audio = new Audio(`/voice/${id}.ogg`);
+  const audio = new Audio(asset(`voice/${id}.ogg`));
   audio.volume = volume;
   current = audio;
   // The browser may refuse before the first tap: the line is then just text.

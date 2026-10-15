@@ -2,6 +2,7 @@ import ts from 'typescript';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 const modules = [
+  'assets',
   'data',
   'backpack',
   'bosses',
@@ -49,6 +50,7 @@ const tests = [
   'tests/weapons.test.cjs',
   'tests/story.test.cjs',
   'tests/voice.test.cjs',
+  'tests/assets.test.cjs',
 ];
 // Both lists are explicit; a module or test left out fails here, not later.
 const missing = [

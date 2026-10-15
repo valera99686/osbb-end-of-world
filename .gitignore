@@ -48,3 +48,4 @@ next-env.d.ts
 # voice reference clips (recreated from scripts/voice/voices.json)
 /scripts/voice/refs/
 /scripts/voice/lines.json
+/.pages/

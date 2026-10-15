@@ -1,3 +1,4 @@
+import { asset } from './assets';
 // Living arenas: tiled floor art, seeded decor, explosive props and ambient
 // motes. Every image is optional: a failed load keeps the procedural floor,
 // and explosive props fall back to simple drawn shapes, so the mechanic
@@ -127,8 +128,8 @@ class ArenaArt {
   constructor() {
     if (typeof Image === 'undefined' || typeof document === 'undefined') return;
     ARENA_THEMES.forEach((theme, i) => {
-      this.image(`/art/floor-${theme}.webp`, (img) => (this.floors[i] = img));
-      this.image(`/art/props-${theme}.webp`, (img) => {
+      this.image(asset(`art/floor-${theme}.webp`), (img) => (this.floors[i] = img));
+      this.image(asset(`art/props-${theme}.webp`), (img) => {
         this.props[i] = cut(img);
       });
     });

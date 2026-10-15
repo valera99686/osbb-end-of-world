@@ -1,3 +1,4 @@
+import { asset } from './assets';
 import { CAMPAIGN_SCENES, CAMPAIGN_MISSIONS } from './campaign-content';
 export interface Shot {
   art: number;
@@ -27,15 +28,15 @@ export const ORIGIN_ART = {
 // meeting and the night all intercoms rang.
 export const ENDING_ART = { a: 13, b: 14, c: 15 } as const;
 export const SCENE_IMAGE_BY_ART: Record<number, string> = {
-  [ORIGIN_ART.service]: '/art/origins-city-service-v1.webp',
-  [ORIGIN_ART.failure]: '/art/origins-network-failure-v1.webp',
-  [ORIGIN_ART.scrap]: '/art/origins-scrap-attack-v1.webp',
-  [ORIGIN_ART.pursuit]: '/art/origins-drone-pursuit-v1.webp',
-  [ORIGIN_ART.greenhouse]: '/art/origins-greenhouse-machines-v1.webp',
-  [ORIGIN_ART.loop]: '/art/origins-time-loop-v1.webp',
-  [ENDING_ART.a]: '/art/ending-a.webp',
-  [ENDING_ART.b]: '/art/ending-b.webp',
-  [ENDING_ART.c]: '/art/ending-c.webp',
+  [ORIGIN_ART.service]: asset('art/origins-city-service-v1.webp'),
+  [ORIGIN_ART.failure]: asset('art/origins-network-failure-v1.webp'),
+  [ORIGIN_ART.scrap]: asset('art/origins-scrap-attack-v1.webp'),
+  [ORIGIN_ART.pursuit]: asset('art/origins-drone-pursuit-v1.webp'),
+  [ORIGIN_ART.greenhouse]: asset('art/origins-greenhouse-machines-v1.webp'),
+  [ORIGIN_ART.loop]: asset('art/origins-time-loop-v1.webp'),
+  [ENDING_ART.a]: asset('art/ending-a.webp'),
+  [ENDING_ART.b]: asset('art/ending-b.webp'),
+  [ENDING_ART.c]: asset('art/ending-c.webp'),
 };
 export const MISSIONS = CAMPAIGN_MISSIONS;
 const shot = (

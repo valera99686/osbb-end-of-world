@@ -1,6 +1,7 @@
 // Dialogue scenes with portraits (lib/game/story.ts): the story of «Справа
 // 04:17». Space / Enter / → advance, ← goes back, Esc skips; touch and the
 // gamepad menu press the same buttons.
+import { asset } from '@/lib/game/assets';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bot, FastForward, Lock } from 'lucide-react';
 import {
@@ -38,11 +39,11 @@ export function SpeakerPortrait({
   if (who === 'captain' || speaker?.portrait === 'resident')
     inner = <Portrait id={id} />;
   else if (speaker?.portrait === 'galyna')
-    inner = <img src="/art/portrait-galyna.webp" alt="" />;
+    inner = <img src={asset('art/portrait-galyna.webp')} alt="" />;
   else if (speaker?.portrait === 'intercom')
-    inner = <img src="/art/portrait-intercom.webp" alt="" />;
+    inner = <img src={asset('art/portrait-intercom.webp')} alt="" />;
   else if (speaker?.portrait === 'svitanok')
-    inner = <img src="/art/portrait-svitanok.webp" alt="" />;
+    inner = <img src={asset('art/portrait-svitanok.webp')} alt="" />;
   else
     inner = (
       <span className="portrait-icon">

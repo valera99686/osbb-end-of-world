@@ -1,3 +1,4 @@
+import { asset } from './assets';
 import { ENEMY_DEFS, campaignBoss } from './encounters';
 import { MINIBOSS_TYPE, minibossFor } from './minibosses';
 import { preloadArenaArt } from './arena';
@@ -58,12 +59,12 @@ class EnemyAtlas {
   regions: Sprite[][] = [];
   constructor() {
     if (typeof Image === 'undefined') return;
-    this.load('/art/enemies-v1.webp', false);
-    this.load('/art/bosses-v1.webp', true);
-    this.load('/art/enemies-rust-v2.webp', false, 0);
-    this.load('/art/enemies-green-v2.webp', false, 1);
+    this.load(asset('art/enemies-v1.webp'), false);
+    this.load(asset('art/bosses-v1.webp'), true);
+    this.load(asset('art/enemies-rust-v2.webp'), false, 0);
+    this.load(asset('art/enemies-green-v2.webp'), false, 1);
     // If missing, location 3 keeps the v1 fallback sprites.
-    this.load('/art/enemies-core-v2.webp', false, 2);
+    this.load(asset('art/enemies-core-v2.webp'), false, 2);
   }
   private load(url: string, boss: boolean, location?: number) {
     const atlas = new Image();

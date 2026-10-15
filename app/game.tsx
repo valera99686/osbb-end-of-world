@@ -1,4 +1,5 @@
 'use client';
+import { asset } from '@/lib/game/assets';
 import {
   PROFILE_BACKUP_KEY,
   importProfile,
@@ -179,6 +180,7 @@ import type { PerkId } from '@/lib/game/upgrades';
 
 // Injected by vite.game.config.ts; other bundlers leave it undefined.
 const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
+const APK_URL = typeof __APK_URL__ === 'string' ? __APK_URL__ : '';
 const THEMES: MusicTheme[] = ['rust', 'green', 'core'];
 // Manifest shortcut from the launch URL, read once: StrictMode runs the load
 // effect twice and the URL is already cleaned up by the second pass.
@@ -2386,7 +2388,7 @@ export default function Game() {
           {!native && (
             <a
               className="secondary download-link"
-              href="/downloads/osbb.apk"
+              href={APK_URL || asset('downloads/osbb.apk')}
               download
             >
               <Download size={17} /> Завантажити Android APK

@@ -2,9 +2,9 @@
   "name": "ОСББ кінця світу",
   "short_name": "ОСББ",
   "description": "Рогалик про ходячий будинок, дивних сусідів і новий світанок",
-  "id": "/",
-  "start_url": "/",
-  "scope": "/",
+  "id": "osbb-end-of-world",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0c141a",
@@ -14,31 +14,31 @@
   "categories": ["games"],
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
@@ -48,14 +48,14 @@
     {
       "name": "Продовжити рейд",
       "short_name": "Продовжити",
-      "url": "/?continue=1",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "url": "./?continue=1",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Денний забіг",
       "short_name": "Денний забіг",
-      "url": "/?daily=1",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "url": "./?daily=1",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

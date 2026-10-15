@@ -1,3 +1,4 @@
+import { asset } from '@/lib/game/assets';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 type InstallPrompt = Event & {
@@ -87,7 +88,7 @@ export function useServiceWorker(enabled: boolean) {
     };
     sw.addEventListener('controllerchange', onController);
     document.addEventListener('visibilitychange', onVisible);
-    sw.register('/sw.js')
+    sw.register(asset('sw.js'))
       .then((r) => {
         reg = r;
         offer(r.waiting);

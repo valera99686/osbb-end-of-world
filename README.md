@@ -70,6 +70,8 @@
 
 `npm run build` — статична вебверсія в `build/`. `npm test` — інваріанти економіки, прогресії, збережень, режимів і досягнень, аудіо без браузера та симуляція боїв. `npm run typecheck` — TypeScript. Список модулів і тестів у `scripts/test.mjs` задано явно; новий файл у `lib/game/` або `tests/` без запису в ньому зупиняє `npm test`.
 
+Для GitHub Pages: `npm run build:pages` збирає версію під підшлях `/osbb-end-of-world/` у `.pages/` (шляхи ресурсів і офлайн-кеш враховують базу, APK завантажується з останнього релізу), `npm run deploy:pages` публікує її однією свіжою комітною гілкою `gh-pages`. Базу для власної збірки задають змінні `OSBB_BASE`, `OSBB_OUT`, `OSBB_APK_URL`.
+
 Для Android встановіть JDK 21 і Android SDK `platforms;android-36`, `build-tools;36.0.0`. Виконайте `powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1 -SdkPath PATH -JdkPath PATH`. За замовчуванням використовується локальний `.tools/android-sdk`. Скрипт створює перевірений, підписаний тестовим ключем `releases/osbb.apk` без Gradle. Браузерні ресурси вбудовані в APK. Мережевих дозволів немає; єдиний дозвіл — вібрація. Ключ зберігається тільки в ігнорованій `.localkeys`.
 
 Це інсталяційна тестова збірка. Публікація в Google Play окрема: потрібні власний захищений upload key, Android App Bundle, анкета контенту, сторінка конфіденційності й перевірка на реальному пристрої. Жодних гарантій схвалення магазину не заявляється.

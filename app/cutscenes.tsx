@@ -1,3 +1,4 @@
+import { asset } from '@/lib/game/assets';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Play, Pause, Lock } from 'lucide-react';
 import {
@@ -31,7 +32,9 @@ export function SceneArt({ art }: { art: number }) {
     >
       <image
         href={
-          art === 6 ? '/art/future-city-2086-v1.webp' : '/art/cutscenes-v1.webp'
+          art === 6
+            ? asset('art/future-city-2086-v1.webp')
+            : asset('art/cutscenes-v1.webp')
         }
         width="1536"
         height="1024"

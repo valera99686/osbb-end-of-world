@@ -204,3 +204,27 @@ test('After a boss or a raid the right scenes follow, each only once', () => {
   assert.equal(after.scene, null);
   assert.ok(after.protocol.length > 0, 'a short protocol goes into the result window');
 });
+
+test('Every backdrop in the story exists, and each ending has its own picture', () => {
+  const fs = require('node:fs');
+  const C = require('../.test-build/cutscenes.js');
+  for (const scene of allScenes())
+    for (const line of scene.lines)
+      if (line.art !== undefined)
+        assert.ok(
+          line.art <= 6 || C.SCENE_IMAGE_BY_ART[line.art],
+          `${scene.id}: unknown art ${line.art}`,
+        );
+  for (const key of ['a', 'b', 'c']) {
+    const art = C.ENDING_ART[key],
+      file = C.SCENE_IMAGE_BY_ART[art];
+    assert.ok(file && fs.existsSync('public' + file), `ending ${key} picture`);
+    const scene = S.SCENES['ending-' + key];
+    assert.ok(scene.lines.some((l) => l.art === art), `ending ${key} uses its picture`);
+    for (const other of ['a', 'b', 'c'].filter((k) => k !== key))
+      assert.ok(
+        !scene.lines.some((l) => l.art === C.ENDING_ART[other]),
+        `ending ${key} must not show the picture of ${other}`,
+      );
+  }
+});

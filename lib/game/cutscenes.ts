@@ -23,6 +23,9 @@ export const ORIGIN_ART = {
   greenhouse: 11,
   loop: 12,
 } as const;
+// One illustration per ending (story.ts): the first sunrise, the residents'
+// meeting and the night all intercoms rang.
+export const ENDING_ART = { a: 13, b: 14, c: 15 } as const;
 export const SCENE_IMAGE_BY_ART: Record<number, string> = {
   [ORIGIN_ART.service]: '/art/origins-city-service-v1.webp',
   [ORIGIN_ART.failure]: '/art/origins-network-failure-v1.webp',
@@ -30,6 +33,9 @@ export const SCENE_IMAGE_BY_ART: Record<number, string> = {
   [ORIGIN_ART.pursuit]: '/art/origins-drone-pursuit-v1.webp',
   [ORIGIN_ART.greenhouse]: '/art/origins-greenhouse-machines-v1.webp',
   [ORIGIN_ART.loop]: '/art/origins-time-loop-v1.webp',
+  [ENDING_ART.a]: '/art/ending-a.webp',
+  [ENDING_ART.b]: '/art/ending-b.webp',
+  [ENDING_ART.c]: '/art/ending-c.webp',
 };
 export const MISSIONS = CAMPAIGN_MISSIONS;
 const shot = (

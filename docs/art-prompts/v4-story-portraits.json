@@ -19,6 +19,24 @@
       "tool": "mage.space GPT Image 2.5 Flare, 1K 1:1",
       "source": "docs/art-source/portrait-svitanok.png",
       "prompt": "Svitanok (Dawn), the city-wide AI of Ukraine in 2086, a calm vertical ring of pale cyan light around a dark glass lens like a patient, slightly sad eye, floating in a dim server hall with hanging cables, tiny amber warning lights, faint glitch scanlines and drifting data particles; muted teal with warm amber accents; majestic, not menacing."
+    },
+    {
+      "name": "ending-a.webp",
+      "tool": "mage.space GPT Image 2.5 Flare, 1K 16:9",
+      "source": "docs/art-source/ending-a.png",
+      "prompt": "Ending A (Protocol No. 18): a retrofitted Soviet panel block on mechanical legs on a grassy hill at the first true sunrise, residents in slippers and cardigans on balconies and grass, an old woman with a teapot, a small door-intercom panel glowing amber and going dark; teal sky turning gold; bottom quarter calm for subtitles."
+    },
+    {
+      "name": "ending-b.webp",
+      "tool": "mage.space GPT Image 2.5 Flare, 1K 16:9",
+      "source": "docs/art-source/ending-b.png",
+      "prompt": "Ending B (Extraordinary meeting): stairwell hall at dawn used as a residents' meeting, tenants raising hands around a table with ten teacups, an elderly chairwoman with a tablet register, a door-intercom panel on the table glowing amber, a cat on a chair, a mechanic raising one hand reluctantly; warm lamp light and cold teal window light."
+    },
+    {
+      "name": "ending-c.webp",
+      "tool": "mage.space GPT Image 2.5 Flare, 1K 16:9",
+      "source": "docs/art-source/ending-c.png",
+      "prompt": "Ending C (04:16): a night panel-block district at 4:16 with every entrance lit by a small amber intercom panel, people in pajamas carrying cats and documents streaming up a hill to a pale dawn, a lone old block on mechanical legs in the foreground with its door open."
     }
   ]
 }

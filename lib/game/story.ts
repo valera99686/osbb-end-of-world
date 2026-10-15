@@ -1,5 +1,5 @@
 import type { Meta, Run } from './model';
-import { ORIGIN_ART } from './cutscenes';
+import { ENDING_ART, ORIGIN_ART } from './cutscenes';
 
 // «Справа 04:17»: the story is told in short dialogue scenes with portraits.
 // Layers the player peels off across runs:
@@ -482,30 +482,30 @@ export const SCENES: Record<string, Scene> = {
         'Мешканців на борту: дев’ять. У реєстрі: дев’ять. Евакуацію завершено. Поле вимкнено.',
       ),
       L('narrator', 'Годинник показав 04:18. Уперше.', {
-        art: CITY,
+        art: ENDING_ART.a,
         time: '04:18',
       }),
       L('lev', 'Світає. Бачите? Справжнє сонце, не аварійне.', {
-        art: CITY,
+        art: ENDING_ART.a,
         time: '04:18',
       }),
       L('nina', 'А я налила десять чашок. Для кого десята?', {
-        art: CITY,
+        art: ENDING_ART.a,
         time: '04:18',
       }),
       L('boris', 'Ніно Василівно, нас дев’ятеро. Завжди було дев’ятеро.', {
-        art: CITY,
+        art: ENDING_ART.a,
         time: '04:18',
       }),
-      L('nina', 'Так… Так, мабуть.', { art: CITY, time: '04:18' }),
+      L('nina', 'Так… Так, мабуть.', { art: ENDING_ART.a, time: '04:18' }),
       L('mechanic', 'Домофон мовчить. Уперше за сорок років.', {
-        art: CITY,
+        art: ENDING_ART.a,
         time: '04:19',
       }),
       L(
         'narrator',
         'Будинок № 17 дійшов до Притулку. Ніхто не пам’ятав, чому місто так довго не відпускало саме їх.',
-        { art: CITY },
+        { art: ENDING_ART.a },
       ),
       L(
         'svitanok',
@@ -526,7 +526,7 @@ export const SCENES: Record<string, Scene> = {
       L(
         'galyna',
         'Позачергові збори ОСББ будинку № 17 оголошую відкритими. Кворум… є. Навіть із квартирою нуль.',
-        { art: LOOP },
+        { art: ENDING_ART.b },
       ),
       L(
         'danilo',
@@ -561,15 +561,15 @@ export const SCENES: Record<string, Scene> = {
         'Мешканців на борту: десять. У реєстрі: десять. Евакуацію завершено.',
       ),
       L('narrator', 'О 04:18 будинок переступив міст. Цього разу — весь.', {
-        art: CITY,
+        art: ENDING_ART.b,
         time: '04:18',
       }),
       L('intercom', 'Я ніколи не був після 04:17. Тут… світло.', {
-        art: CITY,
+        art: ENDING_ART.b,
         time: '04:18',
       }),
       L('nina', 'Сідай до столу, дитино. Десята чашка — твоя.', {
-        art: CITY,
+        art: ENDING_ART.b,
         time: '04:19',
       }),
     ],
@@ -624,25 +624,25 @@ export const SCENES: Record<string, Scene> = {
       L(
         'narrator',
         'О 04:16 у кожному під’їзді міста одночасно задзеленчали всі домофони.',
-        { art: CITY, time: '04:16' },
+        { art: ENDING_ART.c, time: '04:16' },
       ),
       L(
         'intercom',
         'Шановні мешканці. Прокидайтеся. Беріть документи й котів. У вас є одна хвилина — і вона вся ваша.',
-        { art: CITY, time: '04:16' },
+        { art: ENDING_ART.c, time: '04:16' },
       ),
       L(
         'narrator',
         'О 04:18 місто провалилося — порожнім. Люди стояли на пагорбі в капцях і дивилися на світанок.',
-        { art: CITY, time: '04:18' },
+        { art: ENDING_ART.c, time: '04:18' },
       ),
-      L('captain', 'Алло? Хто там?', { art: CITY, time: '04:19' }),
+      L('captain', 'Алло? Хто там?', { art: ENDING_ART.c, time: '04:19' }),
       L('intercom', 'Свої. Відчиніть, будь ласка.', {
-        art: CITY,
+        art: ENDING_ART.c,
         time: '04:19',
       }),
       L('narrator', 'Двері задзвеніли. Хтось поставив десяту чашку.', {
-        art: CITY,
+        art: ENDING_ART.c,
       }),
     ],
   },

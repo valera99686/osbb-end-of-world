@@ -1,6 +1,7 @@
 import { RESIDENTS } from './residents';
 import { RESEARCH } from './data';
 import type { Meta, Run } from './model';
+import { CLUES } from './story';
 
 export interface Achievement {
   id: string;
@@ -43,6 +44,15 @@ const loops =
       count(meta, 'endlessBest'),
       run?.mode === 'endless' ? run.loop : 0,
     ) >= target;
+// Справа 04:17: evidence found and endings seen live in the profile.
+const clues =
+  (target: number): Check =>
+  (meta) =>
+    (meta.clues ?? []).length >= target;
+const ending =
+  (id: 'a' | 'b' | 'c'): Check =>
+  (meta) =>
+    (meta.endings ?? []).includes(id);
 const DEFINITIONS: (Achievement & { check: Check })[] = [
   {
     id: 'first_run',
@@ -284,6 +294,58 @@ const DEFINITIONS: (Achievement & { check: Check })[] = [
     check: (meta) =>
       Object.values(meta.winsByCharacter ?? {}).filter((n) => n > 0).length >=
       3,
+  },
+  {
+    id: 'clues_3',
+    title: 'Слідчий з другого поверху',
+    text: 'Знайди 3 докази у «Справі 04:17».',
+    icon: 'Search',
+    check: clues(3),
+  },
+  {
+    id: 'clues_8',
+    title: 'Детектив будинку',
+    text: 'Знайди 8 доказів у «Справі 04:17».',
+    icon: 'FolderOpen',
+    check: clues(8),
+  },
+  {
+    id: 'clues_all',
+    title: 'Справу закрито',
+    text: 'Збери всі докази «Справи 04:17».',
+    icon: 'BookOpen',
+    check: clues(CLUES.length),
+  },
+  {
+    id: 'ending_first',
+    title: 'Перший світанок',
+    text: 'Побачи будь-яку кінцівку.',
+    icon: 'Sunrise',
+    check: (meta) => (meta.endings ?? []).length >= 1,
+  },
+  {
+    id: 'ending_b',
+    title: 'Кворум є',
+    text: 'Побачи кінцівку «Позачергові збори».',
+    icon: 'Vote',
+    check: ending('b'),
+  },
+  {
+    id: 'ending_c',
+    title: 'Хто веде будинок',
+    text: 'Побачи кінцівку «04:16».',
+    icon: 'Moon',
+    check: ending('c'),
+  },
+  {
+    id: 'endings_all',
+    title: 'Усі три світанки',
+    text: 'Побачи всі три кінцівки.',
+    icon: 'Trophy',
+    check: (meta) =>
+      (['a', 'b', 'c'] as const).every((id) =>
+        (meta.endings ?? []).includes(id),
+      ),
   },
 ];
 export const ACHIEVEMENTS: Achievement[] = DEFINITIONS.map(

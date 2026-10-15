@@ -463,3 +463,28 @@ test('a pickup streak climbs in pitch without random detune', () => {
     }
   });
 });
+
+test('a voice line ducks the music, then releases it', () => {
+  assert.ok(Audio.VOICE_DUCK.level > 0 && Audio.VOICE_DUCK.level <= 0.35);
+  assert.ok(Audio.VOICE_DUCK.attack <= 0.25 && Audio.VOICE_DUCK.release <= 0.6);
+  const { Ctx, stats } = mockAudio();
+  withEngine({ AudioContext: Ctx }, (audio) => {
+    audio.setSpeaking(true); // before the context exists: remembered
+    audio.setMusic('hub', 'calm');
+    audio.unlock();
+    const c = audio.context;
+    const targets = [];
+    const param = audio.bus.talk.gain;
+    const set = param.setTargetAtTime.bind(param);
+    param.setTargetAtTime = (v, t, k) => (targets.push(v), set(v, t, k));
+    for (let k = 0; k < 80; k++) {
+      c.currentTime += 0.025;
+      audio.tick();
+    }
+    audio.setSpeaking(false);
+    audio.setSpeaking(true);
+    audio.setSpeaking(false);
+    assert.deepEqual(targets, [1, Audio.VOICE_DUCK.level, 1]);
+  });
+  assert.deepEqual(stats.errors, []);
+});

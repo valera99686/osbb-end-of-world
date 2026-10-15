@@ -20,7 +20,29 @@ export default defineConfig({
     __BASE__: JSON.stringify(base),
     __APK_URL__: JSON.stringify(process.env.OSBB_APK_URL ?? ''),
   },
-  build: { outDir: process.env.OSBB_OUT ?? 'build', sourcemap: false },
+  build: {
+    outDir: process.env.OSBB_OUT ?? 'build',
+    sourcemap: false,
+    rolldownOptions: {
+      output: {
+        // Libraries change rarely, so they live in their own cached chunks.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react',
+              test: /node_modules[\/](react|react-dom|scheduler)[\/]/,
+              priority: 20,
+            },
+            {
+              name: 'ui',
+              test: /node_modules[\/](@base-ui|lucide-react|class-variance-authority|tailwind-merge|clsx)[\/]/,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     host: '127.0.0.1',
     port: 5173,

@@ -9,13 +9,11 @@ import {
 import { Tutorial } from './tutorial';
 import { Workshop } from './workshop';
 import { blueprintInfo, runDepth } from '@/lib/game/progression';
-import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
+import { LOCATIONS } from '@/lib/game/encounters';
 import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
 import { FURNITURE_BY_ID } from '@/lib/game/furniture';
-import { minibossFor } from '@/lib/game/minibosses';
 import {
   battleRewards,
-  minibossVariant,
   advanceLocation,
   claimFurniture,
   buyFurniture,
@@ -35,6 +33,8 @@ import {
   UnlockList,
 } from './progress-goal';
 import {
+  Suspense,
+  lazy,
   useState,
   useEffect,
   useRef,
@@ -50,7 +50,6 @@ import {
   Volume2,
   VolumeX,
   Play,
-  Pause,
   Home,
   Coins,
   Shield,
@@ -59,7 +58,6 @@ import {
   Wrench,
   Footprints,
   Crosshair,
-  Hexagon,
   Package,
   ScrollText,
   Recycle,
@@ -88,7 +86,6 @@ import {
   applyAchievements,
   newAchievements,
 } from '@/lib/game/achievements';
-import { renderThemePreview, type MusicTheme } from '@/lib/game/audio';
 import { dateKey, runScore } from '@/lib/game/modes';
 import { SettingsDialog } from './settings';
 import { StatsPage, AchievementsPage, ownedAchievements } from './records';
@@ -111,21 +108,18 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
-import { RouteTree, NODE_INFO } from './route-tree';
+import { RouteTree } from './route-tree';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
 import { Glyph } from './glyph';
 import { activeEquipment, APARTMENT_SLOTS } from '@/lib/game/equipment';
 import { Residents, HousePreview, EquipmentPlacement } from './residents';
 import { CutscenePlayer, StoryLibrary } from './cutscenes';
-import { DialoguePlayer, ProtocolCard, RadioStrip } from './dialogue';
-import { setVoice } from './voice';
+import { DialoguePlayer, ProtocolCard } from './dialogue';
+import { onSpeaking, setVoice } from './voice';
 import { CasePage } from './case-file';
 import {
   CLUES,
   LIBRARY_IDS,
-  bossQuote,
-  combatBark,
   isStoryId,
   leaveScene,
   raidEnd,
@@ -134,10 +128,9 @@ import {
   storyScene,
   type Choice,
   type Line,
-  type SpeakerId,
 } from '@/lib/game/story';
 import { RescueCard, setRescueQuoteSource } from './rescue-card';
-import { CUTSCENES, SCENE_BY_ID, MISSIONS } from '@/lib/game/cutscenes';
+import { SCENE_BY_ID, MISSIONS } from '@/lib/game/cutscenes';
 import { residentCells, RESIDENT_BY_ID, houseSize } from '@/lib/game/residents';
 import { loreForProgress } from '@/lib/game/lore';
 import {
@@ -168,16 +161,18 @@ import {
   type Settings,
 } from '@/lib/game/model';
 import {
-  Battle,
   AudioEngine,
-  type Hud,
-  type BattleResult,
-} from '@/lib/game/engine';
-import { settleBattle } from './battle-end';
-import { PerkDraft } from './perk-draft';
+  renderThemePreview,
+  type MusicTheme,
+} from '@/lib/game/audio';
+import type { BattleResult } from '@/lib/game/engine';
+import { Currency } from './hud-parts';
 import { evolutionHint, type WeaponId } from '@/lib/game/weapons';
-import type { PerkId } from '@/lib/game/upgrades';
 
+// The battle engine is the heaviest part of the game: load it with the first raid.
+const Combat = lazy(() =>
+  import('./combat').then((m) => ({ default: m.Combat })),
+);
 // Injected by vite.game.config.ts; other bundlers leave it undefined.
 const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
 const APK_URL = typeof __APK_URL__ === 'string' ? __APK_URL__ : '';
@@ -195,39 +190,6 @@ function firstScene(meta: Meta, id: string) {
   return meta.scenesSeen.includes(id) ? null : { id, index: 0 };
 }
 
-function Currency({
-  amount,
-  cores = false,
-}: {
-  amount: number;
-  cores?: boolean;
-}) {
-  return (
-    <span className={`currency ${cores ? 'cores' : ''}`}>
-      {cores ? <Hexagon size={16} /> : <Coins size={16} />} {Math.floor(amount)}
-    </span>
-  );
-}
-function Meter({
-  value,
-  max,
-  label,
-  color,
-}: {
-  value: number;
-  max: number;
-  label: string;
-  color?: string;
-}) {
-  return (
-    <Progress
-      className="game-progress"
-      value={Math.min(100, Math.max(0, (value / max) * 100))}
-      aria-label={label}
-      style={{ '--meter-color': color ?? 'var(--teal)' } as CSSProperties}
-    />
-  );
-}
 type Result = {
   won: boolean;
   run: Run;
@@ -315,419 +277,6 @@ function revealCue(cards: { rarity: number; fresh: boolean }[]) {
     return { kind: 'legendary' as const, at: legendary * 140 + 110 };
   const rare = cards.findIndex((c) => c.rarity === 3 || c.fresh);
   return rare >= 0 ? { kind: 'rare' as const, at: rare * 140 + 240 } : null;
-}
-function Combat({
-  run,
-  meta,
-  audio,
-  hold,
-  onDone,
-  onExit,
-  onPauseChange,
-  onSettings,
-}: {
-  run: Run;
-  meta: Meta;
-  audio: AudioEngine;
-  // Settings are open on top: the arena freezes without the pause menu.
-  hold: boolean;
-  onDone: (r: BattleResult) => void;
-  onExit: (r: Run) => void;
-  onPauseChange: (paused: boolean) => void;
-  onSettings: () => void;
-}) {
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
-  const onPauseRef = useRef(onPauseChange),
-    holdRef = useRef(hold);
-  useEffect(() => {
-    onPauseRef.current = onPauseChange;
-    holdRef.current = hold;
-  });
-  const canvas = useRef<HTMLCanvasElement>(null),
-    engine = useRef<Battle | null>(null),
-    joystick = useRef<HTMLDivElement>(null),
-    pointer = useRef<number | null>(null);
-  const [hud, setHud] = useState<Hud>({
-    hp: run.hp,
-    max: statsFor(run, meta).health,
-    coins: run.coins,
-    kills: run.kills,
-    level: run.level,
-    xp: run.xp,
-    need: 10 + run.level * 5,
-    time: 0,
-    duration: 48,
-    dash: 0,
-    pulse: 0,
-    boss: 0,
-    bossMax: 0,
-    enemies: 0,
-    bossAttack: '',
-    bossPhase: 0,
-  });
-  const [paused, setPaused] = useState(false),
-    [stick, setStick] = useState({ x: 0, y: 0 }),
-    [draft, setDraft] = useState<{ offers: PerkId[]; level: number } | null>(
-      null,
-    ),
-    [bark, setBark] = useState<{
-      who: SpeakerId;
-      text: string;
-      key: number;
-    } | null>(null);
-  useEffect(() => {
-    // Radio barks: few, short, never during the perk draft.
-    let lastBark = -1e9,
-      barks = 0,
-      hideTimer = 0,
-      startTimer = 0;
-    const aboard = (run.residents ?? []).map((r) => r.id);
-    const say = (kind: string, urgent = false) => {
-      const now = performance.now();
-      if (barks >= 5 || now - lastBark < (urgent ? 4000 : 11000)) return;
-      const line = combatBark(
-        kind,
-        aboard,
-        run.seed + run.step * 7 + barks * 13,
-      );
-      if (!line) return;
-      lastBark = now;
-      barks++;
-      setBark({ ...line, key: barks });
-      window.clearTimeout(hideTimer);
-      hideTimer = window.setTimeout(() => setBark(null), 4600);
-    };
-    if (run.kind === 'boss' || run.kind === 'miniboss')
-      startTimer = window.setTimeout(() => say('start'), 2600);
-    const b = new Battle(
-      canvas.current,
-      run,
-      meta,
-      audio,
-      setHud,
-      (r) => onDoneRef.current(r),
-      {
-        settings: meta.settings,
-        introQuote:
-          run.kind === 'boss' || run.kind === 'miniboss'
-            ? bossQuote(run, meta)
-            : undefined,
-        onBeat: (beat) => {
-          if (beat.kind === 'wave')
-            say(
-              beat.wave === 1
-                ? 'start'
-                : beat.wave === beat.waves
-                  ? 'final'
-                  : 'wave',
-            );
-          else if (
-            beat.kind === 'chief' ||
-            beat.kind === 'broken' ||
-            beat.kind === 'event'
-          )
-            say(beat.kind);
-          else if (beat.kind === 'phase' || beat.kind === 'stagger')
-            say(beat.kind, true);
-        },
-        onPerkDraft: (offers, level) => {
-          audio.play('rare');
-          setDraft({ offers, level });
-        },
-        onPause: () => {
-          // Settings hold the arena: Start must not flip the pause under them.
-          if (!settle() && !holdRef.current) setPaused((p) => !p);
-        },
-      },
-    );
-    const settle = () => settleBattle(b);
-    engine.current = b;
-    b.start();
-    const keys = (e: KeyboardEvent) => {
-      // Sliders and switches in the settings dialog need the arrow keys.
-      if (holdRef.current) return;
-      if (
-        [
-          'KeyW',
-          'KeyA',
-          'KeyS',
-          'KeyD',
-          'ArrowUp',
-          'ArrowDown',
-          'ArrowLeft',
-          'ArrowRight',
-          'Space',
-          'KeyE',
-        ].includes(e.code)
-      ) {
-        e.preventDefault();
-        if (e.code === 'Space') b.dash();
-        else if (e.code === 'KeyE') b.pulse();
-        else b.keys.add(e.code);
-      }
-      if ((e.code === 'Escape' || e.code === 'KeyP') && !settle())
-        setPaused((p) => !p);
-    };
-    // Android back and gamepad B: pause, or leave the pause menu again. With
-    // Settings on top, Game's own handler closes them; the arena stays paused.
-    const back = (e: Event) => {
-      e.preventDefault();
-      if (!settle()) setPaused((p) => holdRef.current || !p);
-    };
-    document.addEventListener('osbb-back', back);
-    const up = (e: KeyboardEvent) => b.keys.delete(e.code);
-    const blur = () => {
-      b.keys.clear();
-      b.stick = { x: 0, y: 0 };
-      // A backgrounded app may be killed: a decided battle is saved now.
-      if (!settle()) setPaused(true);
-    };
-    const visibility = () => {
-      if (document.hidden) blur();
-    };
-    window.addEventListener('keydown', keys);
-    window.addEventListener('keyup', up);
-    window.addEventListener('blur', blur);
-    document.addEventListener('visibilitychange', visibility);
-    return () => {
-      window.clearTimeout(hideTimer);
-      window.clearTimeout(startTimer);
-      b.stop();
-      window.removeEventListener('keydown', keys);
-      window.removeEventListener('keyup', up);
-      window.removeEventListener('blur', blur);
-      document.removeEventListener('visibilitychange', visibility);
-      document.removeEventListener('osbb-back', back);
-    };
-  }, []);
-  useEffect(() => {
-    onPauseRef.current(paused);
-    if (engine.current) {
-      engine.current.paused = paused || hold;
-      if (paused || hold) {
-        engine.current.keys.clear();
-        engine.current.stick = { x: 0, y: 0 };
-        setStick({ x: 0, y: 0 });
-        pointer.current = null;
-      }
-    }
-  }, [paused, hold]);
-  useEffect(() => () => onPauseRef.current(false), []);
-  useEffect(() => {
-    engine.current?.setSettings(meta.settings);
-  }, [meta.settings]);
-  function point(e: React.PointerEvent) {
-    if (pointer.current !== e.pointerId) return;
-    const r = joystick.current!.getBoundingClientRect();
-    let x = (e.clientX - r.left - r.width / 2) / 40,
-      y = (e.clientY - r.top - r.height / 2) / 40;
-    const length = Math.hypot(x, y);
-    if (length > 1) {
-      x /= length;
-      y /= length;
-    }
-    setStick({ x: x * 32, y: y * 32 });
-    if (engine.current) engine.current.stick = { x, y };
-  }
-  function release() {
-    pointer.current = null;
-    setStick({ x: 0, y: 0 });
-    if (engine.current) engine.current.stick = { x: 0, y: 0 };
-  }
-  const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
-  return (
-    <section className="battle-screen">
-      {draft && !paused && !hold && (
-        <PerkDraft
-          run={engine.current?.run ?? run}
-          offers={draft.offers}
-          level={draft.level}
-          onPick={(id) => {
-            audio.play('ui');
-            setDraft(null);
-            engine.current?.choosePerk(id);
-          }}
-        />
-      )}
-      <canvas
-        ref={canvas}
-        className="battle-canvas"
-        aria-label="Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — ударна хвиля."
-      />
-      {bark && !draft && (
-        <RadioStrip
-          key={bark.key}
-          who={bark.who}
-          text={bark.text}
-          captain={run.character}
-        />
-      )}
-      <div className="battle-hud">
-        <div className="health-block">
-          <div>
-            <Heart size={15} />
-            <b>
-              {Math.ceil(hud.hp)} <span>/ {hud.max}</span>
-            </b>
-          </div>
-          <Meter
-            value={hud.hp}
-            max={hud.max}
-            label="Міцність будинку"
-            color="#b8ceaa"
-          />
-        </div>
-        <div className="battle-center">
-          <span className="micro">
-            {run.kind === 'boss'
-              ? campaignBoss(run.chapter, run.bossVariants[run.chapter]).name
-              : run.kind === 'miniboss'
-                ? minibossFor(run.chapter, minibossVariant(run)).name
-                : (hud.squad ?? NODE_INFO[run.kind].name)}
-          </span>
-          <strong>
-            {Math.floor(remaining / 60)}:
-            {String(remaining % 60).padStart(2, '0')}
-          </strong>
-        </div>
-        <div className="battle-wallet">
-          <Currency amount={hud.coins} />
-          <button
-            className="icon-button"
-            onClick={() => {
-              if (!settleBattle(engine.current)) setPaused(true);
-            }}
-            aria-label="Пауза"
-          >
-            <Pause size={18} />
-          </button>
-        </div>
-      </div>
-      {hud.bossMax > 0 && (
-        <div className="boss-health">
-          <span>
-            {run.kind === 'miniboss'
-              ? `Мінібос · ${minibossFor(run.chapter, minibossVariant(run)).name}`
-              : campaignBoss(run.chapter, run.bossVariants[run.chapter])
-                  .name}{' '}
-            · {Math.ceil(hud.boss)} / {hud.bossMax}
-          </span>
-          <small className="boss-attack-cue">
-            ФАЗА {hud.bossPhase + 1} · {hud.bossAttack || 'Готується до атаки'}
-          </small>
-          <Meter
-            value={hud.boss}
-            max={hud.bossMax}
-            color="#e69080"
-            label={
-              run.kind === 'miniboss' ? 'Міцність мінібоса' : 'Міцність боса'
-            }
-          />
-        </div>
-      )}
-      <div className="level-strip">
-        <span>РІВЕНЬ {hud.level}</span>
-        <Meter
-          value={hud.xp}
-          max={hud.need}
-          label="Досвід до наступного рівня"
-        />
-        <span>
-          <Skull size={14} /> {hud.kills}
-        </span>
-      </div>
-      {hud.time < 7 && (
-        <div className="battle-hint">
-          {run.step === 0
-            ? 'Рухайся й збирай лут. Будинок стріляє сам.'
-            : run.kind === 'boss'
-              ? 'Стеж за червоними снарядами. Ривок захищає від шкоди.'
-              : run.kind === 'miniboss'
-                ? 'Знищ мінібоса. Виходь із позначених зон до удару; ривок захищає від шкоди.'
-                : 'Розбий загін: три хвилі й ватажок. Рухайся — стрільці цілять на випередження.'}
-        </div>
-      )}
-      <div className="battle-controls">
-        <div
-          className="joystick"
-          ref={joystick}
-          onPointerDown={(e) => {
-            if (pointer.current !== null) return;
-            pointer.current = e.pointerId;
-            e.currentTarget.setPointerCapture(e.pointerId);
-            point(e);
-          }}
-          onPointerMove={point}
-          onPointerUp={release}
-          onPointerCancel={release}
-          onLostPointerCapture={release}
-        >
-          <div className="stick-cross" />
-          <div
-            className="stick-knob"
-            style={{ transform: `translate(${stick.x}px,${stick.y}px)` }}
-          />
-          <span>РУХ</span>
-        </div>
-        <div className="keyboard-hint">
-          <kbd>W A S D</kbd>
-          <span>рух</span>
-          <kbd>SPACE</kbd>
-          <span>ривок</span>
-          <kbd>E</kbd>
-          <span>хвиля</span>
-        </div>
-        <div className="ability-row">
-          <button
-            className="ability"
-            onClick={() => engine.current?.dash()}
-            disabled={hud.dash > 0}
-            aria-label="Ривок"
-          >
-            <Footprints size={24} />
-            <b>{hud.dash > 0 ? hud.dash.toFixed(1) : 'РИВОК'}</b>
-            <small>Пробіл</small>
-          </button>
-          <button
-            className="ability pulse"
-            onClick={() => engine.current?.pulse()}
-            disabled={hud.pulse > 0}
-            aria-label="Ударна хвиля"
-          >
-            <Zap size={24} />
-            <b>{hud.pulse > 0 ? hud.pulse.toFixed(1) : 'ХВИЛЯ'}</b>
-            <small>E</small>
-          </button>
-        </div>
-      </div>
-      <Dialog open={paused && !hold} onOpenChange={setPaused}>
-        <DialogContent className="game-modal">
-          <DialogTitle>Будинок перепочиває</DialogTitle>
-          <DialogDescription>
-            Забіг поставлено на паузу. Повернення до меню збереже стан перед цим
-            боєм.
-          </DialogDescription>
-          <button className="primary" onClick={() => setPaused(false)}>
-            <Play size={18} /> Продовжити
-          </button>
-          <button className="secondary" onClick={onSettings}>
-            <SettingsIcon size={18} /> Налаштування
-          </button>
-          <button
-            className="secondary"
-            onClick={() => {
-              // A battle decided under the menu keeps its result.
-              if (!settleBattle(engine.current))
-                onExit({ ...run, page: 'map' });
-            }}
-          >
-            <Home size={18} /> Зберегти й до меню
-          </button>
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
 }
 export default function Game() {
   const [meta, setMeta] = useState<Meta>(initialMeta),
@@ -817,6 +366,8 @@ export default function Game() {
   useEffect(() => {
     setNative(navigator.userAgent.includes('OSBBAndroid'));
     preloadEnemyArt();
+    // The battle code loads while the menu is open, so the first raid starts at once.
+    const warmCombat = window.setTimeout(() => void import('./combat'), 1200);
     if (import.meta.env.DEV)
       Object.assign(window, { __osbbAudioPreview: renderThemePreview });
     const shortcut = SHORTCUT;
@@ -1036,6 +587,28 @@ export default function Game() {
   useEffect(() => {
     setVoice({ volume: meta.settings.voice, enabled: meta.sound });
   }, [meta.settings.voice, meta.sound]);
+  // Music ducks under voice lines.
+  useEffect(() => onSpeaking((on) => audio.current?.setSpeaking(on)), []);
+  // A soft click on every button and link, except the combat controls (they
+  // have their own sounds) and the perk cards (which play it themselves).
+  useEffect(() => {
+    const click = (e: MouseEvent) => {
+      const el =
+        e.target instanceof Element
+          ? e.target.closest('button, a[href], [role="tab"]')
+          : null;
+      if (
+        !el ||
+        el.hasAttribute('disabled') ||
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.closest('.battle-controls, .perk-draft')
+      )
+        return;
+      audio.current?.play('ui');
+    };
+    document.addEventListener('click', click, true);
+    return () => document.removeEventListener('click', click, true);
+  }, []);
   // The story picks its rescue line from the profile at the moment of the card.
   const storyMeta = useRef(meta);
   storyMeta.current = meta;
@@ -1657,20 +1230,24 @@ export default function Game() {
       {screen === 'play' && run && (
         <>
           {run.page === 'combat' ? (
-            <Combat
-              key={`${run.seed}-${run.chapter}-${run.step}`}
-              run={run}
-              meta={meta}
-              audio={audio.current!}
-              hold={settingsOpen}
-              onDone={ended}
-              onExit={(r) => {
-                setRun(r);
-                back();
-              }}
-              onPauseChange={setCombatPaused}
-              onSettings={() => setSettingsOpen(true)}
-            />
+            <Suspense
+              fallback={<section className="battle-screen" aria-busy="true" />}
+            >
+              <Combat
+                key={`${run.seed}-${run.chapter}-${run.step}`}
+                run={run}
+                meta={meta}
+                audio={audio.current!}
+                hold={settingsOpen}
+                onDone={ended}
+                onExit={(r) => {
+                  setRun(r);
+                  back();
+                }}
+                onPauseChange={setCombatPaused}
+                onSettings={() => setSettingsOpen(true)}
+              />
+            </Suspense>
           ) : (
             <div className="play-layout">
               <section className="play-main">

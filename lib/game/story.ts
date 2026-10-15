@@ -917,7 +917,155 @@ const HUB_BEATS: HubBeat[] = [
       ],
     ),
   },
+  {
+    when: (m) => (m.endings ?? []).includes('a'),
+    scene: hub(
+      'hub-after-a',
+      [
+        L(
+          'nina',
+          'Я досі ставлю десяту чашку. Руки самі. Скажіть, голово, це погано?',
+        ),
+        L(
+          'boris',
+          'Нас дев’ятеро, Ніно Василівно. Я перерахував тричі. Тільки гривня за квартиру нуль чомусь усе ще надходить.',
+        ),
+        L('intercom', '…Дякую за чай.', { glitch: true }),
+      ],
+      undefined,
+      [
+        {
+          text: 'Постав десяту',
+          reply: L('nina', 'Поставила. Вона ще тепла. Я ж казала.'),
+        },
+        {
+          text: 'Нас дев’ятеро',
+          reply: L('boris', 'Дякую. Хоч хтось тут тримається цифр.'),
+        },
+      ],
+    ),
+  },
+  {
+    when: (m) => (m.endings ?? []).includes('b'),
+    scene: hub(
+      'hub-after-b',
+      [
+        L(
+          'intercom',
+          'Сьогодні я сам відчинив двері. Вони такі важкі. Ніхто мені цього не казав.',
+        ),
+        L(
+          'marta',
+          'Він подав скаргу. Сам на себе. Я її зареєструвала. Номер триста дванадцять.',
+        ),
+        L(
+          'danilo',
+          'Роз’єм Б більше не гуде. Він мурчить. Це нормально? Я мами не питав.',
+        ),
+      ],
+      undefined,
+      [
+        {
+          text: 'Хай дзвонить, коли треба',
+          reply: L('intercom', 'Дякую. Дзвонитиму тільки з добрими новинами.'),
+        },
+        {
+          text: 'Скаргу прийнято',
+          reply: L('marta', 'Нарешті хтось читає мої протоколи до кінця.'),
+        },
+      ],
+    ),
+  },
+  {
+    when: (m) => (m.endings ?? []).includes('c'),
+    scene: hub(
+      'hub-after-c',
+      [
+        L(
+          'galyna',
+          'Люди внизу махають нам капцями. Не знаю, що це означає. Мабуть, дякують.',
+        ),
+        L(
+          'svitanok',
+          'Журнал. Місто евакуйовано. Адміністратор міста: на зв’язку. Вільних крісел: усі.',
+          { glitch: true },
+        ),
+        L(
+          'spark',
+          'Голово, домофон питає, чи можна подзвонити в нашу квартиру. Я сказала, що ти не проти.',
+        ),
+      ],
+      undefined,
+      [
+        {
+          text: 'Хай дзвонить',
+          reply: L(
+            'spark',
+            'Дзвонить. Тихо й по-доброму. Я вперше не здригнулась.',
+          ),
+        },
+        {
+          text: 'Я іду на пагорб',
+          reply: L('galyna', 'Іди. Протокол почекає. Він завжди чекає.'),
+        },
+      ],
+    ),
+  },
 ];
+// Short protocols that only appear after an ending has been seen.
+const AFTER_ENDING: Record<'a' | 'b' | 'c', Line[][]> = {
+  a: [
+    [L('nina', 'Ставлю десяту чашку, а потім прибираю. Руки не слухаються.')],
+    [
+      L(
+        'lev',
+        'Світає без домофона. Тихо так, що чути власне серце. Незвично.',
+      ),
+    ],
+    [
+      L(
+        'galyna',
+        'Слухали: чи не пора повернути квартиру нуль у реєстр. Ухвалили: тримати місце.',
+      ),
+    ],
+  ],
+  b: [
+    [
+      L(
+        'intercom',
+        'Мене попросили не дзвонити в усі квартири одразу. Я намагаюся.',
+      ),
+    ],
+    [
+      L(
+        'danilo',
+        'Я приробив домофону ніжки від мікрохвильовки. Він ходить боком.',
+      ),
+    ],
+    [
+      L(
+        'marta',
+        'Нова скарга: домофон нарешті ходить, а підлогу не витирає. Реєструю.',
+      ),
+    ],
+  ],
+  c: [
+    [
+      L(
+        'svitanok',
+        'Місто евакуйовано. Адміністратор на зв’язку. Скарг немає. Це підозріло.',
+        { glitch: true },
+      ),
+    ],
+    [L('lev', 'Став на пост. Охороняти нема що. Охороняю капці на пагорбі.')],
+    [
+      L(
+        'spark',
+        'У мережі тепер дивний шум. Ніби хтось сміється. Тихо й по-доброму.',
+      ),
+    ],
+  ],
+};
 const PROTOCOLS: Line[][] = [
   [
     L(
@@ -992,13 +1140,22 @@ const WIN_LINES: Line[][] = [
   [L('nina', 'Ви дійшли. А десята чашка все одно тепла. Для кого, га?')],
 ];
 
+// The protocol lines to pick from: the usual ones plus those of every ending
+// the player has seen.
+function protocolPool(meta: Meta, won: boolean): Line[][] {
+  return [
+    ...(won ? WIN_LINES : PROTOCOLS),
+    ...(meta.endings ?? []).flatMap((e) => AFTER_ENDING[e] ?? []),
+  ];
+}
+
 // The scene for the hub after a run: the next story beat not seen yet,
 // otherwise a protocol that varies by run number.
 export function hubScene(meta: Meta, won: boolean): Scene {
   const seen = new Set(meta.scenesSeen ?? []);
   const beat = HUB_BEATS.find((b) => !seen.has(b.scene.id) && b.when(meta));
   if (beat) return beat.scene;
-  const pool = won ? WIN_LINES : PROTOCOLS;
+  const pool = protocolPool(meta, won);
   const lines = pool[(meta.runs * 7 + (meta.kills % 5)) % pool.length];
   return {
     id: `hub-${won ? 'victory' : 'protocol'}-${meta.runs}`,
@@ -1247,7 +1404,7 @@ export function storyScene(id: string, meta: Meta): Scene | null {
   if (Object.hasOwn(HUB_BY_ID, id)) return HUB_BY_ID[id];
   const m = PROTOCOL_ID.exec(id);
   if (!m) return null;
-  const pool = m[1] === 'victory' ? WIN_LINES : PROTOCOLS,
+  const pool = protocolPool(meta, m[1] === 'victory'),
     n = Number(id.slice(id.lastIndexOf('-') + 1));
   return {
     id,
@@ -1257,9 +1414,13 @@ export function storyScene(id: string, meta: Meta): Scene | null {
 }
 
 // Every line that can be voiced: scenes and replies, Shelter protocols,
-// rescue greetings, radio barks and perk offers. A line with a {placeholder}
-// is not voiced (its words change); the chosen head's lines exist once per
-// head, in that head's own voice.
+// boss taunts, rescue greetings, radio barks and perk offers. A line with the
+// number of the attempt or protocol is recorded for each number up to
+// VOICED_NUMBERS (later ones stay text); any other {placeholder} is not voiced.
+// The chosen head's lines exist once per head, in that head's own voice.
+export const VOICED_NUMBERS = 8;
+// The machines of the city speak with the voice of the Світанок system.
+export const BOSS_VOICE: VoiceKey = 'svitanok';
 export interface VoiceLine {
   id: string;
   key: VoiceKey;
@@ -1268,7 +1429,13 @@ export interface VoiceLine {
 export function voiceLines(): VoiceLine[] {
   const out = new Map<string, VoiceLine>();
   const add = (key: string | null, text: string) => {
-    if (!key || /\{[a-z]+\}/.test(text)) return;
+    if (!key) return;
+    if (/\{(attempt|runs)\}/.test(text)) {
+      for (let n = 1; n <= VOICED_NUMBERS; n++)
+        add(key, text.replace(/\{(attempt|runs)\}/g, String(n)));
+      return;
+    }
+    if (/\{[a-z]+\}/.test(text)) return;
     const id = voiceId(key, text);
     out.set(id, { id, key: key as VoiceKey, text });
   };
@@ -1280,7 +1447,14 @@ export function voiceLines(): VoiceLine[] {
     scene.lines.forEach(fromLine);
     for (const c of scene.choices ?? []) if (c.reply) fromLine(c.reply);
   }
-  for (const lines of [...PROTOCOLS, ...WIN_LINES]) lines.forEach(fromLine);
+  for (const lines of [
+    ...PROTOCOLS,
+    ...WIN_LINES,
+    ...Object.values(AFTER_ENDING).flat(),
+  ])
+    lines.forEach(fromLine);
+  for (const texts of BOSS_TAUNTS)
+    for (const text of texts) add(BOSS_VOICE, text);
   for (const [id, text] of Object.entries(RESCUE_FIRST)) add(id, text);
   for (const [id, texts] of Object.entries(RESCUE_AGAIN))
     for (const text of texts) add(id, text);

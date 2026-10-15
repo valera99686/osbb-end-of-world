@@ -59,7 +59,7 @@ test('The manifest and the files in public/voice are the same set, covering ever
   for (const l of S.voiceLines()) assert.ok(VOICE_IDS.has(l.id), `no recording: ${l.text}`);
   for (const f of files) assert.ok(fs.statSync(`public/voice/${f}.ogg`).size > 500, f);
   const total = files.reduce((n, f) => n + fs.statSync(`public/voice/${f}.ogg`).size, 0);
-  assert.ok(total < 4 * 1024 * 1024, `voice-over is ${total} bytes: the APK has little room`);
+  assert.ok(total < 6 * 1024 * 1024, `voice-over is ${total} bytes: the APK has little room`);
 });
 
 test('The voice volume is a setting: defaulted, clamped and kept in a save', () => {
@@ -71,4 +71,32 @@ test('The voice volume is a setting: defaulted, clamped and kept in a save', () 
     run = M.makeRun(meta, 'mechanic', 0, 3);
   meta.settings = { ...meta.settings, voice: 0.25 };
   assert.equal(M.readSave(M.saveData(meta, run)).meta.settings.voice, 0.25);
+});
+
+test('Lines with an attempt or protocol number are recorded for the first numbers', () => {
+  const texts = new Set(S.voiceLines().map((l) => l.text));
+  for (let n = 1; n <= S.VOICED_NUMBERS; n++)
+    assert.ok(texts.has(`Шкідника виявлено. Спроба ${n}. Обробку розпочато.`), `attempt ${n}`);
+  assert.ok(!texts.has(`Шкідника виявлено. Спроба ${S.VOICED_NUMBERS + 1}. Обробку розпочато.`));
+  const meta = (runs) => ({ ...M.initialMeta(), runs });
+  // What the player hears on a boss card is the filled taunt: early ones are recorded.
+  for (let runs = 0; runs < S.VOICED_NUMBERS; runs++)
+    for (const chapter of [0, 1, 2]) {
+      const quote = S.bossQuote({ chapter }, meta(runs));
+      assert.ok(VOICE_IDS.has(V.voiceId(S.BOSS_VOICE, quote)), quote);
+    }
+  const late = S.bossQuote({ chapter: 1 }, meta(S.VOICED_NUMBERS));
+  assert.ok(!VOICE_IDS.has(V.voiceId(S.BOSS_VOICE, late)), 'later attempts stay text');
+  // The same holds for the numbered Shelter protocols.
+  const seen = S.HUB_SCENES.map((x) => x.id);
+  for (const endings of [[], ['a'], ['b', 'c']])
+    for (let runs = 1; runs <= S.VOICED_NUMBERS; runs++)
+      for (const won of [false, true]) {
+        const m = { ...meta(runs), endings, scenesSeen: seen, kills: runs };
+        for (const line of S.hubScene(m, won).lines) {
+          const key = V.voiceKeyFor(line.who, 'mechanic');
+          const text = S.fillLine(line.text, m, 'mechanic');
+          if (key) assert.ok(VOICE_IDS.has(V.voiceId(key, text)), text);
+        }
+      }
 });

@@ -70,6 +70,8 @@ test('The Shelter tells one new story beat per raid, in order, then protocols', 
     meta.totalRescues += 1;
     meta.totalBosses = Math.floor(meta.runs / 4);
     if (meta.runs > 12) meta.endings = ['a'];
+    if (meta.runs > 16) meta.endings = ['a', 'b'];
+    if (meta.runs > 20) meta.endings = ['a', 'b', 'c'];
     const scene = S.hubScene(meta, false);
     if (!/^hub-protocol/.test(scene.id)) {
       offered.push(scene.id);
@@ -227,4 +229,39 @@ test('Every backdrop in the story exists, and each ending has its own picture', 
         `ending ${key} must not show the picture of ${other}`,
       );
   }
+});
+
+test('Each ending changes the Shelter: its own beat once, and its own protocols', () => {
+  const seenAll = S.HUB_SCENES.map((x) => x.id).filter((id) => !/^hub-after-/.test(id));
+  const base = { ...M.initialMeta(), deaths: 1, runs: 30, totalRescues: 9, totalBosses: 5, scenesSeen: seenAll };
+  const protocols = (endings) => {
+    const texts = new Set();
+    for (let runs = 1; runs <= 40; runs++)
+      for (let kills = 0; kills < 5; kills++) {
+        const meta = { ...base, runs, kills, endings, scenesSeen: [...seenAll, 'hub-after-a', 'hub-after-b', 'hub-after-c'] };
+        for (const won of [false, true])
+          for (const line of S.hubScene(meta, won).lines) texts.add(line.text);
+      }
+    return texts;
+  };
+  const marker = { a: 'Ставлю десяту чашку, а потім прибираю', b: 'Мене попросили не дзвонити', c: 'Охороняю капці на пагорбі' };
+  const none = protocols([]);
+  for (const id of ['a', 'b', 'c']) {
+    assert.ok(![...none].some((t) => t.includes(marker[id])), `no ${id} lines before the ending`);
+    const own = protocols([id]);
+    assert.ok([...own].some((t) => t.includes(marker[id])), `${id} lines after the ending`);
+    for (const other of ['a', 'b', 'c'].filter((x) => x !== id))
+      assert.ok(![...own].some((t) => t.includes(marker[other])), `${other} lines stay hidden`);
+    // The beat waits for its ending, comes once, and a saved scene id still resolves.
+    const beat = `hub-after-${id}`;
+    assert.notEqual(S.hubScene({ ...base, endings: [], scenesSeen: seenAll }, false).id, beat);
+    assert.equal(S.hubScene({ ...base, endings: [id], scenesSeen: seenAll }, false).id, beat);
+    assert.notEqual(S.hubScene({ ...base, endings: [id], scenesSeen: [...seenAll, beat] }, false).id, beat);
+    assert.ok(S.storyScene(beat, base));
+  }
+  // A protocol id saved before reloading rebuilds the very same lines.
+  const meta = { ...base, runs: 17, kills: 3, endings: ['a', 'c'], scenesSeen: [...seenAll, 'hub-after-a', 'hub-after-c'] };
+  const scene = S.hubScene(meta, false);
+  assert.match(scene.id, /^hub-protocol-17$/);
+  assert.deepEqual(S.storyScene(scene.id, meta).lines, scene.lines);
 });

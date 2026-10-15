@@ -6,9 +6,27 @@ import { VOICE_IDS } from '@/lib/game/voice-manifest';
 
 let volume = 0.9,
   enabled = true,
+  speaking = false,
   current: HTMLAudioElement | null = null;
+const listeners = new Set<(on: boolean) => void>();
+
+// True while a line is playing.
+export const isSpeaking = () => speaking;
+// Tells the music when a line starts and stops, so it can duck under it.
+export function onSpeaking(listener: (on: boolean) => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+function setSpeaking(on: boolean) {
+  if (speaking === on) return;
+  speaking = on;
+  for (const listener of listeners) listener(on);
+}
 
 export function stopVoice() {
+  setSpeaking(false);
   if (!current) return;
   current.pause();
   current = null;
@@ -34,10 +52,17 @@ export function speak(key: string | null, text: string) {
   const audio = new Audio(asset(`voice/${id}.ogg`));
   audio.volume = volume;
   current = audio;
+  const done = () => {
+    if (current !== audio) return;
+    current = null;
+    setSpeaking(false);
+  };
+  audio.addEventListener('ended', done);
+  audio.addEventListener('error', done);
   // The browser may refuse before the first tap: the line is then just text.
-  audio.play().catch(() => {
-    if (current === audio) current = null;
-  });
+  audio.play().then(() => {
+    if (current === audio) setSpeaking(true);
+  }, done);
 }
 
 // A hidden tab or a backgrounded app must not keep talking.

@@ -544,12 +544,18 @@ class Echo {
   }
 }
 
-// sfx + music -> compressor -> master. Music has its own pause duck/muffle.
+// While a voice line plays the music sinks to this share of its level, fast on
+// the way down and slower on the way back so the line is never fighting it.
+export const VOICE_DUCK = { level: 0.3, attack: 0.18, release: 0.5 };
+
+// sfx + music -> compressor -> master. Music has its own pause duck/muffle and
+// a voice duck; sound effects stay at full level.
 class Bus {
   master: GainNode;
   music: GainNode;
   muffle: BiquadFilterNode;
   duck: GainNode;
+  talk: GainNode;
   sfx: GainNode;
   verb: Verb | null;
   constructor(ctx: Ctx, v: { music: number; sfx: number }, effects: boolean) {
@@ -567,7 +573,9 @@ class Bus {
     this.duck = gainNode(ctx, 1);
     this.music.connect(this.muffle);
     this.muffle.connect(this.duck);
-    this.duck.connect(comp);
+    this.talk = gainNode(ctx, 1);
+    this.duck.connect(this.talk);
+    this.talk.connect(comp);
     this.sfx = gainNode(ctx, curve(v.sfx) * SFX_LEVEL);
     this.sfx.connect(comp);
     this.verb = effects ? new Verb(ctx, 0.8, 4200, 0.74) : null;
@@ -576,6 +584,14 @@ class Bus {
   volumes(v: { music: number; sfx: number }, now: number) {
     glide(this.music.gain, curve(v.music) * MUSIC_LEVEL, now, 0.15);
     glide(this.sfx.gain, curve(v.sfx) * SFX_LEVEL, now, 0.15);
+  }
+  speaking(on: boolean, now: number) {
+    glide(
+      this.talk.gain,
+      on ? VOICE_DUCK.level : 1,
+      now,
+      on ? VOICE_DUCK.attack : VOICE_DUCK.release,
+    );
   }
   pause(paused: boolean, now: number) {
     glide(this.duck.gain, paused ? 0.35 : 1, now, 0.35);
@@ -2355,6 +2371,7 @@ export class AudioEngine {
   private levels = { music: 0.6, sfx: 0.8 };
   private paused = false;
   private hidden = false;
+  private talking = false;
   private seed = Math.floor(Math.random() * 2 ** 31);
   private timer: ReturnType<typeof setInterval> | null = null;
   private timeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -2388,6 +2405,7 @@ export class AudioEngine {
       const bus = (this.bus = new Bus(this.context, this.levels, true));
       bus.master.gain.value = this.on && !this.hidden ? 1 : 0;
       if (this.paused) bus.pause(true, 0);
+      if (this.talking) bus.speaking(true, 0);
       this.watch();
       if (this.theme) this.startTheme(this.theme);
     }
@@ -2466,6 +2484,14 @@ export class AudioEngine {
   setLayer(layer: MusicLayer) {
     this.layer = layer;
     if (this.seq) this.seq.pending = layer;
+  }
+
+  // The voice-over sits outside Web Audio, so the app reports when a line
+  // starts and ends and the music ducks under it.
+  setSpeaking(on: boolean) {
+    this.talking = !!on;
+    if (this.context && this.bus)
+      this.bus.speaking(this.talking, this.context.currentTime);
   }
 
   setPaused(paused: boolean) {

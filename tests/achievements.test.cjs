@@ -6,6 +6,7 @@ const A = require('../.test-build/achievements.js');
 const { BLUEPRINTS } = require('../.test-build/progression.js');
 const { CHARACTERS, RESEARCH } = require('../.test-build/data.js');
 const { RESIDENTS } = require('../.test-build/residents.js');
+const { CLUES } = require('../.test-build/story.js');
 
 const byText = (a, b) => a.localeCompare(b);
 const IDS = A.ACHIEVEMENTS.map((a) => a.id).sort(byText);
@@ -36,6 +37,8 @@ function veteran() {
     bestHeat: 10,
     heatUnlocked: 10,
     endlessBest: 3,
+    clues: CLUES.map((c) => c.id),
+    endings: ['a', 'b', 'c'],
     blueprints: BLUEPRINTS.slice(0, 5).map((b) => b.id),
     research: Object.fromEntries(RESEARCH.map((r) => [r.id, 1])),
     dailyBest: Object.fromEntries(

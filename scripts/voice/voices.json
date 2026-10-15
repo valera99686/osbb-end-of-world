@@ -1,0 +1,67 @@
+{
+  "mechanic": {
+    "instruct": "male, middle-aged, low pitch",
+    "seed": 11,
+    "refText": "Гідравліка тримає. Не хвилюйтеся, я цей будинок знаю краще, ніж власні коліна."
+  },
+  "spark": {
+    "instruct": "female, young adult, low pitch",
+    "seed": 12,
+    "refText": "Мережа міста мене не слухає, а ось наш щиток завжди. Головне не торкайся синього дроту."
+  },
+  "flora": {
+    "instruct": "female, middle-aged, moderate pitch",
+    "seed": 13,
+    "refText": "Рослини не стріляють, вони терплять. А потім колють. Це їхній спосіб сказати, що вони живі."
+  },
+  "boris": {
+    "instruct": "male, middle-aged, moderate pitch",
+    "seed": 14,
+    "refText": "Кошторис погоджено, мною, одноголосно. Гроші не пахнуть, а ось наші вороги пахнуть дуже."
+  },
+  "nina": {
+    "instruct": "female, elderly, moderate pitch",
+    "seed": 15,
+    "refText": "Спершу чай, потім кінець світу. Я вам ковдру поклала, дитино, не сперечайтеся зі мною."
+  },
+  "lev": {
+    "instruct": "male, elderly, low pitch",
+    "seed": 16,
+    "refText": "Я сорок років на посту, і пам'ять у мене добра. Тільки пост тепер ходить разом з будинком."
+  },
+  "marta": {
+    "instruct": "female, middle-aged, high pitch",
+    "seed": 17,
+    "refText": "Я не кричу, у мене такий голос. Я на них напишу скаргу, і цього разу її розглянуть."
+  },
+  "danilo": {
+    "instruct": "male, teenager, moderate pitch",
+    "seed": 18,
+    "refText": "Я це з мікрохвильовки зібрав, і воно літає! Ну, майже літає. Мама казала не розбирати техніку."
+  },
+  "solomia": {
+    "instruct": "female, young adult, high pitch",
+    "seed": 19,
+    "refText": "Я грала в оркестрі, там теж треба влучати вчасно. Послухай ритм будинку, він сам підкаже."
+  },
+  "galyna": {
+    "instruct": "female, elderly, low pitch",
+    "seed": 20,
+    "refText": "Слухали: про чергове падіння будинку. Ухвалили: встати. Кворум, між іншим, святе діло."
+  },
+  "intercom": {
+    "instruct": "male, middle-aged, very low pitch",
+    "seed": 21,
+    "refText": "Шановні мешканці, нагадуємо: на сходах заборонено хвилюватися. Дякуємо за розуміння."
+  },
+  "svitanok": {
+    "instruct": "female, middle-aged, low pitch",
+    "seed": 22,
+    "refText": "Мешканців на борту дев'ять. У реєстрі десять. Евакуацію не завершено."
+  },
+  "narrator": {
+    "instruct": "male, elderly, moderate pitch",
+    "seed": 23,
+    "refText": "Україна, дві тисячі вісімдесят шостий. Над вулицями кружляють трамваї, а старі будинки стоять на ногах."
+  }
+}

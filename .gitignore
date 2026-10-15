@@ -44,3 +44,7 @@ next-env.d.ts
 /public/downloads/
 *.tsbuildinfo
 /.test-build/
+
+# voice reference clips (recreated from scripts/voice/voices.json)
+/scripts/voice/refs/
+/scripts/voice/lines.json

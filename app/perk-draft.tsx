@@ -7,6 +7,7 @@ import { perkOfferLine } from '@/lib/game/barks';
 import { RESIDENT_BY_ID } from '@/lib/game/residents';
 import type { Run } from '@/lib/game/model';
 import { Portrait } from './residents';
+import { speak, stopVoice } from './voice';
 import './perk-draft.css';
 
 const RARITY = ['', 'Звичайний', 'Рідкісний', 'Легендарний'];
@@ -42,6 +43,7 @@ export function PerkDraft({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [offers, onPick]);
+  useEffect(() => () => stopVoice(), []);
   return (
     <div
       className="perk-draft"
@@ -69,6 +71,12 @@ export function PerkDraft({
                 } as CSSProperties
               }
               onClick={() => onPick(id)}
+              onMouseEnter={() =>
+                speak(perk.owner, perkOfferLine(perk.owner, id, run))
+              }
+              onFocus={() =>
+                speak(perk.owner, perkOfferLine(perk.owner, id, run))
+              }
               autoFocus={i === 0}
             >
               <span className="perk-key">{i + 1}</span>

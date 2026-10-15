@@ -120,6 +120,8 @@ export interface Meta {
 export interface Settings {
   music: number;
   sfx: number;
+  // Voice-over volume (lines of the story, perks, radio).
+  voice: number;
   vibration: boolean;
   shake: number;
   colorblind: boolean;
@@ -130,6 +132,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   music: 0.6,
   sfx: 0.8,
+  voice: 0.9,
   vibration: true,
   shake: 1,
   colorblind: false,
@@ -160,6 +163,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   return {
     music: volume(s.music, d.music),
     sfx: volume(s.sfx, d.sfx),
+    voice: volume(s.voice, d.voice),
     vibration: flag(s.vibration, d.vibration),
     shake: nearest(SHAKE_STEPS, s.shake, d.shake),
     colorblind: flag(s.colorblind, d.colorblind),

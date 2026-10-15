@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   FileUp,
+  Mic,
   Music,
   RotateCcw,
   Save,
@@ -218,6 +219,12 @@ export function SettingsDialog({
             icon={<Volume2 size={16} />}
             value={s.sfx}
             onChange={(sfx) => set({ sfx })}
+          />
+          <Volume
+            label="Голоси"
+            icon={<Mic size={16} />}
+            value={s.voice}
+            onChange={(voice) => set({ voice })}
           />
           {!meta.sound && (
             <p className="settings-note">

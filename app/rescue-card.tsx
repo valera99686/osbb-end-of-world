@@ -1,11 +1,13 @@
 // The rescue moment: a resident card with the painted portrait instead of a
 // log line. The quote slot belongs to the dialogue system (docs/story).
 import { Heart, Home, UserPlus } from 'lucide-react';
+import { useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import { RESIDENT_BY_ID } from '@/lib/game/residents';
 import { researchOwned } from '@/lib/game/progression';
 import type { Run } from '@/lib/game/model';
 import { Portrait } from './residents';
+import { speak, stopVoice } from './voice';
 import './rewards.css';
 
 // Dialogue hook: returns the rescued resident's first line, or null for none.
@@ -40,6 +42,10 @@ export function RescueCard({
   onHousing?: () => void;
 }) {
   const resident = RESIDENT_BY_ID[residentId];
+  useEffect(() => {
+    if (quote) speak(residentId, quote);
+    return () => stopVoice();
+  }, [residentId, quote]);
   if (!resident) return null;
   const housed = run.residents.some((r) => r.id === residentId);
   return (

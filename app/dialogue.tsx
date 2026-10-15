@@ -14,8 +14,10 @@ import {
 } from '@/lib/game/story';
 import { STORY_YEAR, SCENE_IMAGE_BY_ART } from '@/lib/game/cutscenes';
 import type { Meta } from '@/lib/game/model';
+import { voiceKeyFor } from '@/lib/game/voice';
 import { Portrait } from './residents';
 import { SceneArt } from './cutscenes';
+import { speak, stopVoice } from './voice';
 import './dialogue.css';
 
 const CITY_ART = 6;
@@ -117,6 +119,11 @@ export function DialoguePlayer({
   const who = speakerName(line.who, captain),
     text = fillLine(line.text, meta, captain),
     speaker = SPEAKERS[line.who as keyof typeof SPEAKERS];
+  // Each line is spoken when it appears; leaving the scene stops the voice.
+  useEffect(() => {
+    speak(voiceKeyFor(line.who, captain), text);
+  }, [scene.id, at, reply, captain, text, line.who]);
+  useEffect(() => () => stopVoice(), []);
   const next = () => {
     if (reply) {
       onChoose(reply.choice);
@@ -256,6 +263,15 @@ export function ProtocolCard({
   meta: Meta;
   captain: string;
 }) {
+  useEffect(() => {
+    const first = lines[0];
+    if (first)
+      speak(
+        voiceKeyFor(first.who, captain),
+        fillLine(first.text, meta, captain),
+      );
+    return () => stopVoice();
+  }, [lines, captain]);
   return (
     <aside className="protocol-card" aria-label="Протокол Притулку">
       {lines.slice(0, 2).map((l, i) => {
@@ -284,6 +300,10 @@ export function RadioStrip({
   captain: string;
 }) {
   const n = speakerName(who, captain);
+  useEffect(() => {
+    speak(voiceKeyFor(who, captain), text);
+    return () => stopVoice();
+  }, [who, text, captain]);
   return (
     <div className="radio-strip" role="status">
       <SpeakerPortrait who={who} captain={captain} size={40} />

@@ -54,7 +54,7 @@ public final class MainActivity extends Activity {
         try {
           InputStream stream = getAssets().open("game" + path);
           String lower = path.toLowerCase(Locale.ROOT);
-          String mime = lower.endsWith(".html")?"text/html":lower.endsWith(".js")?"text/javascript":lower.endsWith(".css")?"text/css":lower.endsWith(".json")||lower.endsWith(".webmanifest")?"application/json":lower.endsWith(".svg")?"image/svg+xml":lower.endsWith(".png")?"image/png":lower.endsWith(".webp")?"image/webp":lower.endsWith(".woff2")?"font/woff2":"application/octet-stream";
+          String mime = lower.endsWith(".html")?"text/html":lower.endsWith(".js")?"text/javascript":lower.endsWith(".css")?"text/css":lower.endsWith(".json")||lower.endsWith(".webmanifest")?"application/json":lower.endsWith(".svg")?"image/svg+xml":lower.endsWith(".png")?"image/png":lower.endsWith(".webp")?"image/webp":lower.endsWith(".woff2")?"font/woff2":lower.endsWith(".ogg")||lower.endsWith(".opus")?"audio/ogg":"application/octet-stream";
           HashMap<String,String> headers = new HashMap<>();
           headers.put("X-Content-Type-Options","nosniff");
           headers.put("Cache-Control","no-cache");

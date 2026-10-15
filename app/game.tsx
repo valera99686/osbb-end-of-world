@@ -118,6 +118,7 @@ import { activeEquipment, APARTMENT_SLOTS } from '@/lib/game/equipment';
 import { Residents, HousePreview, EquipmentPlacement } from './residents';
 import { CutscenePlayer, StoryLibrary } from './cutscenes';
 import { DialoguePlayer, ProtocolCard, RadioStrip } from './dialogue';
+import { setVoice } from './voice';
 import { CasePage } from './case-file';
 import {
   CLUES,
@@ -1029,6 +1030,10 @@ export default function Game() {
     setNotice(message);
     audio.current!.play('coin');
   }
+  // Voice-over follows the profile: its own volume and the master mute.
+  useEffect(() => {
+    setVoice({ volume: meta.settings.voice, enabled: meta.sound });
+  }, [meta.settings.voice, meta.sound]);
   // The story picks its rescue line from the profile at the moment of the card.
   const storyMeta = useRef(meta);
   storyMeta.current = meta;

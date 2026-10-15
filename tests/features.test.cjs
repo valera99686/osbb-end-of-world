@@ -134,6 +134,7 @@ test('Settings are merged over defaults and clamped to the allowed steps', () =>
   assert.deepEqual(loaded.settings, {
     music: 1,
     sfx: 0,
+    voice: 0.9, // not in the stored settings: the default
     vibration: true,
     shake: 0.5,
     colorblind: true,

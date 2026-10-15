@@ -19,8 +19,10 @@ const modules = [
   'modes',
   'upgrades',
   'weapons',
-  'story',
+  'voice',
+  'voice-manifest',
   'barks',
+  'story',
   'achievements',
   'model',
   'save',
@@ -46,6 +48,7 @@ const tests = [
   'tests/perks.test.cjs',
   'tests/weapons.test.cjs',
   'tests/story.test.cjs',
+  'tests/voice.test.cjs',
 ];
 // Both lists are explicit; a module or test left out fails here, not later.
 const missing = [

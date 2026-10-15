@@ -1,5 +1,7 @@
 import type { Meta, Run } from './model';
 import { ENDING_ART, ORIGIN_ART } from './cutscenes';
+import { OFFER_LINES } from './barks';
+import { HEAD_VOICES, voiceId, voiceKeyFor, type VoiceKey } from './voice';
 
 // «Справа 04:17»: the story is told in short dialogue scenes with portraits.
 // Layers the player peels off across runs:
@@ -1252,4 +1254,38 @@ export function storyScene(id: string, meta: Meta): Scene | null {
     title: 'Притулок',
     lines: pool[(n * 7 + ((meta.kills ?? 0) % 5)) % pool.length],
   };
+}
+
+// Every line that can be voiced: scenes and replies, Shelter protocols,
+// rescue greetings, radio barks and perk offers. A line with a {placeholder}
+// is not voiced (its words change); the chosen head's lines exist once per
+// head, in that head's own voice.
+export interface VoiceLine {
+  id: string;
+  key: VoiceKey;
+  text: string;
+}
+export function voiceLines(): VoiceLine[] {
+  const out = new Map<string, VoiceLine>();
+  const add = (key: string | null, text: string) => {
+    if (!key || /\{[a-z]+\}/.test(text)) return;
+    const id = voiceId(key, text);
+    out.set(id, { id, key: key as VoiceKey, text });
+  };
+  const fromLine = (l: { who: string; text: string }) => {
+    if (l.who === 'captain') for (const head of HEAD_VOICES) add(head, l.text);
+    else add(voiceKeyFor(l.who, ''), l.text);
+  };
+  for (const scene of [...Object.values(SCENES), ...HUB_SCENES]) {
+    scene.lines.forEach(fromLine);
+    for (const c of scene.choices ?? []) if (c.reply) fromLine(c.reply);
+  }
+  for (const lines of [...PROTOCOLS, ...WIN_LINES]) lines.forEach(fromLine);
+  for (const [id, text] of Object.entries(RESCUE_FIRST)) add(id, text);
+  for (const [id, texts] of Object.entries(RESCUE_AGAIN))
+    for (const text of texts) add(id, text);
+  for (const pool of Object.values(BARKS)) pool.forEach(fromLine);
+  for (const [owner, texts] of Object.entries(OFFER_LINES))
+    for (const text of texts) add(owner, text);
+  return [...out.values()];
 }

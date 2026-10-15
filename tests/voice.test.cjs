@@ -6,6 +6,7 @@ const S = require('../.test-build/story.js');
 const V = require('../.test-build/voice.js');
 const { VOICE_IDS } = require('../.test-build/voice-manifest.js');
 const { speech } = require('../scripts/voice/speech.cjs');
+const { tone, TONES, TAGS } = require('../scripts/voice/tones.cjs');
 const voices = require('../scripts/voice/voices.json');
 
 test('A voice id is a stable hash of the speaker and the words', () => {
@@ -99,4 +100,23 @@ test('Lines with an attempt or protocol number are recorded for the first number
           if (key) assert.ok(VOICE_IDS.has(V.voiceId(key, text)), text);
         }
       }
+});
+
+test('Emotion tags are ones OmniVoice knows, every rule finds its line, and the shown text is untouched', () => {
+  const lines = S.voiceLines();
+  for (const rule of TONES) {
+    assert.ok(lines.some((l) => l.text.includes(rule.has)), `no line for the rule "${rule.has}"`);
+    for (const tag of [rule.lead, rule.tail, rule.swap && rule.swap[1]]) if (tag) assert.ok(TAGS.includes(tag), tag);
+  }
+  let tagged = 0;
+  for (const l of lines) {
+    const out = tone(l.text, speech(l.text));
+    const tags = out.match(/\[[a-z-]+\]/g) || [];
+    assert.ok(tags.length <= 2, `too many tags: ${out}`);
+    for (const tag of tags) assert.ok(TAGS.includes(tag), out);
+    if (tags.length) tagged++;
+    // The recording id depends on the shown text only.
+    assert.equal(l.id, V.voiceId(l.key, l.text));
+  }
+  assert.ok(tagged >= 30, `only ${tagged} lines carry an emotion`);
 });

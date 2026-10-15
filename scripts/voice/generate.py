@@ -85,6 +85,8 @@ def main() -> None:
     parser.add_argument("--voices", type=Path, default=Path(__file__).with_name("voices.json"))
     parser.add_argument("--out", type=Path, default=ROOT / "public" / "voice")
     parser.add_argument("--refs", type=Path, default=ROOT / "scripts" / "voice" / "refs")
+    parser.add_argument("--spoken", type=Path, default=Path(__file__).with_name("spoken.json"),
+                        help="id -> the text each recording was made from; a changed text is spoken again")
     parser.add_argument("--work", type=Path, default=None, help="where the raw WAV files go")
     parser.add_argument("--only", default="", help="comma-separated speakers")
     parser.add_argument("--limit", type=int, default=0, help="at most this many lines per speaker")
@@ -121,6 +123,7 @@ def main() -> None:
     if args.refs_only:
         return
 
+    made = json.loads(args.spoken.read_text(encoding="utf-8")) if args.spoken.exists() else {}
     done = skipped = failed = 0
     spoken = {key: 0 for key in refs}
     begin = time.time()
@@ -132,7 +135,8 @@ def main() -> None:
             continue
         target = args.out / f"{line['id']}.ogg"
         spoken[key] += 1
-        if target.exists() and not args.force:
+        # A recording is current while the text it was made from is unchanged.
+        if target.exists() and not args.force and made.get(line["id"]) == line["speech"]:
             skipped += 1
             continue
         ref_wav, ref_text = refs[key]
@@ -143,11 +147,15 @@ def main() -> None:
             raw = work / f"{line['id']}.wav"
             seconds = write_wav(raw, audio[0])
             encode(raw, target, key)
+            made[line["id"]] = line["speech"]
             done += 1
             log(f"[{done + skipped + failed}/{len(lines)}] {key} {seconds:.1f}s {target.stat().st_size // 1024} KB  {line['speech'][:48]}")
         except Exception as exc:  # one bad line must not stop the batch
             failed += 1
             log(f"FAILED {key} {line['id']}: {type(exc).__name__}: {str(exc)[:160]}")
+    live = {line["id"] for line in lines}
+    made = {i: t for i, t in made.items() if i in live}
+    args.spoken.write_text(json.dumps(made, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     count = write_manifest(args.out)
     total = sum(p.stat().st_size for p in args.out.glob("*.ogg"))
     log(f"done {done}, kept {skipped}, failed {failed}; {count} files, {total / 1024 / 1024:.2f} MB; {time.time() - begin:.0f}s")

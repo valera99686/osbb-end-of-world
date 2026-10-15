@@ -1,3 +1,4 @@
+import { asset } from './assets';
 import { specialEffects } from './specials';
 import {
   LOCATIONS,
@@ -586,6 +587,8 @@ export class Battle {
     title: string;
     text: string;
     color: string;
+    // The boss's portrait, shown on the card once it has loaded.
+    portrait?: HTMLImageElement | null;
   } | null = null;
   outro = 0;
   pendingEnd: BattleResult | null = null;
@@ -742,7 +745,20 @@ export class Battle {
         text: loop > 0 ? `${place} · коло ${loop + 1}` : place,
         color: lead.color,
         quote: this.introQuote || undefined,
+        // null reserves the room while the picture loads.
+        portrait:
+          run.kind === 'boss' && typeof Image !== 'undefined'
+            ? null
+            : undefined,
       };
+      if (run.kind === 'boss' && typeof Image !== 'undefined') {
+        const img = new Image();
+        img.decoding = 'async';
+        img.onload = () => {
+          if (this.introCard && img.naturalWidth) this.introCard.portrait = img;
+        };
+        img.src = asset(`art/boss-${lead.id}.webp`);
+      }
       this.intro = INTRO;
       this.calm = 1;
     }
@@ -1196,7 +1212,7 @@ export class Battle {
             this.run.chapter,
             this.run.bossVariants[this.run.chapter],
           );
-    return { name: def.name, color: def.color };
+    return { id: 'id' in def ? def.id : '', name: def.name, color: def.color };
   }
   spawn(type?: number, opts: SpawnOptions = {}): Enemy | undefined {
     const boss = type === 99;
@@ -4755,7 +4771,10 @@ export class Battle {
       slide = (1 - Math.min(1, age / 0.25)) ** 3,
       y = h * 0.36,
       bh = (card.quote ? 134 : 108) * ts,
-      x = w / 2 + slide * 80;
+      // A portrait takes the left of the band; the words centre in the rest.
+      art = card.portrait !== undefined ? Math.min(bh + 28, w * 0.3) : 0,
+      pad = art ? art + 22 : 0,
+      x = (w + pad) / 2 + slide * 80;
     const alpha = Math.max(0, Math.min(1, age / 0.12, this.intro / 0.35));
     c.globalAlpha = alpha * 0.82;
     c.fillStyle = '#04090d';
@@ -4764,6 +4783,14 @@ export class Battle {
     c.fillStyle = card.color;
     c.fillRect(0, y - bh / 2, w * (1 - slide), 3);
     c.fillRect(w * slide, y + bh / 2 - 3, w * (1 - slide), 3);
+    if (art && card.portrait) {
+      const px = 14 - slide * 120,
+        py = y - art / 2;
+      c.drawImage(card.portrait, px, py, art, art);
+      c.strokeStyle = card.color;
+      c.lineWidth = 2;
+      c.strokeRect(px, py, art, art);
+    }
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.font = `800 ${Math.round(12 * ts)}px ${FONT}`;
@@ -4771,8 +4798,8 @@ export class Battle {
     let size = 34 * ts;
     c.font = `900 ${Math.round(size)}px ${FONT}`;
     const width = c.measureText(card.title).width;
-    if (width > w - 32) {
-      size *= (w - 32) / width;
+    if (width > w - pad - 32) {
+      size *= (w - pad - 32) / width;
       c.font = `900 ${Math.round(size)}px ${FONT}`;
     }
     c.fillStyle = '#fff6e6';
@@ -4783,7 +4810,7 @@ export class Battle {
     if (card.quote) {
       c.font = `italic 600 ${Math.round(13 * ts)}px ${FONT}`;
       c.fillStyle = card.color;
-      const max = w - 32;
+      const max = w - pad - 32;
       let q = '«' + card.quote + '»';
       while (q.length > 8 && c.measureText(q).width > max)
         q = q.slice(0, -4) + '…»';

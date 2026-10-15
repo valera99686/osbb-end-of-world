@@ -1,0 +1,52 @@
+{
+  "tool": "mage.space GPT Image 2.5 Flare, 1K 1:1",
+  "date": "2026-10-16",
+  "common": "Boss portrait for a Ukrainian retro-futuristic post-apocalyptic roguelite (2086), painted game illustration, bust framing, muted teal background with a rim light in the boss colour, no text, no watermark.",
+  "assets": [
+    {
+      "name": "boss-commandant.webp",
+      "source": "docs/art-source/boss-commandant.png",
+      "prompt": "Commandant of the Gate: a hulking rusty security-walker robot in a battered peaked commandant cap with amber chevron stripes, one round amber lamp-eye, riveted patched armor, a welded scrap-metal gate with warning lamps behind; muted teal dusk, amber rim light (#f0b369)."
+    },
+    {
+      "name": "boss-scrap-press.webp",
+      "source": "docs/art-source/boss-scrap-press.png",
+      "prompt": "The Great Press: a colossal scrap-yard hydraulic press with a crushing plate like a flat grim face, two piston arms, compressed car cubes, venting steam, dusty-pink warning lights (#d995a3); muted teal industrial yard."
+    },
+    {
+      "name": "boss-signalman.webp",
+      "source": "docs/art-source/boss-signalman.png",
+      "prompt": "Patrol Dispatcher: a tall slender signal-tower robot with headset, antennas and dishes on its head, one pale cyan visor-eye (#81c8e7), a signal-flare pistol, small patrol drones circling, tram-line markings; muted teal night street."
+    },
+    {
+      "name": "boss-root-mother.webp",
+      "source": "docs/art-source/boss-root-mother.png",
+      "prompt": "Mother of the Greenhouses: a towering machine-plant matriarch, a gardener-robot torso overgrown with root-like cables and vines, green glow (#a2d883), cracked greenhouse glass, watering can and pruning shears fused into her arms."
+    },
+    {
+      "name": "boss-irrigator.webp",
+      "source": "docs/art-source/boss-irrigator.png",
+      "prompt": "Supreme Irrigator: a huge irrigation machine with a face of a brass valve-wheel and two pressure-gauge eyes, a crown of rotating sprinkler nozzles throwing teal water arcs (#77d6c1), water-hammer arm, overgrown greenhouse rows."
+    },
+    {
+      "name": "boss-queen.webp",
+      "source": "docs/art-source/boss-queen.png",
+      "prompt": "Queen of the Nursery: a regal hive-like seedling-nursery machine with a crown of rusty pipes and golden honeycomb seed trays, a polished brass face, mechanical sprayer-wasps on her shoulders, honey-gold light (#d8bf79)."
+    },
+    {
+      "name": "boss-architect.webp",
+      "source": "docs/art-source/boss-architect.png",
+      "prompt": "Demolition Architect: a slender drafting-robot with a compass-like head, one cyan lens-eye (#8ddbf0), projecting a laser blueprint grid, a wrecking-ball arm, rolled blueprints and a hard hat, in a dim server hall."
+    },
+    {
+      "name": "boss-collector.webp",
+      "source": "docs/art-source/boss-collector.png",
+      "prompt": "Network Collector: a debt-collector machine of stacked coins and cable bundles with a large ledger as a shield, a faceted violet eye (#c6a3e9), coin rings orbiting like halos, bankruptcy stamps for hands."
+    },
+    {
+      "name": "boss-chronarch.webp",
+      "source": "docs/art-source/boss-chronarch.png",
+      "prompt": "Keeper of 04:17: a clockwork guardian with a huge wall clock frozen at four seventeen as its torso, brass gears and pendulum, gaunt metal face with orange eyes (#ffc38a), echo copies of its outline, ripples of time, a flickering stairwell lamp."
+    }
+  ]
+}

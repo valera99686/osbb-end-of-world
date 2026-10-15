@@ -4,11 +4,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { speech } = require('./speech.cjs');
+const { tone } = require('./tones.cjs');
 const story = require('../../.test-build/story.js');
 
 const out = process.argv[2] || path.join(__dirname, 'lines.json');
-const lines = story.voiceLines().map((l) => ({ ...l, speech: speech(l.text) }));
-const bad = lines.filter((l) => /\d|№|\(|\)|[A-Z]{2,}|[А-ЯІЇЄҐ]{4,}/.test(l.speech));
+const lines = story.voiceLines().map((l) => ({ ...l, speech: tone(l.text, speech(l.text)) }));
+const bad = lines.filter((l) => /\d|№|\(|\)|[A-Z]{2,}|[А-ЯІЇЄҐ]{4,}/.test(l.speech.replace(/\[[a-z-]+\]/g, '')));
 if (bad.length) {
   console.error('Unspoken symbols left in:', bad.map((l) => l.speech));
   process.exit(1);

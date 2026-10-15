@@ -4,8 +4,6 @@ import { minibossFor } from '@/lib/game/minibosses';
 import { minibossVariant } from '@/lib/game/model';
 import { useState, useEffect, useRef } from 'react';
 import {
-  ArrowLeft,
-  ArrowRight,
   Play,
   Pause,
   Home,
@@ -31,7 +29,7 @@ import {
   combatBark,
   type SpeakerId,
 } from '@/lib/game/story';
-import { statsFor, type Meta, type Run, type Settings } from '@/lib/game/model';
+import { statsFor, type Meta, type Run } from '@/lib/game/model';
 import {
   Battle,
   AudioEngine,

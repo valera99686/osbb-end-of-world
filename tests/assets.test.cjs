@@ -47,3 +47,14 @@ test('The web manifest uses relative URLs so it works under a sub-path', () => {
   const urls = [m.start_url, m.scope, ...m.icons.map((i) => i.src), ...m.shortcuts.map((s) => s.url)];
   for (const u of urls) assert.ok(!u.startsWith('/'), `${u} must be relative`);
 });
+
+test('Every campaign boss has a portrait that fits the budget', () => {
+  const { BOSS_VARIANTS } = require('../.test-build/encounters.js');
+  assert.equal(BOSS_VARIANTS.length, 9);
+  for (const boss of BOSS_VARIANTS) {
+    const file = `public/art/boss-${boss.id}.webp`;
+    assert.ok(fs.existsSync(file), file);
+    assert.ok(fs.statSync(file).size <= 60 * 1024, `${file} is over 60 KB`);
+    assert.ok(fs.existsSync(`docs/art-source/boss-${boss.id}.png`), 'source kept');
+  }
+});

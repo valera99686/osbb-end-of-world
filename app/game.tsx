@@ -379,7 +379,7 @@ export default function Game() {
     setNative(navigator.userAgent.includes('OSBBAndroid'));
     preloadEnemyArt();
     // The battle code loads while the menu is open, so the first raid starts at once.
-    const warmCombat = window.setTimeout(() => void import('./combat'), 1200);
+    window.setTimeout(() => void import('./combat'), 1200);
     if (import.meta.env.DEV)
       Object.assign(window, { __osbbAudioPreview: renderThemePreview });
     const shortcut = SHORTCUT;

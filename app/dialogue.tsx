@@ -155,6 +155,7 @@ export function DialoguePlayer({
   return (
     <div
       className="dlg"
+      data-gamepad-scope
       role="dialog"
       aria-modal="true"
       aria-label={scene.title}

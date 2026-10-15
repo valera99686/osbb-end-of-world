@@ -1084,8 +1084,14 @@ const BARKS: Record<string, Bark[]> = {
     { who: 'spark', text: 'Нова хвиля. Щиток гріється, але тримає.' },
     { who: 'marta', text: 'Скільки ж вас? Я на кожного окрему скаргу напишу!' },
     { who: 'danilo', text: 'Вау, скільки їх! Можна я порахую? Ні? Ну добре.' },
-    { who: 'intercom', text: 'Нова хвиля. Рекомендую не панікувати. Паніку беру на себе.' },
-    { who: 'galyna', text: 'Наступний пункт порядку денного. Він, на жаль, озброєний.' },
+    {
+      who: 'intercom',
+      text: 'Нова хвиля. Рекомендую не панікувати. Паніку беру на себе.',
+    },
+    {
+      who: 'galyna',
+      text: 'Наступний пункт порядку денного. Він, на жаль, озброєний.',
+    },
   ],
   final: [
     { who: 'lev', text: 'Ватажок! Бачу ватажка!' },
@@ -1099,7 +1105,10 @@ const BARKS: Record<string, Bark[]> = {
     { who: 'boris', text: 'Ватажка списано. Акт складу пізніше.' },
     { who: 'marta', text: 'Ха! Скаргу задоволено.' },
     { who: 'danilo', text: 'Ми його зробили! Я бачив! Я все бачив!' },
-    { who: 'intercom', text: 'Ватажка вилучено з реєстру. Дякуємо за співпрацю.' },
+    {
+      who: 'intercom',
+      text: 'Ватажка вилучено з реєстру. Дякуємо за співпрацю.',
+    },
   ],
   broken: [
     { who: 'nina', text: 'Все, все, заходьте. Чай вистигає.' },
@@ -1121,7 +1130,10 @@ const BARKS: Record<string, Bark[]> = {
   stagger: [
     { who: 'mechanic', text: 'Він хитається! Бий зараз!' },
     { who: 'spark', text: 'Броня тріснула! Час!' },
-    { who: 'intercom', text: 'Увага: ворог послабив захист. Це не жарт. Це можливість.' },
+    {
+      who: 'intercom',
+      text: 'Увага: ворог послабив захист. Це не жарт. Це можливість.',
+    },
   ],
 };
 export function combatBark(
@@ -1144,6 +1156,59 @@ export function fillLine(text: string, meta: Meta, captain: string) {
     .replace(/\{attempt\}/g, String((meta.runs ?? 0) + 1))
     .replace(/\{runs\}/g, String(Math.max(1, meta.runs ?? 0)))
     .replace(/\{captain\}/g, CAPTAINS[captain]?.name ?? 'голова');
+}
+
+// Hub protocols differ every run, so they are never listed as seen.
+const PROTOCOL_SCENE = /^hub-(protocol|victory)-\d+$/;
+
+// Leaving the current scene. Its clues are kept (skipping included), hub
+// protocols stay unlisted, a chain moves on to its next scene, and a scene
+// that decides the ending falls back to the first ending when dismissed.
+export function leaveScene(
+  meta: Meta,
+  queue: readonly string[],
+  choice?: Choice,
+): { meta: Meta; queue: string[] } {
+  const progress = meta.sceneProgress;
+  if (!progress) return { meta, queue: [...queue] };
+  const scene = storyScene(progress.id, meta);
+  let ending = choice?.ending;
+  if (!ending && scene?.choices?.some((c) => c.ending)) ending = 'a';
+  const nextId = ending ? `ending-${ending}` : queue[0];
+  let next: Meta = {
+    ...meta,
+    scenesSeen: PROTOCOL_SCENE.test(progress.id)
+      ? meta.scenesSeen
+      : [...new Set([...meta.scenesSeen, progress.id])],
+    sceneProgress: nextId ? { id: nextId, index: 0 } : null,
+  };
+  if (scene?.clues) next = addClues(next, scene.clues);
+  if (ending) next = addEnding(next, ending);
+  return { meta: next, queue: ending ? [] : queue.slice(1) };
+}
+
+// After a non-final boss win: this boss's last word, then the new location,
+// each only the first time (an endless circuit starts without a recap).
+export function victoryChain(meta: Meta, chapter: number, looped: boolean) {
+  return looped
+    ? []
+    : [`victory-${chapter}`, `arrival-${chapter + 1}`].filter(
+        (id) => !meta.scenesSeen.includes(id),
+      );
+}
+
+// After a raid: the final win opens the finale; otherwise the next Shelter
+// beat is a scene, or a short protocol shown inside the result window.
+export function raidEnd(
+  meta: Meta,
+  won: boolean,
+  final: boolean,
+): { scene: string | null; protocol?: Line[] } {
+  if (final) return { scene: 'finale' };
+  const beat = hubScene(meta, won);
+  return PROTOCOL_SCENE.test(beat.id)
+    ? { scene: null, protocol: beat.lines }
+    : { scene: beat.id };
 }
 
 // Applies the clues of a watched scene or a picked choice to the profile.

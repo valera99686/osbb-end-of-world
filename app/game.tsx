@@ -122,12 +122,12 @@ import { CasePage } from './case-file';
 import {
   CLUES,
   LIBRARY_IDS,
-  addClues,
-  addEnding,
   bossQuote,
   combatBark,
-  hubScene,
   isStoryId,
+  leaveScene,
+  raidEnd,
+  victoryChain,
   rescueQuote as storyRescueQuote,
   storyScene,
   type Choice,
@@ -726,8 +726,6 @@ function Combat({
     </section>
   );
 }
-// Hub protocols differ every run, so they are not listed as seen.
-const PROTOCOL_SCENE = /^hub-(protocol|victory)-\d+$/;
 export default function Game() {
   const [meta, setMeta] = useState<Meta>(initialMeta),
     [run, setRun] = useState<Run | null>(null),
@@ -950,7 +948,9 @@ export default function Game() {
       }
       if (meta.sceneProgress) {
         e.preventDefault();
-        closeScene();
+        // A scene that decides the ending must not be dismissed by Back.
+        const open = storyScene(meta.sceneProgress.id, meta);
+        if (!open?.choices?.some((c) => c.ending)) closeScene();
         return;
       }
       if (housingOpen) {
@@ -1040,25 +1040,9 @@ export default function Game() {
   // protocols stay unlisted, a chain moves on to its next scene, and a skipped
   // finale falls back to the first ending.
   function closeScene(choice?: Choice) {
-    const progress = meta.sceneProgress;
-    if (!progress) return;
-    const scene = storyScene(progress.id, meta);
-    let ending = choice?.ending;
-    if (!ending && scene?.choices?.some((c) => c.ending)) ending = 'a';
-    const nextId = ending ? `ending-${ending}` : sceneQueue[0];
-    setSceneQueue(ending ? [] : sceneQueue.slice(1));
-    setMeta((m) => {
-      let n: Meta = {
-        ...m,
-        scenesSeen: PROTOCOL_SCENE.test(progress.id)
-          ? m.scenesSeen
-          : [...new Set([...m.scenesSeen, progress.id])],
-        sceneProgress: nextId ? { id: nextId, index: 0 } : null,
-      };
-      if (scene?.clues) n = addClues(n, scene.clues);
-      if (ending) n = addEnding(n, ending);
-      return n;
-    });
+    if (!meta.sceneProgress) return;
+    setSceneQueue(leaveScene(meta, sceneQueue, choice).queue);
+    setMeta((m) => leaveScene(m, sceneQueue, choice).meta);
   }
   function playScene(id: string) {
     if (SCENE_BY_ID[id] || isStoryId(id)) {
@@ -1124,11 +1108,7 @@ export default function Game() {
       const next = advanceLocation(b.run, meta),
         looped = next.loop > b.run.loop;
       // The boss's last word, then the new location; each only the first time.
-      const chain = looped
-        ? []
-        : ['victory-' + b.run.chapter, `arrival-${b.run.chapter + 1}`].filter(
-            (id) => !meta.scenesSeen.includes(id),
-          );
+      const chain = victoryChain(meta, b.run.chapter, looped);
       setRun(next);
       setSceneQueue(chain.slice(1));
       setMeta((m) => ({
@@ -1150,16 +1130,11 @@ export default function Game() {
         score = runScore(b.run, final);
       const f = finishRun(meta, b.run, b.won);
       // After a raid: the next story beat as a scene, else a short protocol.
-      const beat = final ? null : hubScene(f.meta, b.won),
-        storyBeat = beat && !PROTOCOL_SCENE.test(beat.id) ? beat : null;
+      const after = raidEnd(f.meta, b.won, final);
       setSceneQueue([]);
       setMeta({
         ...f.meta,
-        sceneProgress: final
-          ? { id: 'finale', index: 0 }
-          : storyBeat
-            ? { id: storyBeat.id, index: 0 }
-            : null,
+        sceneProgress: after.scene ? { id: after.scene, index: 0 } : null,
       });
       setRun(null);
       setResult({
@@ -1174,7 +1149,7 @@ export default function Game() {
         score,
         record: daily && score > dayBest,
         dayBest: Math.max(dayBest, score),
-        protocol: beat && !storyBeat ? beat.lines : undefined,
+        protocol: after.protocol,
       });
       if (f.achievements.length) {
         setToasts((list) => [...list, ...achievementToasts(f.achievements)]);

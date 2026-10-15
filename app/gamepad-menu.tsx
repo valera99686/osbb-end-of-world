@@ -13,8 +13,14 @@ function visible(el: HTMLElement) {
     r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'
   );
 }
+// Story overlays (dialogue, perk draft) mark themselves; they own the focus.
+const OVERLAY = '[data-gamepad-scope]';
 // The top-most open dialog owns the focus; otherwise the current screen.
 function scope(): HTMLElement {
+  const overlays = [...document.querySelectorAll<HTMLElement>(OVERLAY)].filter(
+    visible,
+  );
+  if (overlays.length) return overlays[overlays.length - 1];
   const dialogs = [
     ...document.querySelectorAll<HTMLElement>('[data-slot="dialog-content"]'),
   ].filter(visible);
@@ -189,7 +195,7 @@ export function useGamepadMenu(active: boolean) {
         }
         const first = !held[key];
         held[key] = true;
-        if (!enabled.current) {
+        if (!enabled.current && !document.querySelector(OVERLAY)) {
           next[key] = Number.POSITIVE_INFINITY;
           continue;
         }

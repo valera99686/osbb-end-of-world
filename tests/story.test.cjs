@@ -159,3 +159,48 @@ test('Story progress survives a save; old profiles replay the new prologue once'
   assert.deepEqual(migrated.sceneProgress, { id: 'prologue', index: 0 });
   assert.ok(!migrated.scenesSeen.includes('prologue'));
 });
+
+test('Leaving a scene keeps its clues, follows the chain and never loses the finale', () => {
+  const at = (id, extra = {}) => ({ ...M.initialMeta(), sceneProgress: { id, index: 0 }, ...extra });
+  const prologue = S.leaveScene(at('prologue'), []);
+  assert.deepEqual(prologue.meta.clues, ['tenth_cup']);
+  assert.ok(prologue.meta.scenesSeen.includes('prologue'));
+  assert.equal(prologue.meta.sceneProgress, null);
+  // A boss scene hands over to the next location's arrival.
+  const chain = S.leaveScene(at('victory-0'), ['arrival-1']);
+  assert.deepEqual(chain.meta.sceneProgress, { id: 'arrival-1', index: 0 });
+  assert.deepEqual(chain.queue, []);
+  assert.ok(chain.meta.clues.includes('attempt_count'));
+  // The finale cannot be skipped away: dismissing it takes the first ending.
+  const skipped = S.leaveScene(at('finale'), ['arrival-1']);
+  assert.deepEqual(skipped.meta.sceneProgress, { id: 'ending-a', index: 0 });
+  assert.deepEqual(skipped.meta.endings, ['a']);
+  assert.deepEqual(skipped.queue, [], 'an ending clears whatever was queued');
+  const choice = S.SCENES.finale.choices.find((c) => c.ending === 'b');
+  const chosen = S.leaveScene(at('finale'), [], choice);
+  assert.deepEqual(chosen.meta.sceneProgress, { id: 'ending-b', index: 0 });
+  assert.deepEqual(chosen.meta.endings, ['b']);
+  // Hub protocols are never listed as seen; a hub beat is, with its clue.
+  const protocol = S.leaveScene(at('hub-protocol-4'), []);
+  assert.deepEqual(protocol.meta.scenesSeen, []);
+  const beat = S.leaveScene(at('hub-bridge'), []);
+  assert.deepEqual(beat.meta.scenesSeen, ['hub-bridge']);
+  assert.deepEqual(beat.meta.clues, ['bridge']);
+  // Nothing open: nothing changes.
+  const idle = M.initialMeta();
+  assert.equal(S.leaveScene(idle, ['x']).meta, idle);
+});
+
+test('After a boss or a raid the right scenes follow, each only once', () => {
+  const fresh = M.initialMeta();
+  assert.deepEqual(S.victoryChain(fresh, 0, false), ['victory-0', 'arrival-1']);
+  assert.deepEqual(S.victoryChain({ ...fresh, scenesSeen: ['victory-0'] }, 0, false), ['arrival-1']);
+  assert.deepEqual(S.victoryChain(fresh, 1, true), [], 'endless circuits skip the recap');
+  assert.deepEqual(S.raidEnd(fresh, true, true), { scene: 'finale' });
+  const died = { ...fresh, runs: 1, deaths: 1 };
+  assert.deepEqual(S.raidEnd(died, false, false), { scene: 'hub-first-death' });
+  const quiet = { ...died, scenesSeen: ['hub-first-death'] };
+  const after = S.raidEnd(quiet, false, false);
+  assert.equal(after.scene, null);
+  assert.ok(after.protocol.length > 0, 'a short protocol goes into the result window');
+});

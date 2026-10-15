@@ -45,6 +45,7 @@ export function PerkDraft({
   return (
     <div
       className="perk-draft"
+      data-gamepad-scope
       role="dialog"
       aria-label={`Рівень ${level}: вибери покращення`}
     >

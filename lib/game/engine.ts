@@ -980,7 +980,7 @@ export class Battle {
     if (pulse) this.pulse();
   }
   dash() {
-    if (this.dashCd > 0 || this.paused || this.ended) return;
+    if (this.dashCd > 0 || this.paused || this.ended || this.drafting) return;
     this.dashCd = this.specials.dashCooldown;
     if (this.specials.dashShot) {
       this.dashCharged = true;
@@ -997,7 +997,7 @@ export class Battle {
     this.vibrate(12);
   }
   pulse() {
-    if (this.pulseCd > 0 || this.paused || this.ended) return;
+    if (this.pulseCd > 0 || this.paused || this.ended || this.drafting) return;
     this.pulseCd = 12 - 3 * this.pk('short_fuse');
     this.pulseRing = 0.55;
     this.addTrauma(0.42);

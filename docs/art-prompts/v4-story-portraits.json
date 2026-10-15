@@ -1,0 +1,24 @@
+{
+  "tool": "Codex CLI 0.158 exec, built-in image_gen",
+  "date": "2026-09-30",
+  "assets": [
+    {
+      "name": "portrait-galyna.webp",
+      "style_reference": "public/art/residents-v1.webp",
+      "source": "docs/art-source/portrait-galyna.png",
+      "prompt": "Halyna Stepanivna, 71, former chairwoman of a Ukrainian apartment-block residents association (OSBB) in 2086: silver hair in a tight bun, reading glasses on a beaded chain, knitted cardigan, a retro-futuristic tablet held like a paper register with a pen, one eyebrow raised as if about to call a vote. Painted game portrait, head and shoulders, muted teal background with warm amber accents."
+    },
+    {
+      "name": "portrait-intercom.webp",
+      "style_reference": "public/art/residents-v1.webp",
+      "source": "docs/art-source/portrait-intercom.png",
+      "prompt": "DM-17, an old Soviet-era apartment-block door intercom upgraded in 2086: scratched beige metal plate on a tiled stairwell wall, round speaker grille glowing softly amber like a face, a small camera lens like an eye, worn call buttons with a few missing, a tiny cyan LED. Friendly, lonely, alive. Painted game portrait."
+    },
+    {
+      "name": "portrait-svitanok.webp",
+      "tool": "mage.space GPT Image 2.5 Flare, 1K 1:1",
+      "source": "docs/art-source/portrait-svitanok.png",
+      "prompt": "Svitanok (Dawn), the city-wide AI of Ukraine in 2086, a calm vertical ring of pale cyan light around a dark glass lens like a patient, slightly sad eye, floating in a dim server hall with hanging cables, tiny amber warning lights, faint glitch scanlines and drifting data particles; muted teal with warm amber accents; majestic, not menacing."
+    }
+  ]
+}

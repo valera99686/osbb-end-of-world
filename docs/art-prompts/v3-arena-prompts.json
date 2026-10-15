@@ -1,0 +1,48 @@
+{
+  "tool": "Codex CLI 0.155 exec, built-in image_gen",
+  "date": "2026-09-24",
+  "assets": [
+    {
+      "name": "enemies-core-v2.webp",
+      "styleReference": "public/art/enemies-rust-v2.webp",
+      "source": "docs/art-source/enemies-core-v2.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as enemies-network-v2.png in the current directory. Use case: game sprite atlas. The attached image is a STYLE reference only (same painted concept-art rendering, same camera angle, same scale per cell, same fully TRANSPARENT background, same 3x3 grid layout); do not copy its robots. Asset: square 1254x1254 PNG with transparent alpha background, exactly 3 columns x 3 rows of equal cells, one centered hostile robot per cell, each fully inside its cell with generous padding, no overlapping, no grid lines, no text, no numbers, no UI. Setting: Heart of the Network, the central city AI server core of Ukraine 2086; cold blue-cyan data light (#93cfee), gunmetal and white ceramic armor, glowing cyan seams, small amber warning lights. Three-quarter top-down view, slightly stylized readable silhouettes that read at 100 px. Row 1: (1) Beam Overseer - tall hovering tripod sniper drone with a single long lens emitting a thin cyan laser sight; (2) Armored Auditor - squat walker with a big curved frontal riot shield plate and a stamp-like arm; (3) Pulse Jammer - spherical robot with antenna crown and concentric emitter rings. Row 2: (4) Phase Drone - flat triangular drone partly dissolving into glitching blue pixels as if teleporting; (5) Segmenter - crab-like robot with two crossed laser emitter arms forming an X; (6) Suppression Node - pylon-like node on four short legs projecting a small dome field. Row 3 (minibosses, larger and more ornate, still fully inside their cells): (7) Relay Hunter - lean armored hunter robot with a relay dish on its back and twin cannons; (8) Mirror Agent - humanoid agent robot with mirrored reflective chest panels and angular mirror shields; (9) Chronometer - heavy robot built around a giant glowing clock dial core with orbiting gears. Consistent lighting from upper left. Final answer: just the filename."
+    },
+    {
+      "name": "floor-rust.webp",
+      "styleReference": null,
+      "source": "docs/art-source/floor-rust.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as floor-rust.png in the current directory. Use case: seamless tileable game floor texture. Square 1024x1024, strictly orthographic top-down view, SEAMLESSLY TILEABLE on all four edges (left edge continues into right edge, top into bottom), no perspective, no vanishing point, no tall objects, no text, no symbols, no letters, no characters. Subject: cracked old asphalt and concrete courtyard of a Soviet-era apartment district in Ukraine 2086, oil stains, rust-colored dust, faint worn painted parking lines, small scattered bolts and bits of scrap, tram-rail fragments embedded flat. Very LOW CONTRAST and DARK (average brightness around 18 percent) so bright game sprites stay readable on top; dominant colors dark slate #282c32 to #141e26 with subtle warm rust accents #e7aa70 at low intensity. Painted concept-art texture, even lighting, no vignette. Final answer: just the filename."
+    },
+    {
+      "name": "floor-green.webp",
+      "styleReference": null,
+      "source": "docs/art-source/floor-green.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as floor-domes.png in the current directory. Use case: seamless tileable game floor texture. Square 1024x1024, strictly orthographic top-down view, SEAMLESSLY TILEABLE on all four edges, no perspective, no text, no symbols, no characters. Subject: floor inside an overgrown automated greenhouse dome of Ukraine 2086: hexagonal composite floor tiles partially cracked, creeping roots and moss in the seams, puddles, fallen leaves, faint irrigation grates. Very LOW CONTRAST and DARK (average brightness around 18 percent) so bright game sprites remain readable; dominant colors deep green #233630 to #11231e with muted leaf green #9dcd88 accents at low intensity. Painted concept-art texture, even lighting, no vignette. Final answer: just the filename."
+    },
+    {
+      "name": "floor-core.webp",
+      "styleReference": null,
+      "source": "docs/art-source/floor-core.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as floor-network.png in the current directory. Use case: seamless tileable game floor texture. Square 1024x1024, strictly orthographic top-down view, SEAMLESSLY TILEABLE on all four edges, no perspective, no text, no letters, no digits, no characters. Subject: floor of a central AI server hall in 2086: dark metal floor panels with a grid of access plates, thin faint glowing circuit traces, ventilation grilles, cable trays set flush. Very LOW CONTRAST and DARK (average brightness around 18 percent) so bright game sprites remain readable; dominant colors navy #222d43 to #111b2e with faint cyan glow #93cfee at low intensity. Painted concept-art texture, even lighting, no vignette. Final answer: just the filename."
+    },
+    {
+      "name": "props-rust.webp",
+      "styleReference": "public/art/enemies-rust-v2.webp",
+      "source": "docs/art-source/props-rust.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as props-rust.png in the current directory. The attached image is a STYLE reference only (painted rendering, transparent background, 3x3 grid); do not copy its robots. Asset: square 1254x1254 PNG with TRANSPARENT alpha background, exactly 3x3 equal cells, one centered prop per cell with generous padding, top-down three-quarter view matching the reference, no text, no letters, no grid lines. Props for a rusty Soviet apartment district in Ukraine 2086: (1) red explosive fuel barrel with hazard stripe, (2) stack of rusty tires, (3) broken concrete block with rebar, (4) overturned shopping cart full of scrap, (5) old green garbage container, (6) pile of bricks, (7) wooden crate with metal corners, (8) broken street lamp lying flat, (9) small puddle of oil with rainbow sheen. Muted slate and rust palette with warm amber highlights. Final answer: just the filename."
+    },
+    {
+      "name": "props-green.webp",
+      "styleReference": "public/art/enemies-green-v2.webp",
+      "source": "docs/art-source/props-green.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as props-domes.png in the current directory. The attached image is a STYLE reference only (painted rendering, transparent background, 3x3 grid); do not copy its robots. Asset: square 1254x1254 PNG with TRANSPARENT alpha background, exactly 3x3 equal cells, one centered prop per cell with generous padding, top-down three-quarter view matching the reference, no text, no grid lines. Props for an overgrown automated greenhouse dome in 2086: (1) glowing green toxic fertilizer canister, (2) large planter box with mutant cabbage, (3) cluster of thorny roots, (4) broken sprinkler robot arm, (5) stack of seed crates, (6) giant sunflower lying flat, (7) moss-covered stone, (8) glass shards of a broken dome panel, (9) clump of glowing mushrooms. Deep green palette with lime and warm amber accents. Final answer: just the filename."
+    },
+    {
+      "name": "props-core.webp",
+      "styleReference": "public/art/enemies-rust-v2.webp",
+      "source": "docs/art-source/props-core.png",
+      "prompt": "Use the built-in image generation tool to create ONE image and save it as props-network.png in the current directory. The attached image is a STYLE reference only (painted rendering, transparent background, 3x3 grid); do not copy its robots. Asset: square 1254x1254 PNG with TRANSPARENT alpha background, exactly 3x3 equal cells, one centered prop per cell with generous padding, top-down three-quarter view matching the reference, no text, no letters, no digits, no grid lines. Props for the central AI server hall in 2086: (1) overheated blue capacitor with warning glow that may explode, (2) server rack module, (3) coil of thick cables, (4) broken holographic projector, (5) cooling unit with fan, (6) stack of data cartridges, (7) toppled maintenance robot shell, (8) floor terminal pedestal, (9) glowing coolant spill. Navy, gunmetal and cyan glow palette with small amber lights. Final answer: just the filename."
+    }
+  ]
+}

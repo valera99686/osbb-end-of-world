@@ -8,7 +8,9 @@ const A = require('../.test-build/apartments.js');
 const E = require('../.test-build/equipment.js');
 const D = require('../.test-build/data.js');
 const F = require('../.test-build/furniture.js');
+const C = require('../.test-build/encounters.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
+const { play } = require('./pilots.cjs');
 const room = (id, x, y, rotation = 0) => ({ id, x, y, rotation });
 const meta = M.initialMeta();
 const round = (n) => Math.round(n * 100) / 100;
@@ -91,14 +93,27 @@ function build(c, chapter, seed) {
   r.level = c.level ?? 1;
   return r;
 }
-function fight(c, chapter, kind, variant, seed, pilot) {
-  const run = build(c, chapter, seed);
-  run.kind = kind;
-  run.page = 'combat';
-  run.step = kind === 'boss' ? 9 : 4;
-  run.bossVariants[chapter] = variant;
-  run.minibossVariants[`${chapter}:${run.step}:0`] = variant;
+// Squad fights end when the squad breaks ('cleared') or on the overtime
+// clock; leader fights on the kill ('leader') or the timeout.
+function battleRow(b, run, outcome, levels, r) {
+  return {
+    won: outcome.won,
+    reason: b.endReason,
+    seconds: round(b.elapsed),
+    hpPercent: round(r.hpPercent),
+    lowestHpPercent: round(r.lowestPercent),
+    kills: b.battleKills,
+    coinsDelta: b.run.coins - run.coins,
+    squad: b.encounter?.id ?? null,
+    waves: b.encounter ? `${b.wave + 1}/${b.plan.length}` : null,
+    levels: levels.length,
+    firstLevelAt: levels.length ? round(levels[0]) : null,
+    phase2At: r.phase2 === null ? null : round(r.phase2),
+  };
+}
+function simulate(run, pilot, seed) {
   let outcome;
+  const levels = [];
   const b = new Battle(
     null,
     run,
@@ -108,32 +123,31 @@ function fight(c, chapter, kind, variant, seed, pilot) {
     (result) => {
       outcome = result;
     },
+    { onLevelUp: () => levels.push(b.elapsed), autoPerks: true },
   );
-  const maxHp = b.stats.health;
-  // Fixed circular route; no access to future attack patterns. Stationary bot
-  // intentionally measures passive survivability with no abilities or dodging.
-  while (!b.ended && b.elapsed < 215) {
-    if (pilot === 'circle') {
-      const a = b.elapsed * 0.42 + seed * 0.13;
-      const dx = 800 + Math.cos(a) * 290 - b.x;
-      const dy = 500 + Math.sin(a) * 260 - b.y;
-      const len = Math.hypot(dx, dy) || 1;
-      b.stick = { x: dx / len, y: dy / len };
-      const near = b.enemies
-        .filter((e) => e.hp > 0)
-        .reduce(
-          (n, e) => Math.min(n, Math.hypot(e.x - b.x, e.y - b.y)),
-          Infinity,
-        );
-      if (near < 220) b.pulse();
-      if (near < 85) b.dash();
-    }
-    b.update(0.025);
-    assert.ok(
-      Number.isFinite(b.run.hp) && Number.isFinite(b.x) && Number.isFinite(b.y),
-    );
-  }
+  // Fixed routes, no access to future attack patterns. The stationary bot
+  // measures passive survivability with no abilities or dodging; see
+  // scripts/pilots.cjs for circle and reactive.
+  const r = play(b, pilot === 'stationary' ? 'idle' : pilot, {
+    seed,
+    limit: 260,
+    each: () =>
+      assert.ok(
+        Number.isFinite(b.run.hp) &&
+          Number.isFinite(b.x) &&
+          Number.isFinite(b.y),
+      ),
+  });
   assert.ok(outcome, 'Encounter must terminate');
+  return battleRow(b, run, outcome, levels, r);
+}
+function fight(c, chapter, kind, variant, seed, pilot) {
+  const run = build(c, chapter, seed);
+  run.kind = kind;
+  run.page = 'combat';
+  run.step = kind === 'boss' ? 9 : 4;
+  run.bossVariants[chapter] = variant;
+  run.minibossVariants[`${chapter}:${run.step}:0`] = variant;
   return {
     build: c.id,
     chapter: chapter + 1,
@@ -141,12 +155,116 @@ function fight(c, chapter, kind, variant, seed, pilot) {
     variant,
     seed,
     pilot,
-    won: outcome.won,
-    seconds: round(b.elapsed),
-    hpPercent: round((100 * b.run.hp) / maxHp),
-    kills: b.run.kills,
-    coinsDelta: b.run.coins - run.coins,
+    ...simulate(run, pilot, seed),
   };
+}
+// The start of a run: fresh profile, starting kit, no residents. Squad
+// fights take one seed per squad template of the location (two rounds in
+// the full audit), so no single template carries a number.
+function squadSeeds(chapter, step, from = 1) {
+  const seeds = new Map();
+  const count = C.encountersAt(chapter).length;
+  for (let seed = from; seeds.size < count && seed < from + 1000; seed++) {
+    const id = C.encounterFor({ seed, chapter }, `${step}:0`).id;
+    if (!seeds.has(id)) seeds.set(id, seed);
+  }
+  return [...seeds.values()];
+}
+function freshFight(chapter, step, kind, seed, pilot, variant = 0) {
+  const run = M.makeRun(meta, 'mechanic', chapter, seed);
+  run.page = 'combat';
+  run.kind = kind;
+  run.step = step;
+  run.path = Array.from({ length: step + 1 }, () => 0);
+  run.bossVariants[chapter] = variant;
+  run.minibossVariants[`${chapter}:${step}:0`] = variant;
+  return {
+    build: 'fresh',
+    chapter: chapter + 1,
+    step,
+    kind,
+    variant,
+    seed,
+    pilot,
+    ...simulate(run, pilot, seed),
+  };
+}
+function freshScan(quick) {
+  const out = [];
+  for (const chapter of [0, 1, 2])
+    for (const [step, kind] of [
+      [0, 'battle'],
+      [3, 'battle'],
+      [4, 'elite'],
+      [5, 'miniboss'],
+      [9, 'boss'],
+    ]) {
+      const leader = kind === 'miniboss' || kind === 'boss';
+      const seeds = leader
+        ? quick
+          ? [17]
+          : [17, 83]
+        : [
+            ...squadSeeds(chapter, step),
+            ...(quick ? [] : squadSeeds(chapter, step, 1001)),
+          ];
+      for (const seed of seeds)
+        for (const variant of leader ? [0, 1, 2] : [0])
+          for (const pilot of ['stationary', 'circle', 'reactive'])
+            out.push(freshFight(chapter, step, kind, seed, pilot, variant));
+    }
+  return out;
+}
+// CI-style gates for the living-combat targets; tests/combat-feel.test.cjs
+// asserts the same on fewer seeds.
+function gates(fresh) {
+  const pick = (chapter, step, kind, pilot) =>
+    fresh.filter(
+      (r) =>
+        r.chapter === chapter &&
+        r.step === step &&
+        r.kind === kind &&
+        r.pilot === pilot,
+    );
+  const hp = (rs) => round(mean(rs.map((r) => r.hpPercent)));
+  const out = [];
+  const gate = (id, value, pass) => out.push({ id, value, pass });
+  const still = hp(pick(1, 3, 'battle', 'stationary'));
+  gate('stationary ends location 1 step 3 below 50% hp', still, still < 50);
+  const circle = hp(pick(1, 4, 'elite', 'circle')),
+    reactive = hp(pick(1, 4, 'elite', 'reactive'));
+  gate('circle ends a location 1 elite below 80% hp', circle, circle < 80);
+  gate(
+    'reactive beats circle on location 1 elites',
+    round(reactive - circle),
+    reactive > circle,
+  );
+  const first = [
+    ...pick(1, 0, 'battle', 'circle'),
+    ...pick(1, 0, 'battle', 'reactive'),
+  ];
+  gate(
+    'moving pilots win the first fight above 60% hp',
+    hp(first),
+    first.every((r) => r.won) && hp(first) >= 60,
+  );
+  const opening = pick(1, 0, 'battle', 'stationary');
+  gate(
+    'first level within 20 s of the first fight',
+    round(mean(opening.map((r) => r.firstLevelAt ?? 99))),
+    opening.every((r) => r.firstLevelAt !== null && r.firstLevelAt <= 20),
+  );
+  // The starting kit deep in locations 2-3 may still need the overtime clock.
+  const won = fresh.filter((r) => r.chapter === 1 && r.squad && r.won);
+  gate(
+    'won location 1 squad fights end on the kill quota, not the clock (%)',
+    round(
+      (100 * won.filter((r) => r.reason === 'cleared').length) /
+        Math.max(1, won.length),
+    ),
+    won.every((r) => r.reason === 'cleared'),
+  );
+  return out;
 }
 function pairScan() {
   const out = [];
@@ -357,7 +475,7 @@ for (const c of cases)
         ? [0, 1, 2]
         : [0])
         for (const seed of quick ? seeds.slice(0, 2) : seeds)
-          for (const pilot of ['stationary', 'circle'])
+          for (const pilot of ['stationary', 'circle', 'reactive'])
             rows.push(fight(c, chapter, kind, variant, seed, pilot));
     console.log(
       `Completed ${c.id}, location ${chapter + 1}; ${rows.length} encounters`,
@@ -463,9 +581,11 @@ for (const c of lateCases)
   for (const variant of [0, 1, 2])
     for (const seed of quick ? seeds.slice(0, 2) : seeds)
       rows.push(fight(c, 2, 'boss', variant, seed, 'circle'));
+const fresh = freshScan(quick);
+console.log(`Completed the fresh-run scan; ${fresh.length} encounters`);
 const groups = new Map();
-for (const r of rows) {
-  const key = [r.build, r.chapter, r.kind, r.pilot].join('/');
+for (const r of [...fresh, ...rows]) {
+  const key = [r.build, r.chapter, r.step ?? '', r.kind, r.pilot].join('/');
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push(r);
 }
@@ -476,7 +596,11 @@ const summary = [...groups].map(([key, rs]) => ({
   meanHpPercent: round(mean(rs.map((r) => r.hpPercent))),
   meanSeconds: round(mean(rs.map((r) => r.seconds))),
   meanCoinsDelta: round(mean(rs.map((r) => r.coinsDelta))),
+  meanKills: round(mean(rs.map((r) => r.kills))),
+  meanLevels: round(mean(rs.map((r) => r.levels))),
+  ends: rs.reduce((n, r) => ({ ...n, [r.reason]: (n[r.reason] ?? 0) + 1 }), {}),
 }));
+const checks = gates(fresh);
 const report = {
   version: require('../package.json').version,
   generatedAt: new Date().toISOString(),
@@ -494,7 +618,11 @@ const report = {
     pilots: [
       'stationary: no movement or abilities',
       'circle: fixed route, proximity dash and pulse',
+      'reactive: keeps its distance, leaves soon-armed zones, sidesteps shots, pulses crowds',
     ],
+    fresh:
+      'Start of a run (mechanic, starting kit, no residents); battles and elites use one seed per squad template',
+    ends: 'cleared: squad broken; overtime: squad fight clock ran out; leader: boss or miniboss killed; timeout / lost: defeat',
     economy:
       'Random connected routes assuming all fights won, guaranteed combat/boss gold only; excludes purchases, drops and event gold',
   },
@@ -504,7 +632,9 @@ const report = {
   furniture: furnitureScan(),
   edgeCases: edgeCases(),
   economy: economy(),
+  gates: checks,
   summary,
+  fresh,
   encounters: rows,
 };
 fs.mkdirSync('docs/balance', { recursive: true });
@@ -520,8 +650,10 @@ console.log(
       equipmentPairs: report.equipment.length,
       furniture: report.furniture.length,
       edgeCases: report.edgeCases,
+      gates: checks,
     },
     null,
     2,
   ),
 );
+if (checks.some((g) => !g.pass)) process.exitCode = 1;

@@ -1,3 +1,4 @@
+import type { WeaponId } from './weapons';
 export type Family = 'machine' | 'electric' | 'organic' | 'cursed';
 export type Stat =
   | 'damage'
@@ -27,6 +28,8 @@ export interface Item {
   desc: string;
   stats: Partial<Record<Stat, number>>;
   unlock: string;
+  // Weapon core: arms the roof turret (weapons.ts).
+  weapon?: WeaponId;
 }
 const item = (
   id: string,
@@ -312,7 +315,7 @@ export const ITEMS: Item[] = [
     60,
     'Снаряди передають розряд ще одному ворогу.',
     { chain: 1 },
-    'win1',
+    'runs1',
   ),
   item(
     'capacitor',
@@ -323,7 +326,7 @@ export const ITEMS: Item[] = [
     48,
     '+40 міцності та +1 броні.',
     { health: 40, armor: 1 },
-    'kills150',
+    'win1',
   ),
   item(
     'tesla',
@@ -334,7 +337,7 @@ export const ITEMS: Item[] = [
     75,
     'Два електричні супутники б’ють ворогів навколо будинку.',
     { orbit: 2 },
-    'win1',
+    'boss1',
   ),
   item(
     'overclock',
@@ -378,7 +381,7 @@ export const ITEMS: Item[] = [
     75,
     'Після кожного вбивства відновлює 1 міцність.',
     { vampire: 1 },
-    'win2',
+    'elite3',
   ),
   item(
     'roots',
@@ -389,7 +392,7 @@ export const ITEMS: Item[] = [
     48,
     '+60 міцності, але швидкість −12.',
     { health: 60, speed: -12 },
-    'win2',
+    'win3',
   ),
   item(
     'spores',
@@ -400,7 +403,7 @@ export const ITEMS: Item[] = [
     70,
     'Снаряди вибухають у радіусі 55. +3 шкоди.',
     { explosion: 55, damage: 3 },
-    'win2',
+    'mini2',
   ),
   item(
     'hive',
@@ -411,7 +414,7 @@ export const ITEMS: Item[] = [
     80,
     'Два дрони ведуть незалежний вогонь.',
     { drones: 2 },
-    'win2',
+    'rescue6',
   ),
   item(
     'heart',
@@ -422,7 +425,7 @@ export const ITEMS: Item[] = [
     85,
     '+80 міцності, +1 відновлення.',
     { health: 80, regen: 1 },
-    'win2',
+    'win3',
   ),
   item(
     'coinshot',
@@ -433,7 +436,7 @@ export const ITEMS: Item[] = [
     55,
     'Кожен залп витрачає 1 монету за потрійну шкоду. Без грошей стріляє звичайно.',
     { damage: 6 },
-    'win3',
+    'kills300',
   ),
   item(
     'mimic',
@@ -455,7 +458,7 @@ export const ITEMS: Item[] = [
     90,
     'Ще два снаряди в залпі. Кожен наносить на 5 менше шкоди.',
     { shots: 2, damage: -5 },
-    'win3',
+    'runs3',
   ),
   item(
     'blackhole',
@@ -466,7 +469,7 @@ export const ITEMS: Item[] = [
     90,
     'Три орбітальні супутники та +100 до збору.',
     { orbit: 3, magnet: 100 },
-    'win3',
+    'reach3',
   ),
   item(
     'contract',
@@ -556,6 +559,90 @@ export const ITEMS: Item[] = [
     { damage: 20, health: 60, speed: 20 },
     'win5',
   ),
+  {
+    ...item(
+      'core_spread',
+      'Дробовик ЖЕК',
+      'spread',
+      'machine',
+      2,
+      58,
+      'ЯДРО ЗБРОЇ: віяло з п’яти дробин, коротка дальність. +10 міцності.',
+      { health: 10 },
+      'start',
+    ),
+    weapon: 'spread',
+  },
+  {
+    ...item(
+      'core_arc',
+      'Дуговий трансформатор',
+      'zap',
+      'electric',
+      2,
+      60,
+      'ЯДРО ЗБРОЇ: миттєва блискавка, що перескакує між трьома ворогами.',
+      { crit: 0.03 },
+      'start',
+    ),
+    weapon: 'arc',
+  },
+  {
+    ...item(
+      'core_coins',
+      'Монетомет',
+      'coins',
+      'cursed',
+      2,
+      64,
+      'ЯДРО ЗБРОЇ: монети рикошетять тричі. +4% удачі.',
+      { luck: 0.04 },
+      'runs1',
+    ),
+    weapon: 'coins',
+  },
+  {
+    ...item(
+      'core_flame',
+      'Газова колонка',
+      'flame',
+      'organic',
+      3,
+      72,
+      'ЯДРО ЗБРОЇ: струмінь полум’я впритул, вороги горять. +0,4 відновлення.',
+      { regen: 0.4 },
+      'runs3',
+    ),
+    weapon: 'flame',
+  },
+  {
+    ...item(
+      'core_mortar',
+      'Міномет з балкона',
+      'bomb',
+      'machine',
+      3,
+      78,
+      'ЯДРО ЗБРОЇ: навісний снаряд у натовп, вибух по площі.',
+      { armor: 1 },
+      'boss1',
+    ),
+    weapon: 'mortar',
+  },
+  {
+    ...item(
+      'core_rail',
+      'Рейковий пробійник',
+      'target',
+      'electric',
+      3,
+      84,
+      'ЯДРО ЗБРОЇ: повільний постріл, що прошиває всю лінію.',
+      { range: 40 },
+      'elite3',
+    ),
+    weapon: 'rail',
+  },
 ];
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 export const FAMILY: Record<Family, { name: string; color: string }> = {
@@ -663,51 +750,85 @@ export const UNLOCK_TEXT: Record<string, string> = {
   win5: 'Заверши 5 повних експедицій',
   blueprint: 'Придбай креслення в майстерні',
   kills50: 'Знищ 50 ворогів за всі експедиції',
-  kills150: 'Знищ 150 ворогів за всі експедиції',
+  kills300: 'Знищ 300 ворогів за всі експедиції',
   dash10: 'Виконай 10 ривків',
   scrap5: 'Розбери 5 модулів у різних або одному забігу',
+  runs1: 'Заверши першу експедицію — перемогою чи поразкою',
+  runs3: 'Заверши 3 експедиції — перемогою чи поразкою',
+  boss1: 'Перемож першого боса локації',
+  mini2: 'Перемож 2 мінібосів за всі експедиції',
+  rescue6: 'Урятуй 6 мешканців за всі експедиції',
+  elite3: 'Виграй 3 бої з елітою за всі експедиції',
+  reach3: 'Дійди до третьої локації',
 };
-export const RESEARCH = [
+// One-off run modifiers bought in the workshop. Owned ones are snapshotted
+// into Run.research at launch, like the old levelled research was.
+export interface RunModifier {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  cost: number;
+  // Finished expeditions needed before it can be bought.
+  runs: number;
+}
+export const RESEARCH: RunModifier[] = [
   {
-    id: 'salvage',
-    name: 'Школа збирачів',
-    desc: '+10 радіусу збору за рівень',
-    icon: 'magnet',
-    cost: 3,
+    id: 'draft',
+    name: 'Стартовий вибір',
+    desc: 'На початку рейду обираєш один із трьох модулів.',
+    icon: 'copy',
+    cost: 4,
+    runs: 1,
   },
   {
-    id: 'servos',
-    name: 'Сервоприводи будинку',
-    desc: '+3 швидкості за рівень',
-    icon: 'footprints',
-    cost: 5,
+    id: 'crew',
+    name: 'Сусідський чат',
+    desc: 'Рейд починається з ще одним урятованим мешканцем на борту.',
+    icon: 'bell',
+    cost: 7,
+    runs: 1,
   },
   {
-    id: 'maintenance',
-    name: 'Аварійні бригади',
-    desc: '+0,06 відновлення/с за рівень',
+    id: 'bumper',
+    name: 'Аварійний бампер',
+    desc: 'У кожному бою ще один ворожий удар повністю блокується.',
+    icon: 'shield',
+    cost: 6,
+    runs: 2,
+  },
+  {
+    id: 'medic',
+    name: 'Фельдшерка в під’їзді',
+    desc: 'Кожен урятований мешканець лагодить будинок на 20% міцності.',
     icon: 'heart',
     cost: 5,
+    runs: 2,
   },
   {
-    id: 'hull',
-    name: 'Посилений фундамент',
-    desc: '+10 стартової міцності за рівень',
-    icon: 'shield',
-    cost: 5,
-  },
-  {
-    id: 'supplies',
-    name: 'Запас на чорний день',
-    desc: '+8 стартових монет за рівень',
+    id: 'market',
+    name: 'Знайомий на ринку',
+    desc: 'Перше оновлення товару в кожному магазині безкоштовне.',
     icon: 'coins',
     cost: 4,
+    runs: 3,
   },
   {
-    id: 'garage',
-    name: 'Точне налаштування',
-    desc: '+3 шкоди за рівень',
-    icon: 'wrench',
-    cost: 6,
+    id: 'chest',
+    name: 'Подвійне дно',
+    desc: 'Скрині пропонують вибір із двох знахідок замість однієї.',
+    icon: 'package',
+    cost: 5,
+    runs: 3,
   },
 ];
+// Levelled research from 0.10 and earlier: the id and the price of level 1.
+// Old saves get every spent core back (see readSave in save.ts).
+export const LEGACY_RESEARCH: Record<string, number> = {
+  salvage: 3,
+  servos: 5,
+  maintenance: 5,
+  hull: 5,
+  supplies: 4,
+  garage: 6,
+};

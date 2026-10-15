@@ -286,7 +286,7 @@ function HousePlan({
               viewBox={`${(person.portrait % 3) * 418} ${Math.floor(person.portrait / 3) * 418} 418 418`}
               overflow="hidden"
             >
-              <image href="/art/residents-v1.png" width="1254" height="1254" />
+              <image href="/art/residents-v1.webp" width="1254" height="1254" />
             </svg>
             {!compact && (
               <text

@@ -10,6 +10,8 @@ export interface Hazard {
   color: string;
   drain?: number;
   slow?: number;
+  // Volatile-affix wreck: bursts with debris when it goes off.
+  blast?: boolean;
 }
 export const BOSS_GUIDES = [
   'Комендант стріляє віялом і б’є по позначеній ділянці. Рухайся поперек прицілу, виходь із кола.',
@@ -24,7 +26,13 @@ export interface BossPattern {
   shots: { angle: number; speed: number; damage: number }[];
   hazards: Hazard[];
   summons: number[];
+  // Seconds from release until a heavy slam lands; the leader is then
+  // staggered (takes more damage, stands still) for STAGGER_TIME.
+  stagger?: number;
 }
+// Stagger window after a heavy slam, and the damage taken inside it.
+export const STAGGER_TIME = 2;
+export const STAGGER_DAMAGE = 1.5;
 export function bossPattern(
   chapter: number,
   phase: number,
@@ -177,30 +185,65 @@ export function hazardContains(h: Hazard, x: number, y: number): boolean {
   );
   return Math.hypot(x - h.x - dx * t, y - h.y - dy * t) < h.radius + 18;
 }
-export function drawHazard(c: CanvasRenderingContext2D, h: Hazard) {
+// Settings subset; a Settings object can be passed as is.
+export interface HazardStyle {
+  colorblind?: boolean;
+  reducedFlashes?: boolean;
+}
+// Okabe-Ito orange with a dark rim stays readable for protan/deutan players
+// on every floor colour, unlike the per-boss greens and reds.
+export const COLORBLIND_HAZARD = '#ffb000';
+export function drawHazard(
+  c: CanvasRenderingContext2D,
+  h: Hazard,
+  style: HazardStyle = {},
+) {
+  const x2 = h.x2,
+    y2 = h.y2,
+    line = x2 !== undefined && y2 !== undefined,
+    armed = h.age >= 0,
+    marked = !!style.colorblind,
+    width = armed ? (line ? h.radius * 2 : 4) : 2;
+  const shape = (radius = h.radius) => {
+    c.beginPath();
+    if (x2 !== undefined && y2 !== undefined) {
+      c.moveTo(h.x, h.y);
+      c.lineTo(x2, y2);
+    } else c.arc(h.x, h.y, radius, 0, Math.PI * 2);
+  };
   c.save();
-  c.strokeStyle = h.color;
-  c.fillStyle = h.color;
-  c.globalAlpha = h.age < 0 ? 0.45 : 0.85;
-  c.lineWidth = h.age < 0 ? 2 : h.x2 !== undefined ? h.radius * 2 : 4;
-  c.setLineDash(h.age < 0 ? [7, 7] : []);
-  c.beginPath();
-  if (h.x2 !== undefined && h.y2 !== undefined) {
-    c.moveTo(h.x, h.y);
-    c.lineTo(h.x2, h.y2);
+  c.setLineDash(armed ? [] : [7, 7]);
+  if (marked) {
+    c.strokeStyle = '#05080a';
+    c.globalAlpha = 0.7;
+    c.lineWidth = width + 4;
+    shape();
     c.stroke();
-  } else {
-    c.arc(h.x, h.y, h.radius, 0, Math.PI * 2);
-    c.stroke();
-    c.globalAlpha = h.age < 0 ? 0.08 : 0.22;
+  }
+  c.strokeStyle = marked ? COLORBLIND_HAZARD : h.color;
+  c.fillStyle = marked ? COLORBLIND_HAZARD : h.color;
+  c.globalAlpha = armed ? 0.85 : marked ? 0.8 : 0.45;
+  c.lineWidth = width;
+  shape();
+  c.stroke();
+  if (!line) {
+    c.globalAlpha = armed ? (marked ? 0.3 : 0.22) : marked ? 0.12 : 0.08;
     c.fill();
-    if (h.age < 0) {
+    if (!armed) {
       c.setLineDash([]);
-      c.globalAlpha = 0.55;
-      c.beginPath();
-      c.arc(h.x, h.y, h.radius * Math.max(0, 1 + h.age / 1.6), 0, Math.PI * 2);
+      c.globalAlpha = marked ? 0.8 : 0.55;
+      shape(h.radius * Math.max(0, 1 + h.age / 1.6));
       c.stroke();
     }
+  }
+  // The strike lands: a brief bright core, skipped with reduced flashes.
+  if (armed && h.age < 0.12 && !style.reducedFlashes) {
+    c.setLineDash([]);
+    c.globalAlpha = (1 - h.age / 0.12) * 0.7;
+    c.strokeStyle = '#fff4e0';
+    c.lineWidth = line ? h.radius : 8;
+    shape();
+    c.stroke();
   }
   c.restore();
 }

@@ -56,7 +56,7 @@
 }
 .tutorial-modal p {
   line-height: 1.65;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale, 1));
   color: #aac1c8;
   margin: 0;
 }

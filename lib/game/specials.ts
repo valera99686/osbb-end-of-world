@@ -18,7 +18,10 @@ export function specialEffects(run: Run) {
     });
   return {
     shields:
-      Number(equipment.has('airbag')) + Number(neighbor('firedoor', 'boris')),
+      Number(equipment.has('airbag')) +
+      Number(neighbor('firedoor', 'boris')) +
+      // 'bumper' run modifier from the workshop.
+      Number((run.research?.bumper ?? 0) >= 1),
     dashShot: equipment.has('flywheel'),
     pulseHeal:
       (equipment.has('medpulse') ? 8 : 0) +

@@ -1,0 +1,324 @@
+.dlg {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px max(14px, env(safe-area-inset-left)) max(14px, env(safe-area-inset-bottom));
+  background: #04090d;
+  color: #e8e1d2;
+}
+.dlg-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+.dlg-stage .scene-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: dlg-drift 24s ease-in-out infinite alternate;
+}
+.dlg-shelter {
+  background:
+    radial-gradient(circle at 50% 30%, #2b4a52 0%, transparent 55%),
+    radial-gradient(circle at 20% 80%, #5a3d1f66, transparent 50%),
+    linear-gradient(180deg, #0c1a21, #05090c);
+}
+.dlg-haze {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #04090d55 0%, transparent 35%, #04090dcc 78%, #04090d 100%);
+}
+.dlg > *:not(.dlg-stage) {
+  position: relative;
+  z-index: 1;
+}
+.dlg-top {
+  position: absolute !important;
+  top: 12px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  color: #aee6cb;
+}
+.dlg-top small {
+  color: #8fa3ab;
+  font-weight: 600;
+}
+.dlg-top .text-button {
+  margin-left: auto;
+}
+.dlg-time {
+  color: #f0c060;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+.dlg-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #0b161cee;
+  border: 1px solid #2c4650;
+  animation: dlg-in 0.22s ease-out both;
+}
+.speaker-portrait {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid #aee6cb;
+  overflow: hidden;
+  background: #0a1216;
+}
+.speaker-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.speaker-portrait .resident-portrait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-image: url('/art/residents-v1.webp');
+  background-size: 300% 300%;
+}
+.speaker-boss {
+  border-color: #ff8e82 !important;
+  background: radial-gradient(circle, #4a1a16, #14080a);
+  color: #ff8e82;
+}
+.portrait-icon {
+  display: grid;
+  place-items: center;
+}
+.dlg-body {
+  min-width: 0;
+  flex: 1;
+}
+.dlg-name {
+  display: block;
+  font-weight: 800;
+  font-size: calc(14px * var(--text-scale, 1));
+  letter-spacing: 0.03em;
+}
+.dlg-name small {
+  color: #8fa3ab;
+  font-weight: 600;
+}
+.dlg-body p {
+  margin: 4px 0 0;
+  font-size: calc(17px * var(--text-scale, 1));
+  line-height: 1.45;
+  color: #f4ead6;
+}
+.dlg-narration {
+  font-style: italic;
+  color: #c8d6d4 !important;
+}
+.dlg-glitch .dlg-body p,
+.dlg-glitch .dlg-name {
+  animation: dlg-glitch 0.9s steps(2) 2;
+  text-shadow:
+    2px 0 #ff4d6d88,
+    -2px 0 #4dd2ff88;
+}
+.dlg-choices {
+  display: grid;
+  gap: 8px;
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+.dlg-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1.5px solid #3b6670;
+  background: #112229;
+  color: #f4ead6;
+  font-size: calc(16px * var(--text-scale, 1));
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.1s,
+    border-color 0.1s;
+}
+.dlg-choice:not(:disabled):hover,
+.dlg-choice:focus-visible {
+  border-color: #f0c060;
+  transform: translateX(3px);
+  outline: none;
+}
+.dlg-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dlg-choice small {
+  color: #8fa3ab;
+  font-size: 12px;
+}
+.dlg-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+.dlg-count {
+  font-size: 12px;
+  color: #8fa3ab;
+  letter-spacing: 0.1em;
+}
+.protocol-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed #5b7a73;
+  background: #0d1b20;
+}
+.protocol-line {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.protocol-line p {
+  margin: 0;
+  font-size: calc(14px * var(--text-scale, 1));
+  color: #d8d2c2;
+}
+.protocol-line b {
+  color: #f0c060;
+}
+.radio-strip {
+  position: absolute;
+  left: 12px;
+  top: 78px;
+  z-index: 6;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: min(360px, calc(100% - 24px));
+  padding: 8px 12px 8px 8px;
+  border-radius: 12px;
+  background: #07121bd9;
+  border: 1px solid #2c4650;
+  pointer-events: none;
+  animation: dlg-in 0.2s ease-out both;
+}
+.radio-strip p {
+  margin: 0;
+  font-size: calc(13px * var(--text-scale, 1));
+  color: #e8e1d2;
+}
+.radio-strip b {
+  display: block;
+  font-size: 11px;
+  color: #aee6cb;
+  letter-spacing: 0.05em;
+}
+.case-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+.clue-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #2f4852;
+  background: linear-gradient(180deg, #14262d, #0d181d);
+}
+.clue-card.locked {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.clue-card h3 {
+  margin: 0 0 6px;
+  font-size: calc(16px * var(--text-scale, 1));
+}
+.clue-card p {
+  margin: 0;
+  font-size: calc(14px * var(--text-scale, 1));
+  color: #b9c7c9;
+}
+.ending-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1.5px solid #5a4a2a;
+  background: linear-gradient(180deg, #221a0e, #130e07);
+}
+.ending-card.locked {
+  opacity: 0.6;
+  border-style: dashed;
+}
+@keyframes dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes dlg-drift {
+  from {
+    transform: scale(1.04) translateX(-1%);
+  }
+  to {
+    transform: scale(1.1) translateX(1%);
+  }
+}
+@keyframes dlg-glitch {
+  0% {
+    transform: translateX(0);
+  }
+  33% {
+    transform: translateX(-2px) skewX(-2deg);
+  }
+  66% {
+    transform: translateX(2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+@media (max-width: 640px) {
+  .dlg-card {
+    padding: 12px;
+    gap: 10px;
+  }
+  .dlg-body p {
+    font-size: calc(16px * var(--text-scale, 1));
+  }
+  .dlg-top small {
+    display: none;
+  }
+  .radio-strip {
+    top: 70px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dlg-stage .scene-art,
+  .dlg-card,
+  .dlg-glitch .dlg-body p,
+  .dlg-glitch .dlg-name,
+  .radio-strip {
+    animation: none;
+  }
+}

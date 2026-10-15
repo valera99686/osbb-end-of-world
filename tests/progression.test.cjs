@@ -9,10 +9,12 @@ test('Blueprint purchase requires the milestone, charges once, and never grants 
   let meta = M.initialMeta();
   meta.cores = 50;
   assert.equal(P.buyBlueprint(meta, 'rescue_beacon'), meta);
-  meta.kills = 25;
+  meta.totalRescues = 8;
   const bought = P.buyBlueprint(meta, 'rescue_beacon');
   assert.equal(bought.cores, 47);
   assert.deepEqual(bought.blueprints, ['rescue_beacon']);
+  // The bought module is revealed as 'НОВЕ' in the next run's first reward.
+  assert.deepEqual(bought.fresh, ['rescue_beacon']);
   assert.equal(P.buyBlueprint(bought, 'rescue_beacon'), bought);
   assert.equal(P.buyBlueprint(bought, 'unknown'), bought);
   const run = M.makeRun(bought, 'mechanic', 0, 21);
@@ -32,6 +34,8 @@ test('All purchased blueprints can appear; locked exclusives never leak through 
     cores: 1000,
     kills: 1000,
     wins: 5,
+    deaths: 2,
+    dashes: 40,
     totalBosses: 15,
     totalMinibosses: 5,
     totalRescues: 10,
@@ -71,17 +75,30 @@ test('A losing expedition still earns research progress, while an empty abandonm
   run.minibossKills = 2;
   run.bossesDefeated = 1;
   run.rescued = ['mechanic', 'lev', 'nina'];
+  run.battleCount = 5;
   const result = M.finishRun(meta, run, false);
-  assert.equal(result.cores, 6);
+  // One cleared location (3), two rescues (2), two minibosses (2) and one
+  // share of field data for 52 kills (1).
+  assert.equal(result.cores, 8);
   assert.equal(
     result.coreBreakdown.reduce((s, x) => s + x.amount, 0),
-    6,
+    8,
+  );
+  assert.deepEqual(
+    result.coreBreakdown.map((r) => [r.label, r.amount, r.detail]),
+    [
+      ['Пройдені локації', 3, '1 × 3'],
+      ['Урятовані мешканці', 2, '2 × 1'],
+      ['Мінібоси', 2, '2 × 1'],
+      ['Бойові дані', 1, '52 ворогів'],
+    ],
   );
   assert.equal(result.meta.totalBosses, 1);
   assert.equal(result.meta.totalMinibosses, 2);
   assert.equal(result.meta.totalRescues, 2);
-  assert.ok(result.projects.includes('rescue_beacon'));
-  assert.ok(result.projects.includes('foam_shield'));
+  assert.ok(result.projects.includes('toolwall'));
+  assert.ok(result.projects.includes('relayDesk'));
+  assert.ok(!result.projects.includes('foam_shield'));
   assert.equal(result.meta.blueprints.length, 0);
   assert.equal(result.meta.wins, 0);
   const empty = M.finishRun(meta, M.makeRun(meta, 'mechanic', 0, 22), false);
@@ -89,24 +106,75 @@ test('A losing expedition still earns research progress, while an empty abandonm
   assert.equal(empty.meta.totalRescues, 0);
   assert.equal(empty.projects.length, 0);
 });
-test('New research is capped, priced by level and deferred for active and reloaded expeditions', () => {
+test('Run modifiers are bought once, wait for enough expeditions and only change new runs', () => {
+  const D = require('../.test-build/data.js'),
+    S = require('../.test-build/specials.js');
   let meta = M.initialMeta();
   meta.cores = 1000;
+  // Nothing is sold before the first expedition is over.
+  for (const r of D.RESEARCH) assert.equal(P.buyResearch(meta, r.id), meta);
+  meta.runs = 3;
   const active = M.makeRun(meta, 'mechanic', 0, 1),
     before = M.statsFor(active, meta);
-  for (const id of ['servos', 'salvage', 'maintenance'])
-    for (let n = 0; n < 5; n++) meta = P.buyResearch(meta, id);
-  assert.equal(meta.cores, 1000 - (5 + 3 + 5) * 15);
-  assert.equal(P.buyResearch(meta, 'servos'), meta);
-  assert.deepEqual(M.statsFor(active, meta), before);
-  const fresh = M.statsFor(M.makeRun(meta, 'mechanic', 0, 1), meta);
-  assert.equal(fresh.speed, before.speed + 15);
-  assert.equal(fresh.magnet, before.magnet + 50);
-  assert.ok(Math.abs(fresh.regen - before.regen - 0.3) < 1e-9);
-  assert.deepEqual(
-    M.statsFor(M.readSave(M.saveData(meta, active)).run, meta),
-    before,
+  for (const r of D.RESEARCH) meta = P.buyResearch(meta, r.id);
+  assert.equal(
+    meta.cores,
+    1000 - D.RESEARCH.reduce((sum, r) => sum + r.cost, 0),
   );
+  for (const r of D.RESEARCH) {
+    assert.equal(meta.research[r.id], 1);
+    assert.equal(P.buyResearch(meta, r.id), meta, 'bought once');
+  }
+  // A run keeps the snapshot it launched with, through a reload too.
+  assert.deepEqual(M.statsFor(active, meta), before);
+  const reloaded = M.readSave(M.saveData(meta, active)).run;
+  assert.deepEqual(reloaded.research, active.research);
+  assert.deepEqual(reloaded.draft, []);
+  assert.deepEqual(reloaded.rescued, ['mechanic']);
+  const run = M.makeRun(meta, 'mechanic', 0, 1);
+  // draft: three unlocked modules not already installed.
+  assert.equal(run.draft.length, 3);
+  assert.equal(new Set(run.draft).size, 3);
+  for (const id of run.draft) {
+    assert.ok(meta.unlocked.includes(id), id);
+    assert.ok(!run.items.includes(id), id);
+  }
+  assert.deepEqual(M.skipDraft(run).draft, []);
+  assert.deepEqual(M.readSave(M.saveData(meta, run)).run, run);
+  // crew: a second resident aboard who does not count as a rescue.
+  assert.equal(run.rescued.length, 2);
+  assert.equal(run.residents.length, 2);
+  assert.equal(M.runRescues(run), 0);
+  assert.equal(run.hp, M.statsFor(run, meta).health);
+  // bumper: one more blocked hit per battle.
+  assert.equal(
+    S.specialEffects(run).shields,
+    S.specialEffects(active).shields + 1,
+  );
+  // market: the first refresh in a shop is free, the next one is not.
+  const shop = { ...run, page: 'shop', coins: 0, offers: [], bought: [] };
+  assert.equal(M.rerollCost(shop), 0);
+  assert.equal(M.rerollShop(shop, meta).rerolls, 1);
+  assert.ok(M.rerollCost({ ...shop, rerolls: 1 }) > 0);
+  assert.ok(M.rerollCost({ ...active, page: 'shop' }) > 0);
+  // chest: two finds to choose from instead of one.
+  const chest = (r) =>
+    M.enterNode({ ...r, nodes: [['chest'], ...r.nodes.slice(1)] }, meta, '0:0');
+  assert.equal(chest(run).loot.length, 2);
+  assert.equal(chest(active).loot.length, 1);
+  // medic: the first battle's rescue patches the house up by 20%.
+  const plain = M.battleRewards(
+    { ...run, hp: 40, research: { ...run.research, medic: 0 } },
+    meta,
+  );
+  const healed = M.battleRewards({ ...run, hp: 40 }, meta);
+  assert.ok(healed.rescue);
+  assert.equal(healed.rescue, plain.rescue);
+  assert.ok(
+    Math.abs(healed.hp - plain.hp - M.statsFor(healed, meta).health * 0.2) <
+      1e-9,
+  );
+  // Profiles from before 0.11 keep their counters; old levels are refunded.
   const legacy = JSON.parse(M.saveData(meta, active));
   delete legacy.meta.blueprints;
   delete legacy.meta.totalBosses;
@@ -119,7 +187,10 @@ test('New research is capped, priced by level and deferred for active and reload
   assert.ok(migrated.run);
   assert.equal(migrated.meta.totalBosses, 6);
   assert.deepEqual(migrated.run.blueprints, []);
-  assert.equal(migrated.meta.research.servos, 0);
+  assert.equal(migrated.refund, 5);
+  assert.equal(migrated.meta.cores, meta.cores + 5);
+  for (const r of D.RESEARCH) assert.equal(migrated.meta.research[r.id], 0);
+  assert.equal(migrated.meta.research.hull, undefined);
 });
 function echoBattle(coins) {
   const meta = M.initialMeta(),

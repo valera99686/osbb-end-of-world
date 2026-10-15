@@ -1,17 +1,18 @@
 import { specialEffects } from './specials';
 import {
   BLUEPRINTS,
-  BLUEPRINT_BY_ID,
   blueprintReady,
   blueprintPool,
+  MAX_DEPTH,
+  researchOwned,
+  runDepth,
+  unlockReady,
 } from './progression';
 import { CAMPAIGN_EVENTS, type EventEffect } from './campaign-content';
 import {
   apartmentEffects,
   linkedIds,
   planRoomMove,
-  restoreRoomLinks,
-  restoreRoomModes,
   roomsTouch,
   type RoomLink,
   type RoomMode,
@@ -31,8 +32,8 @@ import {
 import {
   ITEMS,
   ITEM_BY_ID,
-  RESEARCH,
   CHARACTERS,
+  RESEARCH,
   type Stat,
   type Item,
 } from './data';
@@ -41,24 +42,31 @@ import { loreForProgress } from './lore';
 import {
   residentRoster,
   initialHouse,
-  restoreResidents,
   residentBonuses,
   residentSpace,
   type ResidentRoom,
   HOUSE_EXPANSION_COSTS,
 } from './residents';
 import {
-  restoreFurniture,
   furnitureBonuses,
   canFurnish,
   FURNITURE_BY_ID,
   type Furnishing,
 } from './furniture';
+import { STORY_REVISION } from './cutscenes';
 import {
-  sceneUnlocked,
-  restoreSceneProgress,
-  STORY_REVISION,
-} from './cutscenes';
+  DATE_KEY,
+  dateKey,
+  endlessHeat,
+  heatCap,
+  heatForRun,
+  runScore,
+  type RunMode,
+} from './modes';
+import { newAchievements } from './achievements';
+import { perkStats } from './upgrades';
+import { EVOLUTION_BY_ID, WEAPONS, weaponFor, type WeaponId } from './weapons';
+export { readSave, saveData, exportSave, importSave } from './save';
 export interface Meta {
   blueprints: string[];
   totalBosses: number;
@@ -84,6 +92,81 @@ export interface Meta {
   sceneProgress: { id: string; index: number } | null;
   tutorialDone: boolean;
   tutorialStep: number;
+  settings: Settings;
+  deaths: number;
+  // Seconds spent in battles across all runs.
+  playTime: number;
+  bestHeat: number;
+  // Highest heat the player may select for a campaign run.
+  heatUnlocked: number;
+  dailyBest: Record<string, number>;
+  achievements: string[];
+  endlessBest: number;
+  winsByCharacter: Record<string, number>;
+  totalElites: number;
+  bestCombo: number;
+  // Items unlocked since the last launch; the next run shows them first.
+  fresh: string[];
+  // Furthest run depth ever reached (see runDepth in progression.ts).
+  bestDepth: number;
+  // Elite battles won across all runs.
+  eliteWins: number;
+  // «Справа 04:17»: evidence found so far (story.ts CLUES) and the
+  // endings the player has reached.
+  clues: string[];
+  endings: ('a' | 'b' | 'c')[];
+}
+// `Meta.sound` stays the master mute; these are the fine-grained options.
+export interface Settings {
+  music: number;
+  sfx: number;
+  vibration: boolean;
+  shake: number;
+  colorblind: boolean;
+  textScale: number;
+  damageNumbers: boolean;
+  reducedFlashes: boolean;
+}
+export const DEFAULT_SETTINGS: Settings = {
+  music: 0.6,
+  sfx: 0.8,
+  vibration: true,
+  shake: 1,
+  colorblind: false,
+  textScale: 1,
+  damageNumbers: true,
+  reducedFlashes: false,
+};
+const SHAKE_STEPS = [0, 0.5, 1],
+  TEXT_STEPS = [1, 1.15, 1.3];
+function nearest(steps: number[], value: unknown, fallback: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return steps.reduce((best, step) =>
+    Math.abs(step - value) < Math.abs(best - value) ? step : best,
+  );
+}
+export function sanitizeSettings(raw: unknown): Settings {
+  const s = (raw && typeof raw === 'object' ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const volume = (value: unknown, fallback: number) =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(0, Math.min(1, value))
+      : fallback;
+  const flag = (value: unknown, fallback: boolean) =>
+    typeof value === 'boolean' ? value : fallback;
+  const d = DEFAULT_SETTINGS;
+  return {
+    music: volume(s.music, d.music),
+    sfx: volume(s.sfx, d.sfx),
+    vibration: flag(s.vibration, d.vibration),
+    shake: nearest(SHAKE_STEPS, s.shake, d.shake),
+    colorblind: flag(s.colorblind, d.colorblind),
+    textScale: nearest(TEXT_STEPS, s.textScale, d.textScale),
+    damageNumbers: flag(s.damageNumbers, d.damageNumbers),
+    reducedFlashes: flag(s.reducedFlashes, d.reducedFlashes),
+  };
 }
 export type NodeKind =
   | 'battle'
@@ -98,6 +181,8 @@ export type NodeKind =
 export interface Loot {
   kind: 'module' | 'furniture';
   id: string;
+  // Newly unlocked: the reward card is tagged 'НОВЕ'.
+  fresh?: true;
 }
 export interface Run {
   blueprints: string[];
@@ -148,10 +233,44 @@ export interface Run {
   rerolls: number;
   reward: string[];
   eventDone: boolean;
+  mode: RunMode;
+  heat: number;
+  // Local 'YYYY-MM-DD' of a daily run, otherwise empty.
+  daily: string;
+  // Completed endless circuits; always 0 outside the endless mode.
+  loop: number;
+  elitesKilled: number;
+  bestCombo: number;
+  damageTaken: number;
+  // Damage taken in the current battle; the engine resets it at battle start.
+  battleDamage: number;
+  bossNoHit: number;
+  maxBattleKills: number;
+  eventsCompleted: number;
+  // Shop repairs bought during the whole run (repairUsed is per shop).
+  repairs: number;
+  // Newly unlocked items still waiting for their first reward card.
+  fresh: string[];
+  // Starting module choice from the 'draft' modifier; empty once taken.
+  draft: string[];
+  // Resident rescued at the current room, for the rescue card; else ''.
+  rescue: string;
+  // Level-up perks taken this run (ids repeat for stacks; see upgrades.ts).
+  perks: string[];
+  // Elite battles won in this run.
+  eliteWins: number;
+}
+export interface RunOptions {
+  mode?: RunMode;
+  heat?: number;
+  daily?: string;
 }
 export interface Stats extends Record<Stat, number> {
   synergies: string[];
   housing: ReturnType<typeof apartmentEffects>;
+  // The armed weapon core and its evolution id ('' for none).
+  weapon: WeaponId;
+  evolution: string;
 }
 export const SAVE_KEY = 'osbb.save.v1';
 export function legacyTree(seed: number): NodeKind[][] {
@@ -426,7 +545,9 @@ export function mysteryKind(run: Run, nodeId: string): NodeKind {
 }
 export function furniturePrice(run: Run, id: string) {
   return Math.round(
-    (FURNITURE_BY_ID[id]?.cost ?? 0) * (1 + run.chapter * 0.15),
+    (FURNITURE_BY_ID[id]?.cost ?? 0) *
+      (1 + run.chapter * 0.15) *
+      heatForRun(run).shopCost,
   );
 }
 export function furnitureOffers(run: Run, count = 2) {
@@ -491,12 +612,43 @@ export function claimFurniture(run: Run, index: number): Run {
     reward: [],
   });
 }
+// Newly unlocked items take the last reward slots (they flip in last), up to
+// the whole reward; the rest wait for the next one.
+export function withFresh(
+  run: Run,
+  loot: Loot[],
+): { loot: Loot[]; fresh: string[] } {
+  const pending = (run.fresh ?? []).filter((id) => !!ITEM_BY_ID[id]);
+  if (!pending.length) return { loot, fresh: [] };
+  const size = Math.max(1, loot.length),
+    take = pending.slice(0, size),
+    rest = loot.filter((l) => !(l.kind === 'module' && take.includes(l.id)));
+  return {
+    loot: [
+      ...rest.slice(0, size - take.length),
+      ...take.map((id) => ({
+        kind: 'module' as const,
+        id,
+        fresh: true as const,
+      })),
+    ],
+    fresh: pending.slice(take.length),
+  };
+}
+// The 'medic' modifier: a rescue patches the house up by 20%.
+function rescueHeal(run: Run, meta: Meta): Run {
+  if (!researchOwned(run.research, 'medic')) return run;
+  const max = statsFor(run, meta).health;
+  return { ...run, hp: Math.min(max, run.hp + max * 0.2) };
+}
 export function battleRewards(run: Run, meta: Meta): Run {
   let next: Run = {
     ...run,
     page: 'reward',
     battleCount: run.battleCount + 1,
     battlesSinceRescue: run.battlesSinceRescue + 1,
+    eliteWins: (run.eliteWins ?? 0) + (run.kind === 'elite' ? 1 : 0),
+    rescue: '',
     coins:
       run.coins +
       18 +
@@ -519,28 +671,93 @@ export function battleRewards(run: Run, meta: Meta): Run {
   ) {
     const rescue = recruit(next, meta);
     next = rescue.run;
-    if (rescue.id)
+    if (rescue.id) {
+      next = rescueHeal({ ...next, rescue: rescue.id }, meta);
       next.eventResult = `Урятовано: ${RESIDENT_BY_ID[rescue.id].name}. ${next.residents.some((r) => r.id === rescue.id) ? 'Квартиру заселено.' : 'Потрібне місце: переплануй або розшир будинок.'}`;
+    }
   }
-  next.loot = randomLoot(
+  const drop = withFresh(
     run,
-    meta,
-    3,
-    67,
-    false,
-    undefined,
-    run.kind === 'elite' || run.kind === 'miniboss' || run.kind === 'boss',
+    randomLoot(
+      run,
+      meta,
+      3,
+      67,
+      false,
+      undefined,
+      run.kind === 'elite' || run.kind === 'miniboss' || run.kind === 'boss',
+    ),
   );
+  next.loot = drop.loot;
+  next.fresh = drop.fresh;
   next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
   return next;
 }
-export function advanceLocation(run: Run, meta: Meta): Run {
+// Pair with the battle result: the run stands at the last boss of location
+// three in a mode that ends there.
+export function isFinalVictory(run: Run, won = true): boolean {
+  return (
+    won &&
+    run.mode !== 'endless' &&
+    run.kind === 'boss' &&
+    run.chapter >= 2 &&
+    run.step === run.nodes.length - 1
+  );
+}
+// Endless mode: after location three the same house starts a new, hotter
+// circuit on a fresh route. Items, residents and resources carry over.
+export function nextEndlessLoop(run: Run, meta: Meta): Run {
   if (
+    run.mode !== 'endless' ||
     run.kind !== 'boss' ||
     run.step !== run.nodes.length - 1 ||
-    run.chapter >= 2
+    run.chapter < 2
   )
     return run;
+  const loop = run.loop + 1,
+    seed = run.seed + loop * 7777777;
+  const next: Run = {
+    ...run,
+    seed,
+    loop,
+    heat: endlessHeat(1, run.heat),
+    chapter: 0,
+    nodes: campaignTree(seed, 0),
+    routeVersion: 8,
+    bossVariants: [0, 1, 2].map((n) =>
+      Math.floor(seeded(seed + n * 91237 + 919)() * 3),
+    ),
+    minibossVariants: {},
+    // Apartment modes belong to location three and do not survive the reset.
+    roomModes: {},
+    step: 0,
+    path: [],
+    historyStart: 0,
+    page: 'map',
+    kind: 'battle',
+    bossesDefeated: run.bossesDefeated + 1,
+    loot: [],
+    reward: [],
+    offers: [],
+    shopFurniture: [],
+    bought: [],
+    revealed: {},
+    eventResult: '',
+    eventDone: false,
+    rerolls: 0,
+    repairUsed: false,
+  };
+  const health = statsFor(next, meta).health;
+  next.hp = Math.min(
+    health,
+    (run.hp / statsFor(run, meta).health + 0.25) * health,
+  );
+  return next;
+}
+export function advanceLocation(run: Run, meta: Meta): Run {
+  if (run.kind !== 'boss' || run.step !== run.nodes.length - 1) return run;
+  if (run.chapter >= 2)
+    return run.mode === 'endless' ? nextEndlessLoop(run, meta) : run;
   const chapter = run.chapter + 1;
   return {
     ...run,
@@ -616,7 +833,9 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
   if (e.rescue) {
     const result = recruit(next, meta);
     next = {
-      ...result.run,
+      ...(result.id
+        ? rescueHeal({ ...result.run, rescue: result.id }, meta)
+        : result.run),
       eventResult:
         selected.result +
         (result.id
@@ -631,8 +850,16 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
   }
   return next;
 }
+export function rerollCost(run: Run) {
+  // 'market' modifier: the first refresh in each shop is on the house.
+  if (researchOwned(run.research, 'market') && run.rerolls === 0) return 0;
+  return Math.round((25 + 15 * run.rerolls) * heatForRun(run).shopCost);
+}
+export function repairCost(run: Run) {
+  return Math.round((30 + run.chapter * 10) * heatForRun(run).repairCost);
+}
 export function rerollShop(run: Run, meta: Meta): Run {
-  const cost = 25 + 15 * run.rerolls;
+  const cost = rerollCost(run);
   if (run.page !== 'shop' || run.coins < cost) return run;
   const next = { ...run, coins: run.coins - cost, rerolls: run.rerolls + 1 };
   const replacements = offers(meta, next, 3, 800 + next.rerolls * 83);
@@ -652,7 +879,7 @@ export function rerollShop(run: Run, meta: Meta): Run {
   return next;
 }
 export function repairShop(run: Run, meta: Meta): Run {
-  const cost = 30 + run.chapter * 10,
+  const cost = repairCost(run),
     max = statsFor(run, meta).health;
   if (
     run.page !== 'shop' ||
@@ -666,6 +893,7 @@ export function repairShop(run: Run, meta: Meta): Run {
     coins: run.coins - cost,
     hp: Math.min(max, run.hp + max * 0.3),
     repairUsed: true,
+    repairs: (run.repairs ?? 0) + 1,
   };
 }
 export function initialMeta(): Meta {
@@ -685,14 +913,7 @@ export function initialMeta(): Meta {
     best: 0,
     unlocked: ITEMS.filter((i) => i.unlock === 'start').map((i) => i.id),
     seen: [],
-    research: {
-      hull: 0,
-      supplies: 0,
-      garage: 0,
-      salvage: 0,
-      servos: 0,
-      maintenance: 0,
-    },
+    research: Object.fromEntries(RESEARCH.map((r) => [r.id, 0])),
     sound: true,
     lore: loreForProgress([], 0),
     residents: residentRoster([], 0),
@@ -701,6 +922,22 @@ export function initialMeta(): Meta {
     sceneProgress: null,
     tutorialDone: false,
     tutorialStep: 0,
+    settings: { ...DEFAULT_SETTINGS },
+    deaths: 0,
+    playTime: 0,
+    bestHeat: 0,
+    heatUnlocked: 0,
+    dailyBest: {},
+    achievements: [],
+    endlessBest: 0,
+    winsByCharacter: {},
+    totalElites: 0,
+    bestCombo: 0,
+    fresh: [],
+    bestDepth: 0,
+    eliteWins: 0,
+    clues: [],
+    endings: [],
   };
 }
 export function seeded(seed: number) {
@@ -720,11 +957,7 @@ export function unlock(meta: Meta): string[] {
     const ok =
       (k === 'blueprint' && meta.blueprints.includes(i.id)) ||
       k === 'start' ||
-      (k.startsWith('win') && meta.wins >= Number(k.slice(3))) ||
-      (k === 'kills50' && meta.kills >= 50) ||
-      (k === 'kills150' && meta.kills >= 150) ||
-      (k === 'dash10' && meta.dashes >= 10) ||
-      (k === 'scrap5' && meta.scrapped >= 5);
+      unlockReady(meta, k);
     if (ok && !meta.unlocked.includes(i.id)) {
       meta.unlocked.push(i.id);
       added.push(i.id);
@@ -737,11 +970,17 @@ export function makeRun(
   character: string,
   chapter: number,
   seed = Date.now(),
+  opts: RunOptions = {},
 ): Run {
   const c =
     CHARACTERS.find((c) => c.id === character && c.win <= meta.wins) ??
     CHARACTERS[0];
   chapter = Math.max(0, Math.min(2, Math.floor(chapter || 0)));
+  const mode: RunMode =
+    opts.mode === 'daily' || opts.mode === 'endless' ? opts.mode : 'campaign';
+  const heat = Number.isFinite(opts.heat)
+    ? Math.max(0, Math.min(heatCap(mode), Math.floor(opts.heat!)))
+    : 0;
   const nodes = campaignTree(seed, chapter);
   const run: Run = {
     blueprints: [...meta.blueprints],
@@ -779,7 +1018,7 @@ export function makeRun(
     roomModes: {},
     furniture: [],
     nextFurnitureId: 1,
-    coins: 35 + (meta.research.supplies ?? 0) * 8 + (c.id === 'boris' ? 30 : 0),
+    coins: 35 + (c.id === 'boris' ? 30 : 0),
     scrap: 0,
     hp: 100,
     kills: 0,
@@ -794,14 +1033,74 @@ export function makeRun(
     rerolls: 0,
     reward: [],
     eventDone: false,
+    mode,
+    heat,
+    daily:
+      mode !== 'daily'
+        ? ''
+        : opts.daily && DATE_KEY.test(opts.daily)
+          ? opts.daily
+          : dateKey(new Date()),
+    loop: 0,
+    elitesKilled: 0,
+    bestCombo: 0,
+    damageTaken: 0,
+    battleDamage: 0,
+    bossNoHit: 0,
+    maxBattleKills: 0,
+    eventsCompleted: 0,
+    repairs: 0,
+    fresh: [],
+    draft: [],
+    rescue: '',
+    perks: [],
+    eliteWins: 0,
   };
   equipmentTargets(run)
     .slice(0, 3)
     .forEach((target, index) => {
       run.items[target.slot] = ['cannon', 'engine', c.start][index];
     });
-  run.hp = statsFor(run, meta).health;
-  return run;
+  run.fresh = (meta.fresh ?? []).filter(
+    (id) =>
+      !!ITEM_BY_ID[id] && meta.unlocked.includes(id) && blueprintPool(run, id),
+  );
+  if (researchOwned(run.research, 'draft')) run.draft = draftOffers(run, meta);
+  // 'crew' modifier: one more neighbour answers the chat before departure.
+  const crewed = researchOwned(run.research, 'crew')
+    ? recruit(run, meta).run
+    : run;
+  crewed.hp = statsFor(crewed, meta).health;
+  return crewed;
+}
+// Three starting modules for the 'draft' modifier; items still waiting for
+// their 'НОВЕ' reveal are left to the first reward.
+export function draftOffers(run: Run, meta: Meta): string[] {
+  const skip = new Set([
+    ...run.items.filter((id): id is string => !!id),
+    ...run.fresh,
+  ]);
+  return offers(
+    { ...meta, unlocked: meta.unlocked.filter((id) => !skip.has(id)) },
+    run,
+    3,
+    977,
+    true,
+  );
+}
+// Takes nothing from the draft: its three cards go away for this run.
+export function skipDraft(run: Run): Run {
+  return run.draft.length ? { ...run, draft: [] } : run;
+}
+// Residents this run rescued itself; the 'crew' modifier's neighbour is a
+// gift and does not count.
+export function runRescues(run: Run): number {
+  return Math.max(
+    0,
+    new Set(run.rescued).size -
+      1 -
+      (researchOwned(run.research, 'crew') ? 1 : 0),
+  );
 }
 export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   const research = run.research ?? meta.research;
@@ -828,6 +1127,8 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
     thorns: 0,
     synergies: [],
     housing: apartmentEffects(run),
+    weapon: 'cannon',
+    evolution: '',
   };
   let rate = run.character === 'spark' ? 0.15 : 0;
   const household = residentBonuses(
@@ -897,7 +1198,24 @@ export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
       }
     }
   });
+  const perked = perkStats(run);
+  for (const [key, value] of Object.entries(perked.stats))
+    s[key as Stat] += value;
+  rate += perked.rate;
+  if (run.perks?.length) s.synergies.push(`Перки рівнів: ${run.perks.length}`);
   s.rate *= Math.max(0.3, 1 + rate);
+  const armed = weaponFor(installed, (id) => ITEM_BY_ID[id]?.weapon);
+  s.weapon = armed.weapon;
+  s.evolution = armed.evolution;
+  if (armed.weapon !== 'cannon') {
+    s.rate *= WEAPONS[armed.weapon].rate;
+    s.range = Math.max(180, s.range + WEAPONS[armed.weapon].range);
+    s.synergies.push(`Зброя: ${WEAPONS[armed.weapon].name}`);
+  }
+  if (armed.evolution)
+    s.synergies.push(
+      `Еволюція: ${EVOLUTION_BY_ID[armed.evolution].name} — ${EVOLUTION_BY_ID[armed.evolution].text}`,
+    );
   s.damage = Math.max(4, s.damage);
   s.health = Math.max(35, s.health);
   s.speed = Math.max(85, s.speed);
@@ -959,7 +1277,9 @@ export function offers(
   return out;
 }
 export function priceFor(item: Item, run: Run) {
-  return Math.round(item.price * (1 + run.chapter * 0.15));
+  return Math.round(
+    item.price * (1 + run.chapter * 0.15) * heatForRun(run).shopCost,
+  );
 }
 // Each entry contains the next row's columns reachable from this column.
 // Branches split and merge without crossings; every route reaches the boss.
@@ -1135,6 +1455,7 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
         : run.revealed,
     loot: [],
     eventResult: '',
+    rescue: '',
     repairUsed: false,
     path: [...run.path.slice(0, step), column],
     bought: [],
@@ -1149,7 +1470,19 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
     next.page = 'event';
   } else if (kind === 'chest') {
     next.page = 'reward';
-    next.loot = randomLoot(run, meta, 1, 731, true);
+    // 'chest' modifier: a false bottom holds a second find to choose from.
+    const drop = withFresh(
+      run,
+      randomLoot(
+        run,
+        meta,
+        researchOwned(run.research, 'chest') ? 2 : 1,
+        731,
+        true,
+      ),
+    );
+    next.loot = drop.loot;
+    next.fresh = drop.fresh;
     next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
   } else next.page = 'combat';
   return next;
@@ -1167,6 +1500,7 @@ export function nextNode(run: Run): Run {
     step: run.step + 1,
     loot: [],
     eventResult: '',
+    rescue: '',
     shopFurniture: [],
     repairUsed: false,
     page: 'map',
@@ -1176,7 +1510,8 @@ export function nextNode(run: Run): Run {
     eventDone: false,
   };
 }
-function storedItem(run: Run, id: string): Run {
+// Also used by save migration to spill modules that no longer fit.
+export function storedItem(run: Run, id: string): Run {
   if (
     run.backpack.length >= RESTORED_STORAGE_LIMIT ||
     !Number.isInteger(run.nextBagId) ||
@@ -1484,8 +1819,29 @@ export function rescueResident(run: Run, meta: Meta) {
     return null;
   const result = recruit(run, meta);
   if (!result.id) return null;
-  return { run: { ...result.run, eventDone: true }, meta, id: result.id };
+  return {
+    run: rescueHeal(
+      { ...result.run, eventDone: true, rescue: result.id },
+      meta,
+    ),
+    meta,
+    id: result.id,
+  };
 }
+export interface CoreRow {
+  label: string;
+  amount: number;
+  // How the amount was counted, e.g. "2 × 3".
+  detail?: string;
+}
+// Core payouts at the end of a run.
+export const CORES = {
+  location: 3,
+  rescue: 1,
+  dawn: 3,
+  kills: 50,
+  killCap: 3,
+};
 export function finishRun(
   meta: Meta,
   run: Run,
@@ -1495,7 +1851,10 @@ export function finishRun(
   unlocks: string[];
   cores: number;
   projects: string[];
-  coreBreakdown: { label: string; amount: number }[];
+  coreBreakdown: CoreRow[];
+  achievements: string[];
+  // Run depth reached now, the new best and the best before this run.
+  progress: { depth: number; best: number; previous: number };
 } {
   const n: Meta = {
     ...meta,
@@ -1508,491 +1867,112 @@ export function finishRun(
         ...run.backpack.map((i) => i.id),
       ]),
     ],
+    dailyBest: { ...meta.dailyBest },
+    winsByCharacter: { ...meta.winsByCharacter },
+    achievements: [...(meta.achievements ?? [])],
+    clues: [...(meta.clues ?? [])],
+    endings: [...(meta.endings ?? [])],
   };
+  const endless = run.mode === 'endless',
+    final = won && run.chapter === 2 && !endless;
   n.runs++;
-  const bosses = Math.min(3, run.bossesDefeated + (won ? 1 : 0));
-  n.totalBosses += bosses;
+  const beaten = run.bossesDefeated + (won ? 1 : 0),
+    bosses = Math.min(3, beaten);
+  n.totalBosses += endless ? beaten : bosses;
   n.totalMinibosses += run.minibossKills ?? 0;
-  n.totalRescues += Math.max(0, new Set(run.rescued).size - 1);
+  const rescues = runRescues(run),
+    depth = final ? MAX_DEPTH : runDepth(run),
+    previous = meta.bestDepth ?? 0;
+  n.totalRescues += rescues;
+  n.eliteWins = (n.eliteWins ?? 0) + (run.eliteWins ?? 0);
+  n.bestDepth = Math.max(previous, depth);
   n.kills += run.kills;
   n.dashes += run.dashes;
   n.best = Math.max(n.best, run.kills);
-  if (won && run.chapter === 2) n.wins = Math.min(5, n.wins + 1);
-  const coreBreakdown = [
-    { label: 'Польові дані', amount: Math.min(3, Math.floor(run.kills / 25)) },
-    { label: 'Мінібоси', amount: Math.min(3, run.minibossKills ?? 0) },
-    { label: 'Боси локацій', amount: [0, 2, 5, 10][bosses] },
+  n.deaths = (n.deaths ?? 0) + (won ? 0 : 1);
+  n.playTime = (n.playTime ?? 0) + (run.time ?? 0);
+  n.totalElites = (n.totalElites ?? 0) + (run.elitesKilled ?? 0);
+  n.bestCombo = Math.max(n.bestCombo ?? 0, run.bestCombo ?? 0);
+  if (final) {
+    n.wins = Math.min(5, n.wins + 1);
+    n.winsByCharacter[run.character] =
+      (n.winsByCharacter[run.character] ?? 0) + 1;
+    n.bestHeat = Math.max(n.bestHeat ?? 0, run.heat ?? 0);
+    n.heatUnlocked = Math.max(
+      n.heatUnlocked ?? 0,
+      Math.min(10, (run.heat ?? 0) + 1),
+    );
+  }
+  if (endless) n.endlessBest = Math.max(n.endlessBest ?? 0, run.loop);
+  const score = runScore(run, final);
+  // A daily abandoned before its first fight is not a result: it would set a
+  // zero record and count towards the daily achievements.
+  if (
+    run.mode === 'daily' &&
+    DATE_KEY.test(run.daily) &&
+    (score > 0 || (run.time ?? 0) > 0)
+  )
+    n.dailyBest[run.daily] = Math.max(n.dailyBest[run.daily] ?? 0, score);
+  // Progress pays even in defeat: every cleared location and every rescued
+  // resident, then minibosses and a capped share for the kill count. An
+  // abandoned run that never won a fight earns nothing for its rescues.
+  const paidRescues = run.battleCount > 0 ? rescues : 0,
+    minis = Math.min(3, run.minibossKills ?? 0);
+  const coreBreakdown: CoreRow[] = [
+    {
+      label: 'Пройдені локації',
+      amount: bosses * CORES.location,
+      detail: `${bosses} × ${CORES.location}`,
+    },
+    {
+      label: 'Урятовані мешканці',
+      amount: paidRescues * CORES.rescue,
+      detail: `${paidRescues} × ${CORES.rescue}`,
+    },
+    {
+      label: 'Мінібоси',
+      amount: minis,
+      detail: `${minis} × 1`,
+    },
+    {
+      label: 'Бойові дані',
+      amount: Math.min(CORES.killCap, Math.floor(run.kills / CORES.kills)),
+      detail: `${run.kills} ворогів`,
+    },
   ];
-  const cores = coreBreakdown.reduce((sum, r) => sum + r.amount, 0);
+  if (final) coreBreakdown.push({ label: 'Світанок', amount: CORES.dawn });
+  if (endless && run.loop > 0)
+    coreBreakdown.push({
+      label: 'Нескінченні кола',
+      amount: Math.min(15, run.loop * 3),
+    });
+  const earned = coreBreakdown.reduce((sum, r) => sum + r.amount, 0);
+  // Heat and daily modifiers multiply the haul; heat 0 adds no extra row.
+  const bonus = Math.round(earned * heatForRun(run).coreBonus) - earned;
+  if (bonus > 0) coreBreakdown.push({ label: 'Бонус загрози', amount: bonus });
+  const cores = earned + Math.max(0, bonus);
   n.cores += cores;
   n.lore = loreForProgress(meta.lore, n.wins, run.chapter);
   n.residents = residentRoster(meta.residents, n.wins);
+  const achievements = newAchievements(n, run, final);
+  n.achievements.push(...achievements);
+  const unlocks = unlock(n);
+  // New and still unrevealed items open the next run's first reward.
+  n.fresh = [
+    ...new Set([...(meta.fresh ?? []), ...(run.fresh ?? []), ...unlocks]),
+  ].filter((id) => !!ITEM_BY_ID[id] && n.unlocked.includes(id));
   return {
     meta: n,
-    unlocks: unlock(n),
+    unlocks,
     cores,
     coreBreakdown,
+    progress: { depth, best: n.bestDepth, previous },
     projects: BLUEPRINTS.filter(
       (b) =>
         blueprintReady(n, b.id) &&
         !blueprintReady(meta, b.id) &&
         !n.blueprints.includes(b.id),
     ).map((b) => b.id),
+    achievements,
   };
-}
-function finite(n: unknown, min: number, max: number, fallback: number) {
-  return typeof n === 'number' && Number.isFinite(n)
-    ? Math.max(min, Math.min(max, n))
-    : fallback;
-}
-function restoreRoute(run: Run, saved: Record<string, unknown>) {
-  const path = saved.path;
-  const active =
-    saved.page !== 'map' ||
-    (Array.isArray(path) && path.length === run.step + 1);
-  const count = run.step + (active ? 1 : 0);
-  const valid =
-    (saved.routeVersion === 2 ||
-      saved.routeVersion === 3 ||
-      saved.routeVersion === 4 ||
-      saved.routeVersion === 5 ||
-      saved.routeVersion === 6 ||
-      saved.routeVersion === 7 ||
-      saved.routeVersion === 8) &&
-    Array.isArray(path) &&
-    path.length === count &&
-    path.every(
-      (col, step) =>
-        Number.isInteger(col) &&
-        !!run.nodes[step]?.[col] &&
-        (step === 0
-          ? col === 0
-          : routeTargets(step - 1, path[step - 1], run.nodes, run).includes(
-              col,
-            )),
-    ) &&
-    (!active ||
-      run.nodes[run.step][path[run.step]] === saved.kind ||
-      run.nodes[run.step][path[run.step]] === 'mystery');
-  if (valid) {
-    run.path = [...path];
-    run.historyStart = Math.floor(finite(saved.historyStart, 0, run.step, 0));
-  } else {
-    // Old saves did not record choices. Reconstruct a legal prefix ending at
-    // the saved room, but do not present inferred past rooms as visited.
-    let candidates: number[][] = [[]];
-    for (let step = 0; step < count; step++) {
-      const endpoints = new Map<number, number[]>();
-      for (const prefix of candidates)
-        for (const col of step === 0
-          ? [0]
-          : routeTargets(step - 1, prefix[step - 1], run.nodes, run))
-          if (!endpoints.has(col)) endpoints.set(col, [...prefix, col]);
-      candidates = [...endpoints.values()];
-    }
-    run.path =
-      candidates.find(
-        (p) => run.nodes[count - 1]?.[p[count - 1]] === saved.kind,
-      ) ??
-      candidates[0] ??
-      [];
-    run.historyStart = run.step;
-  }
-  if (count) {
-    const node = run.nodes[count - 1][run.path[count - 1]];
-    run.kind =
-      node === 'mystery'
-        ? (run.revealed[count - 1 + ':' + run.path[count - 1]] ??
-          mysteryKind(run, count - 1 + ':' + run.path[count - 1]))
-        : node;
-  }
-}
-export function readSave(raw: string | null): {
-  meta: Meta;
-  run: Run | null;
-  error?: boolean;
-} {
-  const base = initialMeta();
-  if (!raw) return { meta: base, run: null };
-  try {
-    const o = JSON.parse(raw);
-    if (o.version !== 1 || !o.meta) throw Error('save version');
-    const m = o.meta;
-    // Profiles created before onboarding keep their progress and can replay from Help.
-    base.tutorialDone =
-      typeof m.tutorialDone === 'boolean' ? m.tutorialDone : true;
-    base.tutorialStep = Math.floor(finite(m.tutorialStep, 0, 4, 0));
-    for (const k of [
-      'wins',
-      'runs',
-      'kills',
-      'dashes',
-      'scrapped',
-      'cores',
-      'best',
-      'totalBosses',
-      'totalMinibosses',
-      'totalRescues',
-    ] as const)
-      base[k] = Math.floor(finite(m[k], 0, k === 'wins' ? 5 : 1e8, 0));
-    base.totalBosses = Math.max(base.totalBosses, base.wins * 3);
-    base.blueprints = Array.isArray(m.blueprints)
-      ? [
-          ...new Set<string>(
-            m.blueprints.filter(
-              (id: unknown) => typeof id === 'string' && !!BLUEPRINT_BY_ID[id],
-            ),
-          ),
-        ]
-      : [];
-    base.sound = m.sound !== false;
-    base.houseLevel = Math.floor(finite(m.houseLevel, 0, 3, 0));
-    base.seen = Array.isArray(m.seen)
-      ? m.seen.filter((id: unknown) => typeof id === 'string' && ITEM_BY_ID[id])
-      : [];
-    for (const k of RESEARCH.map((r) => r.id))
-      base.research[k] = Math.floor(finite(m.research?.[k], 0, 5, 0));
-    base.unlocked = [
-      ...new Set([
-        ...base.unlocked,
-        ...(Array.isArray(m.unlocked)
-          ? m.unlocked.filter((id: string) => !!ITEM_BY_ID[id])
-          : []),
-        ...base.seen,
-      ]),
-    ];
-    unlock(base);
-    base.lore = loreForProgress(Array.isArray(m.lore) ? m.lore : [], base.wins);
-    base.residents = residentRoster(m.residents, base.wins);
-    base.scenesSeen = Array.isArray(m.scenesSeen)
-      ? [
-          ...new Set<string>(
-            m.scenesSeen.filter(
-              (id: unknown) =>
-                typeof id === 'string' &&
-                (sceneUnlocked(id, base.wins, o.run?.chapter) ||
-                  ['victory-0', 'victory-1', 'arrival-1', 'arrival-2'].includes(
-                    id,
-                  )),
-            ),
-          ),
-        ]
-      : [];
-    base.sceneProgress = restoreSceneProgress(
-      m.sceneProgress,
-      base.wins,
-      base.scenesSeen.includes(m.sceneProgress?.id) ? 3 : undefined,
-    );
-    if (m.storyRevision !== STORY_REVISION) {
-      if (m.storyRevision === 4) {
-        base.scenesSeen = base.scenesSeen.filter(
-          (id) =>
-            !['arrival-0', 'arrival-1', 'arrival-2', 'origins'].includes(id),
-        );
-      } else {
-        base.scenesSeen = base.scenesSeen.filter((id) => id !== 'prologue');
-        base.sceneProgress = { id: 'prologue', index: 0 };
-      }
-    }
-    let run: Run | null = null;
-    const r = o.run;
-    if (
-      r &&
-      typeof r.seed === 'number' &&
-      Number.isFinite(r.seed) &&
-      Array.isArray(r.items) &&
-      (r.equipmentLayout === 1
-        ? r.items.length <= APARTMENT_SLOTS.length
-        : r.items.length === 9) &&
-      Number.isInteger(r.step) &&
-      r.step >= 0 &&
-      r.step <
-        (r.routeVersion === 4 ||
-        r.routeVersion === 5 ||
-        r.routeVersion === 6 ||
-        r.routeVersion === 7 ||
-        r.routeVersion === 8
-          ? 10
-          : r.campaignVersion === 1 && r.routeVersion !== 2
-            ? 12
-            : 8)
-    ) {
-      run = makeRun(
-        base,
-        r.character,
-        Math.floor(finite(r.chapter, 0, 2, 0)),
-        r.seed,
-      );
-      if (r.campaignVersion !== 1 || r.routeVersion === 2) {
-        run.nodes = legacyTree(r.seed);
-        run.routeVersion = 2;
-        run.houseLevel = 4;
-      } else {
-        if (r.routeVersion === 4) {
-          run.nodes = compactCampaignTree(r.seed, run.chapter);
-          run.routeVersion = 4;
-        } else if (r.routeVersion === 5) {
-          run.nodes = wideCampaignTree(r.seed, run.chapter);
-          run.routeVersion = 5;
-        } else if (r.routeVersion === 6) {
-          run.nodes = previousRandomCampaignTree(r.seed, run.chapter);
-          run.routeVersion = 6;
-        } else if (r.routeVersion === 7) {
-          run.nodes = previousMinibossCampaignTree(r.seed, run.chapter);
-          run.routeVersion = 7;
-        } else if (r.routeVersion !== 8) {
-          run.nodes = previousCampaignTree(r.seed, run.chapter);
-          run.routeVersion = 3;
-        }
-        run.houseLevel = Math.floor(finite(r.houseLevel, 0, 4, 0));
-      }
-      run.rescued = [
-        ...new Set<string>(
-          [
-            run.character,
-            ...(Array.isArray(r.rescued) ? r.rescued : []),
-            ...(Array.isArray(r.residents)
-              ? r.residents.map((room: ResidentRoom) => room?.id)
-              : []),
-          ].filter((id) => !!RESIDENT_BY_ID[id]),
-        ),
-      ];
-      run.bossVariants = [0, 1, 2].map((i) =>
-        Math.floor(finite(r.bossVariants?.[i], 0, 2, run!.bossVariants[i])),
-      );
-      if (r.minibossVariants && typeof r.minibossVariants === 'object')
-        for (const [key, value] of Object.entries(r.minibossVariants).slice(
-          0,
-          150,
-        ))
-          if (
-            /^[0-2]:\d{1,2}:[0-5]$/.test(key) &&
-            Number.isInteger(value) &&
-            Number(value) >= 0 &&
-            Number(value) < 3
-          )
-            run.minibossVariants[key] = Number(value);
-      run.revealed = {};
-      if (r.revealed && typeof r.revealed === 'object')
-        for (const [key, value] of Object.entries(r.revealed))
-          if (
-            [
-              'battle',
-              'elite',
-              'miniboss',
-              'shop',
-              'event',
-              'rest',
-              'boss',
-              'chest',
-            ].includes(value as string) &&
-            /^\d+:\d+$/.test(key)
-          )
-            run.revealed[key] =
-              value === 'boss' ? 'miniboss' : (value as NodeKind);
-      run.loot = Array.isArray(r.loot)
-        ? r.loot
-            .filter(
-              (l: Loot) =>
-                l &&
-                (l.kind === 'module'
-                  ? !!ITEM_BY_ID[l.id]
-                  : l.kind === 'furniture' && !!FURNITURE_BY_ID[l.id]),
-            )
-            .slice(0, 3)
-        : [];
-      run.battleCount = Math.floor(finite(r.battleCount, 0, 100, 0));
-      run.battlesSinceRescue = Math.floor(
-        finite(r.battlesSinceRescue, 0, 100, 0),
-      );
-      run.bossesDefeated = Math.floor(
-        finite(r.bossesDefeated, 0, 2, run.chapter),
-      );
-      run.shopFurniture = Array.isArray(r.shopFurniture)
-        ? r.shopFurniture
-            .filter((id: string) => !!FURNITURE_BY_ID[id])
-            .slice(0, 2)
-        : [];
-      run.repairUsed = !!r.repairUsed;
-      run.eventResult =
-        typeof r.eventResult === 'string' ? r.eventResult.slice(0, 1000) : '';
-      run.blueprints = Array.isArray(r.blueprints)
-        ? [
-            ...new Set<string>(
-              r.blueprints.filter(
-                (id: unknown) =>
-                  typeof id === 'string' && base.blueprints.includes(id),
-              ),
-            ),
-          ]
-        : [];
-      run.minibossKills = Math.floor(finite(r.minibossKills, 0, 100, 0));
-      if (r.research)
-        for (const key of RESEARCH.map((r) => r.id))
-          run.research[key] = Math.floor(
-            finite(r.research[key], 0, base.research[key], 0),
-          );
-      const savedItems: (string | null)[] = r.items.map((id: unknown) =>
-        typeof id === 'string' && !!ITEM_BY_ID[id] ? id : null,
-      );
-      // v0.2 module shapes remain readable; the storage list no longer uses geometry.
-      const bag = Array.isArray(r.backpack) ? r.backpack : [];
-      const uids = new Set<number>();
-      run.backpack = bag
-        .filter(
-          (i: PackedItem) =>
-            i &&
-            !!ITEM_BY_ID[i.id] &&
-            Number.isInteger(i.uid) &&
-            i.uid <= 1e8 &&
-            i.uid > 0 &&
-            !uids.has(i.uid) &&
-            (uids.add(i.uid), true),
-        )
-        .slice(0, RESTORED_STORAGE_LIMIT)
-        .map((i: PackedItem) => ({
-          uid: i.uid,
-          id: i.id,
-          x: finite(i.x, 0, 5, 0),
-          y: finite(i.y, 0, 4, 0),
-          rotation: Math.floor(finite(i.rotation, 0, 3, 0)),
-        }));
-      const savedRooms =
-        r.residents ??
-        (r.campaignVersion !== 1
-          ? ['mechanic', 'nina', 'lev'].reduce((rooms: ResidentRoom[], id) => {
-              const room = residentSpace(rooms, id, 4);
-              if (room) rooms.push(room);
-              return rooms;
-            }, [])
-          : undefined);
-      if (r.campaignVersion !== 1 && savedRooms)
-        run.rescued = [
-          ...new Set([
-            ...run.rescued,
-            ...savedRooms.map((room: ResidentRoom) => room.id),
-          ]),
-        ];
-      run.residents = restoreResidents(
-        savedRooms,
-        run.rescued,
-        run.character,
-        run.houseLevel,
-      );
-      run.furniture = restoreFurniture(r.furniture, run.residents);
-      run.roomLinks = restoreRoomLinks(r.roomLinks, run.residents);
-      run.roomModes = restoreRoomModes(r.roomModes, run.residents, run.chapter);
-      run.nextFurnitureId = Math.max(
-        Math.floor(finite(r.nextFurnitureId, 1, 1e8, 1)),
-        ...run.furniture.map((item) => item.uid + 1),
-      );
-      run.nextBagId = Math.max(
-        Math.floor(finite(r.nextBagId, 1, 1e8, 1)),
-        ...run.backpack.map((i) => i.uid + 1),
-      );
-      const legacyHealth =
-        r.equipmentLayout !== 1
-          ? statsFor({ ...run, items: savedItems }, base, true).health
-          : null;
-      run.items = emptyEquipment();
-      if (r.equipmentLayout === 1) {
-        savedItems.forEach((id, slot) => {
-          if (!id) return;
-          if (canEquipAt(run!, slot)) run!.items[slot] = id;
-          else run = storedItem(run!, id);
-        });
-      } else {
-        const targets = equipmentTargets(run).filter((target) =>
-          canEquipAt(run!, target.slot),
-        );
-        let placed = 0;
-        for (const id of savedItems) {
-          if (!id) continue;
-          const target = targets[placed++];
-          if (target) run.items[target.slot] = id;
-          else run = storedItem(run, id);
-        }
-      }
-      for (const k of [
-        'coins',
-        'scrap',
-        'kills',
-        'dashes',
-        'level',
-        'xp',
-        'time',
-      ] as const)
-        run[k] = finite(r[k], 0, 1e7, k === 'level' ? 1 : 0);
-      run.hp = finite(
-        r.hp,
-        Number.MIN_VALUE,
-        statsFor(run, base).health,
-        statsFor(run, base).health,
-      );
-      if (legacyHealth !== null) {
-        const fraction =
-          finite(r.hp, Number.MIN_VALUE, legacyHealth, legacyHealth) /
-          legacyHealth;
-        run.hp = fraction * statsFor(run, base).health;
-      }
-      run.step = r.step;
-      restoreRoute(run, r);
-      // Before variants existed, the active miniboss was always variant zero.
-      if (!r.minibossVariants && run.kind === 'miniboss' && r.page !== 'map')
-        run.minibossVariants[
-          `${run.chapter}:${run.step}:${run.path[run.step]}`
-        ] = 0;
-      run.page = ['map', 'shop', 'event', 'reward'].includes(r.page)
-        ? r.page
-        : 'map';
-      run.offers = Array.isArray(r.offers)
-        ? r.offers
-            .filter(
-              (id: string) =>
-                base.unlocked.includes(id) && blueprintPool(run!, id),
-            )
-            .slice(0, 4)
-        : [];
-      run.reward = Array.isArray(r.reward)
-        ? r.reward
-            .filter((id: string) => base.unlocked.includes(id))
-            .slice(0, 3)
-        : [];
-      run.bought = Array.isArray(r.bought)
-        ? r.bought.filter(
-            (n: number) => Number.isInteger(n) && n >= 0 && n < 12,
-          )
-        : [];
-      run.rerolls = finite(r.rerolls, 0, 50, 0);
-      run.eventDone = !!r.eventDone;
-      if (!run.loot.length && run.page === 'reward')
-        run.loot = run.reward.map((id) => ({ kind: 'module', id }));
-      for (const id of [...run.items, ...run.backpack.map((i) => i.id)])
-        if (id && !base.unlocked.includes(id)) base.unlocked.push(id);
-      if (m.storyRevision === STORY_REVISION || m.storyRevision === 4)
-        base.sceneProgress = restoreSceneProgress(
-          m.sceneProgress,
-          base.wins,
-          base.scenesSeen.includes(m.sceneProgress?.id) ? 3 : run.chapter,
-        );
-      base.lore = loreForProgress(base.lore, base.wins, run.chapter);
-      // An untouched map can adopt the new route without replaying a room or
-      // discarding a checkpoint. Keep the house, inventory and resources.
-      if (
-        run.routeVersion !== 8 &&
-        run.step === 0 &&
-        run.page === 'map' &&
-        run.path.length === 0
-      ) {
-        run.nodes = campaignTree(run.seed, run.chapter);
-        run.routeVersion = 8;
-      }
-    }
-    return { meta: base, run };
-  } catch {
-    return { meta: base, run: null, error: true };
-  }
-}
-export function saveData(meta: Meta, run: Run | null) {
-  return JSON.stringify({ version: 1, meta, run });
 }

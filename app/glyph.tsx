@@ -29,6 +29,10 @@ import {
   Atom,
   DoorOpen,
   Crown,
+  Flame,
+  Bomb,
+  Target,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 const ICONS: Record<string, LucideIcon> = {
@@ -62,6 +66,10 @@ const ICONS: Record<string, LucideIcon> = {
   atom: Atom,
   door: DoorOpen,
   crown: Crown,
+  flame: Flame,
+  bomb: Bomb,
+  target: Target,
+  spread: Sparkles,
 };
 export function Glyph({
   name,

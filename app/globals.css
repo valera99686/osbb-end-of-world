@@ -126,7 +126,7 @@ button:active:not(:disabled) {
   background:
     linear-gradient(90deg, #0b151cf5 0%, #0b151cbb 30%, #0b151c00 65%),
     linear-gradient(0deg, #0c141a 0%, transparent 40%),
-    url('/art/house.png') center right/cover;
+    url('/art/house.webp') center right/cover;
   animation: arrive 1s ease both;
 }
 .hub-copy {
@@ -164,7 +164,7 @@ h1 em {
 }
 .intro {
   color: #b0c0c8;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   line-height: 1.75;
   margin-bottom: 36px;
 }
@@ -252,7 +252,7 @@ h1 em {
     background-position: 63% center;
     background-image:
       linear-gradient(0deg, #0b151cff 5%, #0b151ccc 45%, #0b151c20 100%),
-      url('/art/house.png');
+      url('/art/house.webp');
   }
   .hub-copy {
     padding-top: 100px;
@@ -374,7 +374,7 @@ button {
   border-bottom: 1px solid #527e6570;
   background: #1d362d;
   color: #c7e1cf;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
 }
 .notice > svg {
   flex-shrink: 0;
@@ -405,7 +405,7 @@ h3 {
 }
 .lead {
   color: #96aeb9;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale, 1));
   line-height: 1.7;
   max-width: 570px;
   margin: 0 0 26px;
@@ -439,7 +439,7 @@ h3 {
   opacity: 0.45;
 }
 .crew-description {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   line-height: 1.5;
   color: #9aadb7;
   max-width: 405px;
@@ -476,7 +476,7 @@ h3 {
   margin: 10px 0;
 }
 .chapter-plaque p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   color: #9fb3bd;
   line-height: 1.6;
   margin: 0 0 16px;
@@ -746,7 +746,7 @@ h3 {
   color: #8aa5ac;
 }
 .lore-fragment > p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   color: #c1cccb;
   line-height: 1.9;
   margin: 10px 0 0;
@@ -779,7 +779,7 @@ h3 {
   color: #8ea5b0;
 }
 .lore-entry p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   line-height: 1.95;
   color: #bbc9cb;
 }
@@ -1136,7 +1136,7 @@ h3 {
 .tree-detail-copy p {
   color: #b1c0c5;
   margin: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale, 1));
   line-height: 1.6;
 }
 .tree-go {
@@ -1219,7 +1219,7 @@ h3 {
   border: 1px solid #344c554a;
   border-radius: 7px;
   color: #879fa9;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   line-height: 1.7;
   margin-top: 10px;
   max-width: 730px;
@@ -1332,7 +1332,7 @@ h3 {
   color: #768a936e;
 }
 .board-help {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   line-height: 1.7;
   color: #8299a5;
   margin: 16px 0 20px;
@@ -1348,7 +1348,7 @@ h3 {
 }
 .selected-room p {
   color: #a2b5bd;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   line-height: 1.6;
   margin: 8px 0;
 }
@@ -1396,7 +1396,7 @@ h3 {
   gap: 6px;
 }
 .synergies p {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   line-height: 1.6;
   margin: 10px 0 0;
 }
@@ -1418,7 +1418,7 @@ h3 {
 .scrap-help {
   margin: 0;
   color: #a5b7be;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   line-height: 1.6;
 }
 
@@ -1511,7 +1511,7 @@ button.item-card:hover:not(:disabled) {
   color: var(--item-color);
 }
 .item-card p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   line-height: 1.7;
   color: #9eb3be;
   margin: 16px 0 22px;
@@ -1592,7 +1592,7 @@ button.item-card:hover:not(:disabled) {
 }
 .event-option span {
   grid-column: 1;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   line-height: 1.6;
   color: #97b8b6;
 }
@@ -1665,7 +1665,7 @@ button.item-card:hover:not(:disabled) {
   margin: 0 0 10px;
 }
 .research-card p {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   line-height: 1.7;
   color: #93aeb8;
   margin: 0;
@@ -1728,7 +1728,7 @@ button.item-card:hover:not(:disabled) {
   color: #b5c5cd;
 }
 .progression-list p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   line-height: 1.7;
   color: #839eac;
   margin: 5px 0 0;
@@ -1832,7 +1832,7 @@ button.item-card:hover:not(:disabled) {
   display: flex;
   gap: 7px;
   align-items: flex-start;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale, 1));
   line-height: 1.6;
 }
 .unlock-rule svg {
@@ -2023,7 +2023,7 @@ button.item-card:hover:not(:disabled) {
   background: #0d1e27d9;
   border: 1px solid #58717c60;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   color: #ced7c8;
   max-width: 85%;
   text-align: center;
@@ -2201,7 +2201,7 @@ button.item-card:hover:not(:disabled) {
   padding-right: 20px;
 }
 .game-modal [data-slot='dialog-description'] {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   line-height: 1.8;
   color: #a1b7c2;
 }
@@ -2298,7 +2298,7 @@ button.item-card:hover:not(:disabled) {
   gap: 13px;
 }
 .help-list p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   line-height: 1.8;
   color: #a0b6bf;
   margin: 0;
@@ -2312,7 +2312,7 @@ button.item-card:hover:not(:disabled) {
 .privacy-note {
   padding-top: 16px;
   border-top: 1px solid #4a60696b;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   color: #7c9ca7;
   line-height: 1.7;
   margin: 0;
@@ -2414,7 +2414,7 @@ button.item-card:hover:not(:disabled) {
     gap: 5px;
   }
   .hub .intro {
-    font-size: 16px;
+    font-size: calc(16px * var(--text-scale, 1));
   }
   .play-layout {
     grid-template-columns: minmax(0, 1fr) 235px;
@@ -2521,7 +2521,7 @@ button.item-card:hover:not(:disabled) {
   }
   .research-card p {
     grid-column: 2;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .research-levels {
     grid-column: 2;
@@ -2568,7 +2568,7 @@ button.item-card:hover:not(:disabled) {
     background-position: 65% 30%;
     background-image:
       linear-gradient(0deg, #0b151a 4%, #0b151aca 45%, #0b151a25 100%),
-      linear-gradient(90deg, #0b151a90, transparent), url('/art/house.png');
+      linear-gradient(90deg, #0b151a90, transparent), url('/art/house.webp');
   }
   .hub-copy {
     padding-top: 60px;
@@ -2585,7 +2585,7 @@ button.item-card:hover:not(:disabled) {
     letter-spacing: -1.5px;
   }
   .hub .intro {
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale, 1));
   }
   .crew-select {
     gap: 6px;
@@ -2600,7 +2600,7 @@ button.item-card:hover:not(:disabled) {
     min-height: 53px;
   }
   .crew-description {
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale, 1));
     margin-bottom: 20px;
     min-height: 34px;
     max-width: 360px;
@@ -2641,7 +2641,7 @@ button.item-card:hover:not(:disabled) {
     margin: 12px 0;
   }
   .lead {
-    font-size: 14px;
+    font-size: calc(14px * var(--text-scale, 1));
     margin-bottom: 24px;
   }
   .inventory {
@@ -2668,7 +2668,7 @@ button.item-card:hover:not(:disabled) {
     grid-column: 1;
     grid-row: 4;
     margin: 0;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale, 1));
   }
   .inventory .stat-grid {
     grid-column: 2;
@@ -2739,7 +2739,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 15px;
   }
   .shop-cards .item-card p {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .shop-tools {
     gap: 10px;
@@ -2759,7 +2759,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 14px;
   }
   .event-option span {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .collection-page {
     padding: 22px 20px 45px;
@@ -2801,7 +2801,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 16px;
   }
   .research-card p {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .research-levels {
     grid-column: 1/-1;
@@ -2827,7 +2827,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 14px;
   }
   .progression-list p {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .progression-list small {
     display: none;
@@ -2878,7 +2878,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 15px;
   }
   .codex-grid .item-card p {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .codex-grid .item-footer {
     margin-inline: -13px;
@@ -2888,7 +2888,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 9px;
   }
   .unlock-rule {
-    font-size: 10px;
+    font-size: calc(10px * var(--text-scale, 1));
   }
   .in-combat .topbar {
     height: 49px;
@@ -3007,7 +3007,7 @@ button.item-card:hover:not(:disabled) {
     letter-spacing: 0.7px;
   }
   .battle-hint {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
     top: 30%;
     width: 280px;
     max-width: 85%;
@@ -3022,7 +3022,7 @@ button.item-card:hover:not(:disabled) {
     font-size: 24px;
   }
   .game-modal [data-slot='dialog-description'] {
-    font-size: 13px;
+    font-size: calc(13px * var(--text-scale, 1));
   }
   .result-stats {
     gap: 15px;
@@ -3031,13 +3031,13 @@ button.item-card:hover:not(:disabled) {
     font-size: 12px;
   }
   .help-list p {
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
   }
   .help-list b {
     font-size: 13px;
   }
   .help-modal .privacy-note {
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale, 1));
   }
 }
 @media (max-height: 520px) and (orientation: landscape) {
@@ -3087,7 +3087,7 @@ button.item-card:hover:not(:disabled) {
   }
   .battle-hint {
     top: 42%;
-    font-size: 11px;
+    font-size: calc(11px * var(--text-scale, 1));
   }
   .keyboard-hint {
     display: none;

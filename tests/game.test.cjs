@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('../.test-build/model.js');
-const { ITEM_BY_ID } = require('../.test-build/data.js');
+const { ITEMS, ITEM_BY_ID } = require('../.test-build/data.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
 const Bag = require('../.test-build/backpack.js');
 const Boss = require('../.test-build/bosses.js');
@@ -676,19 +676,31 @@ test('Five complete campaigns unlock repeat-run blueprints, while early bosses d
   }
   assert.ok(meta.unlocked.includes('crown'));
   assert.ok(meta.unlocked.includes('portal'));
-  assert.equal(meta.unlocked.length, 34);
+  // Only goals these five bare wins never touched stay closed: no dashes,
+  // scrapping, rescues, elites or minibosses; blueprints need the workshop.
+  assert.deepEqual(
+    ITEMS.filter(
+      (i) => i.unlock !== 'blueprint' && !meta.unlocked.includes(i.id),
+    )
+      .map((i) => i.id)
+      .sort(),
+    // core_rail: the rail weapon core opens with the third elite win.
+    ['core_rail', 'hive', 'ram', 'recycler', 'spores', 'vampire'],
+  );
 });
 
 test('Action unlocks survive a loss, and no item is duplicated', () => {
   const meta = M.initialMeta();
   meta.scrapped = 5;
   const r = fixtureRun(meta, 'mechanic', 0, 1);
-  r.kills = 150;
+  r.kills = 300;
   r.dashes = 10;
   const result = M.finishRun(meta, r, false);
   assert.ok(result.meta.unlocked.includes('ram'));
-  assert.ok(result.meta.unlocked.includes('capacitor'));
+  assert.ok(result.meta.unlocked.includes('coinshot'));
   assert.ok(result.meta.unlocked.includes('recycler'));
+  // Stat items wait for a full win now.
+  assert.ok(!result.meta.unlocked.includes('capacitor'));
   assert.equal(new Set(result.meta.unlocked).size, result.meta.unlocked.length);
 });
 test('Research is snapshotted per run, modules change stats, and adjacency is spatial', () => {
@@ -733,12 +745,21 @@ test('Malformed saves are recoverable; loaded chapters and room IDs cannot crash
 });
 test('Shop and reward offers never contain locked items or duplicates; elite drops favor higher rarity', () => {
   const meta = M.initialMeta();
-  meta.wins = 5;
-  meta.kills = 200;
-  meta.dashes = 10;
-  meta.scrapped = 5;
+  Object.assign(meta, {
+    wins: 5,
+    runs: 5,
+    kills: 300,
+    dashes: 10,
+    scrapped: 5,
+    totalBosses: 15,
+    totalMinibosses: 2,
+    totalRescues: 6,
+    eliteWins: 3,
+    bestDepth: 30,
+  });
   M.unlock(meta);
-  assert.equal(meta.unlocked.length, 36);
+  // 36 modules + 6 weapon cores (0.11).
+  assert.equal(meta.unlocked.length, 42);
   let basic = 0,
     elite = 0;
   for (let seed = 0; seed < 2000; seed++) {

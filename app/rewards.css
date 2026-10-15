@@ -1,0 +1,640 @@
+/* Reward moments: rarity frames, card reveals, rescue cards, goals and run
+   progress. The global reduced-motion rule (globals.css) switches every
+   animation here off; [data-reduced-flashes] drops the shine and pulses. */
+
+/* Rarity frames: the top stripe keeps the family colour. */
+.item-card.rarity-1,
+.unlock-chip.rarity-1 {
+  --rarity: #9aabb3;
+}
+.item-card.rarity-2,
+.unlock-chip.rarity-2 {
+  --rarity: #5aaaf2;
+}
+.item-card.rarity-3,
+.unlock-chip.rarity-3 {
+  --rarity: #bb8cf7;
+}
+.item-card.rarity-4,
+.unlock-chip.rarity-4 {
+  --rarity: #f4b44c;
+}
+.item-card[class*='rarity-'] {
+  border-color: color-mix(in srgb, var(--rarity) 42%, #455862);
+  border-top-color: var(--item-color);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity) 12%, transparent),
+    0 10px 20px #0002;
+}
+.item-card.rarity-3 {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity) 30%, transparent),
+    0 0 22px color-mix(in srgb, var(--rarity) 22%, transparent),
+    0 10px 20px #0003;
+}
+.item-card.rarity-4 {
+  border-color: color-mix(in srgb, var(--rarity) 78%, #455862);
+  border-top-color: var(--item-color);
+  background: linear-gradient(145deg, #2d2c22, #182530 58%, #12212a);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity) 45%, transparent),
+    0 0 32px color-mix(in srgb, var(--rarity) 30%, transparent),
+    0 10px 22px #0004;
+}
+button.item-card[class*='rarity-']:hover:not(:disabled) {
+  border-color: var(--rarity);
+  border-top-color: var(--item-color);
+}
+.item-card[class*='rarity-'] .rarity {
+  color: var(--rarity);
+  border-color: color-mix(in srgb, var(--rarity) 42%, #243641);
+  background: color-mix(in srgb, var(--rarity) 10%, transparent);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* 'НОВЕ': a newly unlocked item's first appearance. */
+.item-card .new-badge {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 11px 4px;
+  border-radius: 0 0 7px 7px;
+  background: #7fe0c0;
+  color: #0b1d18;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  pointer-events: none;
+}
+/* Mint, not gold: a new card must not pass for a legendary one. */
+.item-card.fresh {
+  animation: fresh-pulse 2.4s ease-in-out 0.9s 3;
+}
+@keyframes fresh-pulse {
+  50% {
+    box-shadow:
+      0 0 0 2px #7fe0c088,
+      0 0 30px #7fe0c040;
+  }
+}
+.codex-grid .item-card .new-badge {
+  top: -1px;
+}
+
+/* Staggered flip-in of reward, chest and draft cards. 'backwards' fill: once
+   landed, the hover lift works again. */
+.reward-cards {
+  perspective: 1100px;
+}
+.reward-cards > .item-card {
+  transform-origin: 50% 65%;
+  animation: reward-flip 0.62s cubic-bezier(0.2, 0.75, 0.25, 1.12) backwards;
+}
+.reward-cards > .item-card:nth-child(2) {
+  animation-delay: 0.14s;
+}
+.reward-cards > .item-card:nth-child(3) {
+  animation-delay: 0.28s;
+}
+.reward-cards > .item-card:nth-child(4) {
+  animation-delay: 0.42s;
+}
+.reward-cards > .item-card.fresh {
+  animation:
+    reward-flip 0.62s cubic-bezier(0.2, 0.75, 0.25, 1.12) backwards,
+    fresh-pulse 2.4s ease-in-out 1s 3;
+}
+.reward-cards > .item-card.fresh:nth-child(2) {
+  animation-delay: 0.14s, 1.1s;
+}
+.reward-cards > .item-card.fresh:nth-child(3) {
+  animation-delay: 0.28s, 1.2s;
+}
+@keyframes reward-flip {
+  0% {
+    opacity: 0;
+    transform: rotateY(-80deg) translateY(14px) scale(0.94);
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* A light sweep across legendary cards. */
+.reward-cards > .item-card.rarity-4::after {
+  content: '';
+  position: absolute;
+  inset: -20% -60%;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 43%,
+    #fff1c833 49%,
+    #fff6dd55 50%,
+    #fff1c833 51%,
+    transparent 57%
+  );
+  transform: translateX(-75%);
+  animation: legendary-shine 3.4s ease-in-out 0.9s infinite;
+}
+@keyframes legendary-shine {
+  0% {
+    transform: translateX(-75%);
+  }
+  40%,
+  100% {
+    transform: translateX(75%);
+  }
+}
+[data-reduced-flashes] .item-card::after {
+  display: none;
+}
+[data-reduced-flashes] .item-card.fresh,
+[data-reduced-flashes] .reward-cards > .item-card.fresh {
+  animation: reward-flip 0.62s cubic-bezier(0.2, 0.75, 0.25, 1.12) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reward-cards > .item-card::after {
+    display: none;
+  }
+}
+
+/* Starting module choice ('draft' modifier). */
+.draft-panel {
+  margin: 22px 0 8px;
+  padding: 20px 20px 4px;
+  border: 1px solid #6b5a3a;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #2a2a20aa, #13212acc);
+}
+.draft-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.draft-panel h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.draft-panel p {
+  margin: 0;
+  font-size: calc(13px * var(--text-scale, 1));
+  color: #b3c3c9;
+}
+.draft-panel .reward-cards {
+  margin: 18px 0;
+}
+
+/* Rescue card with the resident's painted portrait. */
+.rescue-card {
+  --resident-color: #dca75c;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin: 18px 0 4px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--resident-color) 55%, #3b525c);
+  border-left: 4px solid var(--resident-color);
+  border-radius: 10px;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--resident-color) 14%, #15242d),
+    #12202a 70%
+  );
+  animation: rescue-arrive 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
+}
+@keyframes rescue-arrive {
+  from {
+    opacity: 0;
+    transform: translateX(-18px) scale(0.97);
+  }
+}
+.rescue-portrait .resident-portrait {
+  width: 88px;
+  height: 88px;
+  border-radius: 12px;
+  box-shadow:
+    inset 0 0 0 1px #ffffff26,
+    0 0 0 2px color-mix(in srgb, var(--resident-color) 60%, transparent),
+    0 8px 20px #0005;
+}
+.rescue-body {
+  flex: 1;
+  min-width: 0;
+}
+.rescue-body h3 {
+  margin: 2px 0 6px;
+  font-size: 20px;
+  letter-spacing: -0.3px;
+}
+.rescue-body h3 span {
+  font-size: 13px;
+  font-weight: 500;
+  color: #a4b8c0;
+}
+.rescue-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  color: var(--resident-color);
+}
+.rescue-quote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid
+    color-mix(in srgb, var(--resident-color) 60%, transparent);
+  font-style: italic;
+  color: #e4ece6;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: 1.5;
+}
+.rescue-effect,
+.rescue-home,
+.rescue-heal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: calc(12.5px * var(--text-scale, 1));
+  line-height: 1.5;
+  color: #b1c4cb;
+}
+.rescue-effect {
+  color: #dfe8e2;
+}
+.rescue-home.warn {
+  color: #f0b764;
+}
+.rescue-heal {
+  color: #8fd3a4;
+}
+.rescue-card > button {
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* 'Наступна ціль' */
+.next-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  padding: 16px 18px;
+  border: 1px solid #50656f;
+  border-radius: 10px;
+  background: #0f1d26cc;
+}
+.next-goal-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  color: #e9b666;
+}
+.goal-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.goal-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 9px;
+  color: #f0c47c;
+  border: 1px solid #6b5a3a;
+  background: #2a261c;
+}
+.goal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.goal-body small {
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  color: #8ea4ae;
+}
+.goal-body b {
+  font-size: 14px;
+  color: #eef3ee;
+}
+.goal-text {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #a9bcc4;
+}
+.goal-bar {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: #22343e;
+  overflow: hidden;
+}
+.goal-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d8963d, #f4c76f);
+  transition: width 0.6s ease;
+}
+.goal-count {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f0c47c;
+  white-space: nowrap;
+}
+.next-goal-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: #b6b2e5;
+}
+.hub-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 405px;
+  margin: 18px 0;
+}
+.hub-goal .run-progress {
+  padding: 0 2px;
+}
+
+/* How far the run got: three location segments and the best mark. */
+.run-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.run-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.run-progress-head b {
+  display: block;
+  font-size: 15px;
+}
+.run-progress-head small {
+  font-size: 12px;
+  color: #9fb3bd;
+}
+.run-progress-best {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #b9c9cf;
+}
+.run-progress-best.record {
+  color: #ffd38a;
+  font-weight: 700;
+}
+.depth-track {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.depth-segment {
+  position: relative;
+  height: 12px;
+  border-radius: 4px;
+  background: #22343e;
+  overflow: hidden;
+}
+.depth-segment i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #4f9f8e, #6cbfac);
+  animation: depth-fill 0.9s ease-out backwards;
+}
+.depth-segment:nth-child(2) i {
+  animation-delay: 0.3s;
+}
+.depth-segment:nth-child(3) i {
+  animation-delay: 0.6s;
+}
+@keyframes depth-fill {
+  from {
+    width: 0;
+  }
+}
+.depth-segment small {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #0c141acc;
+  mix-blend-mode: hard-light;
+}
+.depth-best {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: var(--at);
+  width: 2px;
+  margin-left: -1px;
+  background: #ffd38a;
+  box-shadow: 0 0 6px #ffd38a99;
+}
+
+/* Where the cores came from. */
+.core-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  font-size: 13px;
+}
+.core-breakdown > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 48px;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px dashed #3a4f5a88;
+}
+.core-breakdown small {
+  color: #8ea4ae;
+  font-size: 11px;
+}
+.core-breakdown b {
+  text-align: right;
+  color: #c9c5f5;
+}
+.core-breakdown .empty {
+  opacity: 0.5;
+}
+.core-breakdown .core-total {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-bottom: 0;
+  padding-top: 10px;
+  font-weight: 700;
+}
+.core-total b {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 16px;
+}
+
+/* Run modifiers in the workshop. */
+.modifier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.modifier-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #3f5560;
+  border-radius: 10px;
+  background: #13232c;
+}
+.modifier-card.owned {
+  border-color: #6cbfac88;
+  background: linear-gradient(145deg, #173029, #13232c);
+}
+.modifier-card.locked {
+  opacity: 0.7;
+}
+.modifier-card h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.modifier-card p {
+  flex: 1;
+  margin: 0;
+  font-size: calc(13px * var(--text-scale, 1));
+  line-height: 1.6;
+  color: #a9bcc4;
+}
+.modifier-card .modifier-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+  color: #f0c47c;
+  background: #2a261c;
+  border: 1px solid #6b5a3a;
+}
+.workshop-goal {
+  margin: 0 0 24px;
+}
+
+@media (max-width: 1000px) {
+  .modifier-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .modifier-grid {
+    grid-template-columns: 1fr;
+  }
+  .rescue-card {
+    flex-wrap: wrap;
+  }
+  .rescue-portrait .resident-portrait {
+    width: 68px;
+    height: 68px;
+  }
+  .rescue-card > button {
+    width: 100%;
+  }
+}
+
+/* The result modal focuses its title on open (see resultTitle). */
+.result-modal [data-slot='dialog-title']:focus {
+  outline: none;
+}
+/* Result modal: opened items by rarity, the resident's line, the note. */
+.unlock-list > .unlock-chip {
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--rarity) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--rarity) 9%, transparent);
+  color: #dfe8e2;
+  animation: rescue-arrive 0.45s ease-out backwards;
+}
+.unlock-list > .unlock-chip:nth-of-type(2) {
+  animation-delay: 0.1s;
+}
+.unlock-list > .unlock-chip:nth-of-type(n + 3) {
+  animation-delay: 0.2s;
+}
+.unlock-chip svg {
+  color: var(--rarity);
+}
+.unlock-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 6px 0 0;
+}
+.unlock-line figcaption {
+  font-style: italic;
+  font-size: calc(13px * var(--text-scale, 1));
+  line-height: 1.5;
+  color: #e4ece6;
+}
+.unlock-line small {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #c3ad82;
+}
+.unlock-list > small {
+  width: 100%;
+  font-size: 11px;
+  color: #8ea4ae;
+}
+.free-reroll {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8fd3a4;
+}
+
+.evolution-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #d9c08a;
+}
+.evolution-hint b {
+  color: #f0c060;
+}

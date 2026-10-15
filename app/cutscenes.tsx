@@ -7,12 +7,11 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import {
-  CUTSCENES,
   SCENE_BY_ID,
-  sceneUnlocked,
   STORY_YEAR,
   SCENE_IMAGE_BY_ART,
 } from '@/lib/game/cutscenes';
+import { LIBRARY_SCENES } from '@/lib/game/story';
 import type { Meta } from '@/lib/game/model';
 
 export function SceneArt({ art }: { art: number }) {
@@ -155,6 +154,13 @@ export function CutscenePlayer({
     </Dialog>
   );
 }
+// A card's kicker by scene id.
+function kicker(id: string) {
+  if (id === 'prologue') return 'ПРОЛОГ';
+  if (id.startsWith('ending')) return 'КІНЦІВКА';
+  if (id.startsWith('victory')) return 'ПІСЛЯ БОСА';
+  return 'ПРИБУТТЯ';
+}
 export function StoryLibrary({
   meta,
   onPlay,
@@ -174,16 +180,16 @@ export function StoryLibrary({
       </p>
       <h2>Ніч о 04:17</h2>
       <p className="lead">
-        Історія відкривається через рейди. Переглянуті сцени можна відтворити
-        знову.
+        Історія відкривається через рейди, розмови в Притулку й вибір біля ядра
+        Світанку. Переглянуті сцени можна відтворити знову.
       </p>
       <button className="secondary" onClick={() => onPlay('origins')}>
         <Play size={16} /> Звідки взялися монстри
       </button>
       <div className="story-grid">
-        {CUTSCENES.map((s) => {
-          const unlocked =
-            meta.scenesSeen.includes(s.id) || sceneUnlocked(s.id, meta.wins);
+        {LIBRARY_SCENES.map((s) => {
+          const unlocked = meta.scenesSeen.includes(s.id),
+            art = s.lines.find((l) => l.art !== undefined)?.art;
           return (
             <button
               key={s.id}
@@ -192,27 +198,21 @@ export function StoryLibrary({
               onClick={() => onPlay(s.id)}
             >
               <div className="story-thumb">
-                {unlocked ? (
-                  <SceneArt art={s.shots[0].art} />
+                {unlocked && art !== undefined ? (
+                  <SceneArt art={art} />
                 ) : (
                   <Lock size={32} />
                 )}
                 <span>{unlocked ? <Play size={22} /> : null}</span>
               </div>
-              <small>
-                {s.id === 'origins'
-                  ? 'ПОХОДЖЕННЯ ВОРОГІВ'
-                  : s.id === 'prologue'
-                    ? 'ПРОЛОГ'
-                    : `РОЗДІЛ ${s.chapter + 1} · ${s.victory ? 'ПІСЛЯ ПЕРЕМОГИ' : 'ПРИБУТТЯ'}`}
-              </small>
+              <small>{kicker(s.id)}</small>
               <h3>{unlocked ? s.title : 'Невідома сторінка'}</h3>
               <p>
                 {unlocked
-                  ? meta.scenesSeen.includes(s.id)
-                    ? 'Переглянути знову'
-                    : 'Нова сцена'
-                  : `Пройди розділ ${s.victory ? s.chapter + 1 : s.chapter}`}
+                  ? 'Переглянути знову'
+                  : s.id.startsWith('ending')
+                    ? 'Дійди до ядра Світанку'
+                    : 'Проходь рейди й слухай сусідів'}
               </p>
             </button>
           );

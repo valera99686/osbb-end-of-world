@@ -14,7 +14,7 @@ export interface Cutscene {
 }
 export const STORY_YEAR = 2086;
 // Restart the rewritten introduction once for older saves, without resetting a run.
-export const STORY_REVISION = 5;
+export const STORY_REVISION = 6;
 export const ORIGIN_ART = {
   service: 7,
   failure: 8,

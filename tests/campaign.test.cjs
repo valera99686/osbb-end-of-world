@@ -600,7 +600,8 @@ test('Boss transitions carry the same house and inventory, save the story, and o
   assert.equal(M.advanceLocation(run, meta), run);
   const end = M.finishRun(meta, run, true);
   assert.equal(end.meta.wins, 1);
-  assert.equal(end.cores, 10);
+  // Three cleared locations and the dawn bonus.
+  assert.equal(end.cores, 3 * M.CORES.location + M.CORES.dawn);
   assert.ok(S.sceneUnlocked('victory-2', end.meta.wins));
 });
 test('Mystery rooms resolve once, include minibosses and never include a location boss', () => {
@@ -672,7 +673,9 @@ test('Miniboss fights have distinct telegraphed attacks, require a kill and awar
         variant;
       const def = Mini.minibossFor(chapter, variant);
       names.add(def.name);
-      assert.ok(def.health < C.campaignBoss(chapter, 0).health / 2);
+      // 0.11: minibosses got x1.8-2.6 health (30-45 s fights with a second
+      // phase) and location 2-3 bosses less, so the gap is narrower.
+      assert.ok(def.health < C.campaignBoss(chapter, 0).health * 0.8);
       if (chapter)
         assert.ok(def.health > Mini.minibossFor(chapter - 1, variant).health);
       const attacks = new Set();

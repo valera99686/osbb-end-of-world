@@ -7,9 +7,12 @@ import {
   blueprintReady,
   buyBlueprint,
   buyResearch,
+  milestoneValue,
+  researchOwned,
 } from '@/lib/game/progression';
 import type { Meta } from '@/lib/game/model';
 import { Glyph } from './glyph';
+import { NextGoal } from './progress-goal';
 import './workshop.css';
 
 export function Workshop({
@@ -33,8 +36,8 @@ export function Workshop({
     onChange(next);
     onMessage(
       research
-        ? 'Покращення придбано. Діє з наступного нового рейду.'
-        : `${blueprintInfo(id).name}: креслення придбано. Шукай предмет у наступних рейдах.`,
+        ? 'Модифікатор придбано. Діє з наступного нового рейду.'
+        : `${blueprintInfo(id).name}: креслення придбано. Предмет чекатиме в першій нагороді наступного рейду.`,
     );
   }
   return (
@@ -57,8 +60,8 @@ export function Workshop({
       </div>
       <div className="workshop-flow">
         <span>
-          <b>01 · Здобувай</b>Ядра за ворогів, мінібосів і босів — навіть після
-          поразки.
+          <b>01 · Здобувай</b>Ядра за пройдені локації, урятованих мешканців,
+          мінібосів і бойові дані — навіть після поразки.
         </span>
         <ArrowRight />
         <span>
@@ -66,10 +69,11 @@ export function Workshop({
         </span>
         <ArrowRight />
         <span>
-          <b>03 · Знаходь</b>Із наступного рейду предмет може випасти або
-          з’явитися в магазині.
+          <b>03 · Знаходь</b>Новинка з’явиться в першій нагороді наступного
+          рейду, далі — у здобичі й магазинах.
         </span>
       </div>
+      <NextGoal meta={meta} count={3} className="workshop-goal" />
       <div className="workshop-section-title">
         <div>
           <p className="eyebrow">
@@ -112,7 +116,7 @@ export function Workshop({
           const info = blueprintInfo(b.id),
             owned = meta.blueprints.includes(b.id),
             ready = blueprintReady(meta, b.id),
-            progress = Math.min(b.target, meta[b.gate] ?? 0);
+            progress = Math.min(b.target, milestoneValue(meta, b.gate));
           return (
             <article
               className={`blueprint-card ${owned ? 'owned' : ready ? 'ready' : 'locked'}`}
@@ -180,41 +184,49 @@ export function Workshop({
       )}
       <div className="workshop-section-title">
         <div>
-          <p className="eyebrow">ПОСТІЙНА ПІДГОТОВКА</p>
-          <h3>Покращення будинку</h3>
+          <p className="eyebrow">
+            МОДИФІКАТОРИ РЕЙДУ ·{' '}
+            {RESEARCH.filter((r) => researchOwned(meta.research, r.id)).length}/
+            {RESEARCH.length}
+          </p>
+          <h3>Правила, що змінюють рейд</h3>
         </div>
-        <span>Діють із наступного рейду</span>
+        <span>Купуються один раз і діють із наступного рейду</span>
       </div>
-      <div className="research-grid">
+      <div className="modifier-grid">
         {RESEARCH.map((r) => {
-          const level = meta.research[r.id] ?? 0,
-            cost = r.cost * (level + 1);
+          const owned = researchOwned(meta.research, r.id),
+            open = meta.runs >= r.runs;
           return (
-            <article className="research-card" key={r.id}>
-              <span className="research-icon">
-                <Glyph name={r.icon} size={28} />
+            <article
+              className={`modifier-card ${owned ? 'owned' : open ? '' : 'locked'}`}
+              key={r.id}
+            >
+              <span className="modifier-icon">
+                <Glyph name={r.icon} size={24} />
               </span>
               <h3>{r.name}</h3>
               <p>{r.desc}</p>
-              <div
-                className="research-levels"
-                aria-label={`Рівень ${level} із 5`}
-              >
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <span key={i} className={i < level ? 'done' : ''} />
-                ))}
-              </div>
               <button
-                className="secondary"
-                disabled={level >= 5 || meta.cores < cost}
+                className={owned ? 'secondary' : open ? 'primary' : 'secondary'}
+                disabled={owned || !open || meta.cores < r.cost}
                 onClick={() => purchase(r.id, true)}
-                aria-label={`Покращити: ${r.name}`}
+                aria-label={`Придбати модифікатор: ${r.name}`}
               >
-                {level >= 5 ? (
-                  'Максимальний рівень'
+                {owned ? (
+                  <>
+                    <Check size={16} /> Діє в кожному рейді
+                  </>
+                ) : !open ? (
+                  <>
+                    <Lock size={15} /> Після {r.runs}{' '}
+                    {r.runs === 1 ? 'експедиції' : 'експедицій'} ({meta.runs}/
+                    {r.runs})
+                  </>
                 ) : (
                   <>
-                    {level}/5 · <Hexagon size={16} /> {cost} ядер
+                    {meta.cores < r.cost ? 'Потрібно' : 'Придбати'}{' '}
+                    <Hexagon size={16} /> {r.cost} ядер
                   </>
                 )}
               </button>
@@ -240,10 +252,9 @@ export function Workshop({
         </span>
       </div>
       <p className="workshop-note">
-        Після перших п’яти повних перемог також автоматично відкриваються
-        звичайні тематичні набори з кодексу. Усі попередні відкриття збережені.
-        Прогрес умов зараховується після завершення рейду перемогою або
-        поразкою.
+        Модулі з кодексу відкриваються самі, коли виконано умову: перший бос,
+        урятовані мешканці, перемоги над елітою, пройдена відстань. Прогрес
+        зараховується після завершення рейду — перемогою чи поразкою.
       </p>
     </section>
   );

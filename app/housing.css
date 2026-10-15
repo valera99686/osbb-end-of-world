@@ -23,7 +23,7 @@
   color: #d5b880;
 }
 .mission-banner p {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   line-height: 1.6;
   color: #d5ded6;
   margin: 6px 0 0;
@@ -111,7 +111,7 @@
   border-top: 1px solid #283942;
 }
 .cinema-illustrated .cinema-caption p {
-  font-size: clamp(17px, 1.7vw, 20px);
+  font-size: calc(clamp(17px, 1.7vw, 20px) * var(--text-scale, 1));
   line-height: 1.6;
 }
 .cinema-haze {
@@ -142,7 +142,7 @@
   letter-spacing: 0.15em;
 }
 .cinema-caption p {
-  font-size: clamp(17px, 2vw, 24px);
+  font-size: calc(clamp(17px, 2vw, 24px) * var(--text-scale, 1));
   line-height: 1.65;
   max-width: 860px;
   color: #f3f0e7;
@@ -255,7 +255,7 @@
   color: #e6e8dc;
 }
 .story-card p {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   color: #c9af81;
   margin-top: 8px;
   margin-bottom: 0;
@@ -310,7 +310,7 @@
     padding: 24px 22px;
   }
   .cinema-caption p {
-    font-size: 18px;
+    font-size: calc(18px * var(--text-scale, 1));
     line-height: 1.6;
   }
   .cinema-illustrated > .scene-art {
@@ -349,7 +349,7 @@
     padding: 14px 5%;
   }
   .cinema-caption p {
-    font-size: 16px;
+    font-size: calc(16px * var(--text-scale, 1));
     line-height: 1.5;
   }
   .cinema-top,

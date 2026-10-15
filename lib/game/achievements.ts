@@ -1,0 +1,316 @@
+import { RESIDENTS } from './residents';
+import { RESEARCH } from './data';
+import type { Meta, Run } from './model';
+
+export interface Achievement {
+  id: string;
+  title: string;
+  text: string;
+  icon: string;
+}
+// `won` marks the final victory of a raid; mid-run checks leave it false.
+type Check = (meta: Meta, run: Run | null, won: boolean) => boolean;
+type Counter =
+  | 'runs'
+  | 'kills'
+  | 'totalBosses'
+  | 'totalMinibosses'
+  | 'totalRescues'
+  | 'wins'
+  | 'deaths'
+  | 'playTime'
+  | 'totalElites'
+  | 'bestHeat'
+  | 'endlessBest';
+const count = (meta: Meta, key: Counter) => {
+  const value = meta[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+};
+const lifetime =
+  (key: Counter, target: number): Check =>
+  (meta) =>
+    count(meta, key) >= target;
+const finalWin = (run: Run | null, won: boolean): run is Run =>
+  !!run && won && run.chapter >= 2 && run.mode !== 'endless';
+const combo =
+  (target: number): Check =>
+  (meta, run) =>
+    Math.max(meta.bestCombo ?? 0, run?.bestCombo ?? 0) >= target;
+const loops =
+  (target: number): Check =>
+  (meta, run) =>
+    Math.max(
+      count(meta, 'endlessBest'),
+      run?.mode === 'endless' ? run.loop : 0,
+    ) >= target;
+const DEFINITIONS: (Achievement & { check: Check })[] = [
+  {
+    id: 'first_run',
+    title: 'Перший вихід',
+    text: 'Заверши першу експедицію.',
+    icon: 'Footprints',
+    check: lifetime('runs', 1),
+  },
+  {
+    id: 'runs_10',
+    title: 'Старожил',
+    text: 'Заверши 10 експедицій.',
+    icon: 'Repeat',
+    check: lifetime('runs', 10),
+  },
+  {
+    id: 'runs_30',
+    title: 'Голова ОСББ',
+    text: 'Заверши 30 експедицій.',
+    icon: 'Crown',
+    check: lifetime('runs', 30),
+  },
+  {
+    id: 'kills_100',
+    title: 'Прибирання під’їзду',
+    text: 'Знищ 100 ворогів за всі експедиції.',
+    icon: 'Crosshair',
+    check: lifetime('kills', 100),
+  },
+  {
+    id: 'kills_1000',
+    title: 'Санітар району',
+    text: 'Знищ 1000 ворогів за всі експедиції.',
+    icon: 'Target',
+    check: lifetime('kills', 1000),
+  },
+  {
+    id: 'kills_5000',
+    title: 'Гроза пустки',
+    text: 'Знищ 5000 ворогів за всі експедиції.',
+    icon: 'Skull',
+    check: lifetime('kills', 5000),
+  },
+  {
+    id: 'first_boss',
+    title: 'Перший бос',
+    text: 'Перемож боса локації.',
+    icon: 'Swords',
+    check: lifetime('totalBosses', 1),
+  },
+  {
+    id: 'bosses_15',
+    title: 'Мисливець на босів',
+    text: 'Перемож 15 босів локацій.',
+    icon: 'Sword',
+    check: lifetime('totalBosses', 15),
+  },
+  {
+    id: 'minibosses_10',
+    title: 'Розбірки на сходах',
+    text: 'Перемож 10 мінібосів.',
+    icon: 'Hammer',
+    check: lifetime('totalMinibosses', 10),
+  },
+  {
+    id: 'rescues_10',
+    title: 'Добрий сусід',
+    text: 'Урятуй 10 мешканців за всі експедиції.',
+    icon: 'HeartHandshake',
+    check: lifetime('totalRescues', 10),
+  },
+  {
+    id: 'first_win',
+    title: 'Кінець світу скасовано',
+    text: 'Заверши повний рейд перемогою.',
+    icon: 'Trophy',
+    check: lifetime('wins', 1),
+  },
+  {
+    id: 'wins_5',
+    title: 'Легенда будинку',
+    text: 'Заверши 5 повних рейдів перемогою.',
+    icon: 'Medal',
+    check: lifetime('wins', 5),
+  },
+  {
+    id: 'deaths_10',
+    title: 'Досвід через біль',
+    text: 'Програй 10 експедицій — і не здавайся.',
+    icon: 'Ghost',
+    check: lifetime('deaths', 10),
+  },
+  {
+    id: 'playtime_1h',
+    title: 'Ще одна спроба',
+    text: 'Проведи в рейдах годину.',
+    icon: 'Clock',
+    check: lifetime('playTime', 3600),
+  },
+  {
+    id: 'playtime_10h',
+    title: 'Живу в машині',
+    text: 'Проведи в рейдах 10 годин.',
+    icon: 'Hourglass',
+    check: lifetime('playTime', 36000),
+  },
+  {
+    id: 'blueprints_5',
+    title: 'Конструкторське бюро',
+    text: 'Придбай 5 креслень у майстерні.',
+    icon: 'BookOpen',
+    check: (meta) => (meta.blueprints?.length ?? 0) >= 5,
+  },
+  {
+    id: 'research_max',
+    title: 'Науковий підхід',
+    text: 'Відкрий у майстерні всі модифікатори рейду.',
+    icon: 'FlaskConical',
+    check: (meta) => RESEARCH.every((r) => (meta.research?.[r.id] ?? 0) >= 1),
+  },
+  {
+    id: 'elites_50',
+    title: 'Збирач трофеїв',
+    text: 'Знищ 50 посилених ворогів за всі експедиції.',
+    icon: 'Gem',
+    check: lifetime('totalElites', 50),
+  },
+  {
+    id: 'no_repair_win',
+    title: 'Без ремонту',
+    text: 'Виграй рейд, жодного разу не полагодивши машину в крамниці.',
+    icon: 'Wrench',
+    check: (_, run, won) => finalWin(run, won) && (run.repairs ?? 0) === 0,
+  },
+  {
+    id: 'boss_no_hit',
+    title: 'Ані подряпини',
+    text: 'Перемож боса або мінібоса, не отримавши шкоди.',
+    icon: 'ShieldCheck',
+    check: (_, run) => (run?.bossNoHit ?? 0) > 0,
+  },
+  {
+    id: 'battle_100',
+    title: 'Сотня за бій',
+    text: 'Знищ 100 ворогів за один бій.',
+    icon: 'Bomb',
+    check: (_, run) => (run?.maxBattleKills ?? 0) >= 100,
+  },
+  {
+    id: 'combo_25',
+    title: 'На кураже',
+    text: 'Набери комбо з 25 знищень.',
+    icon: 'Zap',
+    check: combo(25),
+  },
+  {
+    id: 'combo_50',
+    title: 'Ланцюгова реакція',
+    text: 'Набери комбо з 50 знищень.',
+    icon: 'Sparkles',
+    check: combo(50),
+  },
+  {
+    id: 'affixed_10',
+    title: 'Колекція аномалій',
+    text: 'Знищ 10 посилених ворогів за одну експедицію.',
+    icon: 'Star',
+    check: (_, run) => (run?.elitesKilled ?? 0) >= 10,
+  },
+  {
+    id: 'events_3',
+    title: 'Нічого особливого',
+    text: 'Пройди 3 бойові події за одну експедицію.',
+    icon: 'Siren',
+    check: (_, run) => (run?.eventsCompleted ?? 0) >= 3,
+  },
+  {
+    id: 'full_house',
+    title: 'Повний будинок',
+    text: 'Урятуй усіх мешканців за одну експедицію.',
+    icon: 'Users',
+    check: (_, run) =>
+      !!run && RESIDENTS.every((r) => run.rescued.includes(r.id)),
+  },
+  {
+    id: 'daily_1',
+    title: 'Щоденна зміна',
+    text: 'Заверши щоденний рейд.',
+    icon: 'CalendarCheck',
+    check: (meta) => Object.keys(meta.dailyBest ?? {}).length >= 1,
+  },
+  {
+    id: 'daily_7',
+    title: 'Графік чергувань',
+    text: 'Заверши щоденні рейди в 7 різних днів.',
+    icon: 'CalendarDays',
+    check: (meta) => Object.keys(meta.dailyBest ?? {}).length >= 7,
+  },
+  {
+    id: 'heat_1',
+    title: 'Підкрутили загрозу',
+    text: 'Виграй рейд на загрозі 1 або вище.',
+    icon: 'Thermometer',
+    check: lifetime('bestHeat', 1),
+  },
+  {
+    id: 'heat_5',
+    title: 'Гаряча точка',
+    text: 'Виграй рейд на загрозі 5 або вище.',
+    icon: 'Flame',
+    check: lifetime('bestHeat', 5),
+  },
+  {
+    id: 'heat_10',
+    title: 'Справжній кінець світу',
+    text: 'Виграй рейд на загрозі 10.',
+    icon: 'ThermometerSun',
+    check: lifetime('bestHeat', 10),
+  },
+  {
+    id: 'endless_1',
+    title: 'Друге коло',
+    text: 'У нескінченному режимі пройди всі три локації й почни нове коло.',
+    icon: 'Infinity',
+    check: loops(1),
+  },
+  {
+    id: 'endless_3',
+    title: 'Вічний рейд',
+    text: 'У нескінченному режимі дійди до третього нового кола.',
+    icon: 'Orbit',
+    check: loops(3),
+  },
+  {
+    id: 'three_heroes',
+    title: 'Команда мрії',
+    text: 'Виграй рейди трьома різними героями.',
+    icon: 'Award',
+    check: (meta) =>
+      Object.values(meta.winsByCharacter ?? {}).filter((n) => n > 0).length >=
+      3,
+  },
+];
+export const ACHIEVEMENTS: Achievement[] = DEFINITIONS.map(
+  ({ id, title, text, icon }) => ({ id, title, text, icon }),
+);
+export const ACHIEVEMENT_BY_ID: Record<string, Achievement> =
+  Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a]));
+export function newAchievements(
+  meta: Meta,
+  run: Run | null,
+  won = false,
+): string[] {
+  const owned = new Set(meta.achievements ?? []);
+  return DEFINITIONS.filter(
+    (a) => !owned.has(a.id) && a.check(meta, run, won),
+  ).map((a) => a.id);
+}
+export function applyAchievements(
+  meta: Meta,
+  run: Run | null,
+  won = false,
+): { meta: Meta; unlocked: string[] } {
+  const unlocked = newAchievements(meta, run, won);
+  return {
+    meta: unlocked.length
+      ? { ...meta, achievements: [...(meta.achievements ?? []), ...unlocked] }
+      : meta,
+    unlocked,
+  };
+}

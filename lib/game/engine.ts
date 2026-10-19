@@ -1,4 +1,12 @@
 import { asset } from './assets';
+import {
+  AUDIT,
+  BLOOM,
+  DISCHARGE,
+  QUAKE,
+  chainTargets,
+  heroAbility,
+} from './heroes';
 import { specialEffects } from './specials';
 import {
   LOCATIONS,
@@ -43,7 +51,12 @@ import { hazardContains, drawHazard, type Hazard } from './bosses';
 import { perkOffers, type PerkId } from './upgrades';
 import { EVOLUTION_BY_ID, WEAPONS } from './weapons';
 import { RESIDENT_BY_ID } from './residents';
-import { MINIBOSS_TYPE, minibossFor, minibossPattern } from './minibosses';
+import {
+  MINIBOSS_TYPE,
+  hasMinibossPortrait,
+  minibossFor,
+  minibossPattern,
+} from './minibosses';
 import {
   AFFIX_BY_ID,
   BATTLE_EVENTS,
@@ -546,6 +559,8 @@ export class Battle {
   dashing = 0;
   facing = { x: 1, y: 0 };
   pulseRing = 0;
+  // Борис: seconds left of the audit that raises coins from kills.
+  auditTime = 0;
   battleKills = 0;
   lowHpTimer = 0;
   explosionCd = 0;
@@ -619,7 +634,8 @@ export class Battle {
   // Pre-rendered facade: rebuilt when the layout or crew changes.
   facade: { key: string; canvas: HTMLCanvasElement | null } | null = null;
   // Lightning polylines of the arc core, for a few frames.
-  arcs: { pts: number[]; life: number }[] = [];
+  // Lines of lightning (arc cores, Іскра); `bold` ones glow.
+  arcs: { pts: number[]; life: number; bold?: boolean }[] = [];
   ended = false;
   frame = 0;
   last = 0;
@@ -746,18 +762,28 @@ export class Battle {
         color: lead.color,
         quote: this.introQuote || undefined,
         // null reserves the room while the picture loads.
-        portrait:
-          run.kind === 'boss' && typeof Image !== 'undefined'
-            ? null
-            : undefined,
+        portrait: undefined,
       };
-      if (run.kind === 'boss' && typeof Image !== 'undefined') {
+      // Location bosses all have a portrait; of the mini-bosses only those
+      // listed in MINIBOSS_PORTRAITS do, the others keep the plain card.
+      const file =
+        run.kind === 'boss'
+          ? `boss-${lead.id}`
+          : hasMinibossPortrait(run.chapter, this.minibossVariant)
+            ? `mini-${Math.min(2, run.chapter)}-${this.minibossVariant}`
+            : '';
+      if (file && typeof Image !== 'undefined') {
+        this.introCard.portrait = null;
         const img = new Image();
         img.decoding = 'async';
         img.onload = () => {
           if (this.introCard && img.naturalWidth) this.introCard.portrait = img;
         };
-        img.src = asset(`art/boss-${lead.id}.webp`);
+        // A missing file gives the room back instead of leaving a gap.
+        img.onerror = () => {
+          if (this.introCard) this.introCard.portrait = undefined;
+        };
+        img.src = asset(`art/${file}.webp`);
       }
       this.intro = INTRO;
       this.calm = 1;
@@ -1012,16 +1038,32 @@ export class Battle {
     this.ring(this.x, this.y - 14, 70, '#7cbef4', 0.25, 3);
     this.vibrate(12);
   }
+  // The E key. Every head of ОСББ has their own ability (heroes.ts); they
+  // share the cooldown, the sound, the shake and the healing room special.
   pulse() {
     if (this.pulseCd > 0 || this.paused || this.ended || this.drafting) return;
     this.pulseCd = 12 - 3 * this.pk('short_fuse');
-    this.pulseRing = 0.55;
     this.addTrauma(0.42);
     this.vibrate(25);
-    this.audio.play('pulse');
-    const landed = this.enemies.some(
-      (e) => e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < 235,
-    );
+    const hero = heroAbility(this.run.character);
+    this.audio.play('pulse', {
+      pitch:
+        hero.id === 'discharge'
+          ? 1.3
+          : hero.id === 'bloom'
+            ? 0.85
+            : hero.id === 'audit'
+              ? 1.1
+              : 1,
+    });
+    const landed =
+      hero.id === 'discharge'
+        ? this.abilityDischarge()
+        : hero.id === 'bloom'
+          ? this.abilityBloom()
+          : hero.id === 'audit'
+            ? this.abilityAudit()
+            : this.abilityQuake();
     if (landed && this.specials.pulseHeal) {
       const healed = Math.min(
         this.specials.pulseHeal,
@@ -1031,24 +1073,126 @@ export class Battle {
       if (healed > 0)
         this.label(this.x, this.y - 65, '+' + Math.round(healed), '#8acdb6');
     }
+  }
+  // Explosive props near a point take the ability's damage too.
+  abilityProps(near: (x: number, y: number) => boolean, damage: number) {
+    for (const p of this.explosives)
+      if (!p.blown && near(p.x, p.y)) this.hitProp(p, damage);
+  }
+  // Петрович: a ring that hits and shoves everything around the house.
+  abilityQuake() {
+    this.pulseRing = 0.55;
+    const landed = this.enemies.some(
+      (e) => e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < QUAKE.radius,
+    );
     // A snapshot: area damage reaches only enemies standing before it
     // landed, so splitter halves and brood young from its kills are spared.
     for (const e of this.enemies.slice()) {
       const d = Math.hypot(e.x - this.x, e.y - this.y);
-      if (d < 235) {
+      if (d < QUAKE.radius) {
         const whistle = this.pk('whistle') > 0;
-        this.damage(e, this.stats.damage * 3.5 * (whistle ? 1.3 : 1));
+        this.damage(e, this.stats.damage * QUAKE.damage * (whistle ? 1.3 : 1));
         if (!isLeader(e.type)) {
           // Свисток pulls the yard in instead of pushing it away.
-          const step = whistle ? -Math.max(0, d - 70) * 0.55 : 60;
+          const step = whistle ? -Math.max(0, d - 70) * 0.55 : QUAKE.push;
           e.x += ((e.x - this.x) / Math.max(1, d)) * step;
           e.y += ((e.y - this.y) / Math.max(1, d)) * step;
         }
       }
     }
-    for (const p of this.explosives)
-      if (!p.blown && Math.hypot(p.x - this.x, p.y - this.y) < 235)
-        this.hitProp(p, this.stats.damage * 3.5);
+    this.abilityProps(
+      (x, y) => Math.hypot(x - this.x, y - this.y) < QUAKE.radius,
+      this.stats.damage * QUAKE.damage,
+    );
+    return landed;
+  }
+  // Іскра: lightning jumps between up to six enemies and stuns them.
+  abilityDischarge() {
+    const color = heroAbility('spark').color;
+    this.ring(this.x, this.y, 110, color, 0.35, 4);
+    const targets = chainTargets(
+      { x: this.x, y: this.y },
+      this.enemies,
+      DISCHARGE,
+    );
+    const pts = [this.x, this.y];
+    let amount = this.stats.damage * DISCHARGE.damage;
+    for (const e of targets) {
+      pts.push(e.x, e.y);
+      // Bosses have their own stagger rules; everyone else drops what they do.
+      if (!isLeader(e.type))
+        e.stagger = Math.max(e.stagger ?? 0, DISCHARGE.stagger);
+      this.damage(e, amount);
+      this.burst(e.x, e.y, color, 8);
+      amount *= DISCHARGE.falloff;
+      if (this.ended) break;
+    }
+    this.abilityProps((x, y) => {
+      for (let i = 0; i < pts.length; i += 2)
+        if (Math.hypot(x - pts[i], y - pts[i + 1]) < 70) return true;
+      return false;
+    }, this.stats.damage * DISCHARGE.damage);
+    this.arcs.push({ pts, life: 0.32, bold: true });
+    return targets.length > 0;
+  }
+  // Флора: heals the house, slows and pricks everything around it.
+  abilityBloom() {
+    const color = heroAbility('flora').color;
+    const heal = Math.max(
+      0,
+      Math.min(this.stats.health * BLOOM.heal, this.stats.health - this.run.hp),
+    );
+    this.run.hp += heal;
+    if (heal > 0)
+      this.label(this.x, this.y - 65, '+' + Math.round(heal), color);
+    this.ring(this.x, this.y, BLOOM.radius, color, 0.55, 5);
+    this.ring(this.x, this.y, BLOOM.radius * 0.6, color, 0.4, 3);
+    this.burst(this.x, this.y, color, 26);
+    let landed = false;
+    for (const e of this.enemies.slice()) {
+      if (e.hp <= 0 || Math.hypot(e.x - this.x, e.y - this.y) >= BLOOM.radius)
+        continue;
+      landed = true;
+      e.slow = Math.max(e.slow ?? 0, BLOOM.slow);
+      this.damage(e, this.stats.damage * BLOOM.damage);
+      this.burst(e.x, e.y, color, 6);
+      if (this.ended) break;
+    }
+    this.abilityProps(
+      (x, y) => Math.hypot(x - this.x, y - this.y) < BLOOM.radius,
+      this.stats.damage * BLOOM.damage,
+    );
+    return landed;
+  }
+  // Борис: takes a share of the health of everything around the house and
+  // makes kills pay more coins for a few seconds.
+  abilityAudit() {
+    const color = heroAbility('boris').color;
+    this.ring(this.x, this.y, AUDIT.radius, color, 0.55, 5);
+    this.auditTime = AUDIT.seconds;
+    this.label(this.x, this.y - 65, 'РЕВІЗІЯ', color);
+    let hit = 0;
+    for (const e of this.enemies.slice()) {
+      if (e.hp <= 0 || Math.hypot(e.x - this.x, e.y - this.y) >= AUDIT.radius)
+        continue;
+      hit++;
+      const share = isLeader(e.type)
+        ? AUDIT.leaderShare * e.max
+        : AUDIT.share * e.hp;
+      this.damage(e, this.stats.damage * AUDIT.damage + share);
+      this.burst(e.x, e.y, color, 6);
+      if (this.ended) break;
+    }
+    const coins = Math.min(AUDIT.cap, hit * AUDIT.perEnemy);
+    if (coins > 0) {
+      this.run.coins += coins;
+      this.label(this.x + 26, this.y - 40, '+' + coins, color);
+    }
+    this.abilityProps(
+      (x, y) => Math.hypot(x - this.x, y - this.y) < AUDIT.radius,
+      this.stats.damage * AUDIT.damage,
+    );
+    return hit > 0;
   }
   receiveHit(amount: number) {
     if (this.shieldCharges > 0) {
@@ -1670,7 +1814,9 @@ export class Battle {
   }
   // Coin value under the combo multiplier; exact below a streak of six.
   comboCoins(base: number) {
-    const bonus = base * (comboMultiplier(this.combo) - 1) + this.comboCarry;
+    const audit = this.auditTime > 0 ? AUDIT.coins : 1;
+    const bonus =
+      base * (comboMultiplier(this.combo) * audit - 1) + this.comboCarry;
     const extra = Math.floor(bonus);
     this.comboCarry = bonus - extra;
     return base + extra;
@@ -2783,6 +2929,7 @@ export class Battle {
     this.elapsed += dt;
     this.dashCd = Math.max(0, this.dashCd - dt);
     this.pulseCd = Math.max(0, this.pulseCd - dt);
+    this.auditTime = Math.max(0, this.auditTime - dt);
     this.invincible -= dt;
     this.dashing -= dt;
     this.pulseRing = Math.max(0, this.pulseRing - dt);
@@ -3967,6 +4114,15 @@ export class Battle {
       c.arc(this.x, this.y, (0.55 - this.pulseRing) * 470, 0, Math.PI * 2);
       c.stroke();
     }
+    if (this.auditTime > 0) {
+      c.strokeStyle = `rgba(240,196,102,${Math.min(0.85, this.auditTime)})`;
+      c.lineWidth = 3;
+      c.setLineDash([8, 8]);
+      c.beginPath();
+      c.arc(this.x, this.y, 52, 0, Math.PI * 2);
+      c.stroke();
+      c.setLineDash([]);
+    }
     for (const r of this.rings) {
       const k = 1 - r.life / r.max,
         grow = 1 - (1 - k) * (1 - k);
@@ -4112,6 +4268,14 @@ export class Battle {
           c.lineTo(mx, my);
           c.lineTo(a.pts[i], a.pts[i + 1]);
         }
+      }
+      if (a.bold) {
+        const alpha = c.globalAlpha;
+        c.lineWidth = 10;
+        c.globalAlpha = alpha * 0.28;
+        c.stroke();
+        c.lineWidth = 3.5;
+        c.globalAlpha = alpha;
       }
       c.stroke();
       c.globalAlpha = 1;

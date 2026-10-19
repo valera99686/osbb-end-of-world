@@ -4,6 +4,9 @@ import { minibossFor } from '@/lib/game/minibosses';
 import { minibossVariant } from '@/lib/game/model';
 import { useState, useEffect, useRef } from 'react';
 import {
+  Coins,
+  Hammer,
+  Sprout,
   Play,
   Pause,
   Home,
@@ -30,6 +33,7 @@ import {
   type SpeakerId,
 } from '@/lib/game/story';
 import { statsFor, type Meta, type Run } from '@/lib/game/model';
+import { heroAbility } from '@/lib/game/heroes';
 import {
   Battle,
   AudioEngine,
@@ -62,6 +66,13 @@ export function Combat({
   onPauseChange: (paused: boolean) => void;
   onSettings: () => void;
 }) {
+  const ability = heroAbility(run.character),
+    AbilityIcon = {
+      quake: Hammer,
+      discharge: Zap,
+      bloom: Sprout,
+      audit: Coins,
+    }[ability.id];
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const onPauseRef = useRef(onPauseChange),
@@ -297,7 +308,7 @@ export function Combat({
       <canvas
         ref={canvas}
         className="battle-canvas"
-        aria-label="Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — ударна хвиля."
+        aria-label={`Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`}
       />
       {bark && !draft && (
         <RadioStrip
@@ -420,7 +431,7 @@ export function Combat({
           <kbd>SPACE</kbd>
           <span>ривок</span>
           <kbd>E</kbd>
-          <span>хвиля</span>
+          <span>{ability.name.toLowerCase()}</span>
         </div>
         <div className="ability-row">
           <button
@@ -437,10 +448,11 @@ export function Combat({
             className="ability pulse"
             onClick={() => engine.current?.pulse()}
             disabled={hud.pulse > 0}
-            aria-label="Ударна хвиля"
+            aria-label={ability.name}
+            title={ability.text}
           >
-            <Zap size={24} />
-            <b>{hud.pulse > 0 ? hud.pulse.toFixed(1) : 'ХВИЛЯ'}</b>
+            <AbilityIcon size={24} />
+            <b>{hud.pulse > 0 ? hud.pulse.toFixed(1) : ability.button}</b>
             <small>E</small>
           </button>
         </div>

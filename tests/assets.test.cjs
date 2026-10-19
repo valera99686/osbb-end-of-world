@@ -58,3 +58,21 @@ test('Every campaign boss has a portrait that fits the budget', () => {
     assert.ok(fs.existsSync(`docs/art-source/boss-${boss.id}.png`), 'source kept');
   }
 });
+
+test('Mini-boss portraits: every registered one exists, small, with its source; no file is left unregistered', () => {
+  const { MINIBOSS_PORTRAITS, hasMinibossPortrait } = require('../.test-build/minibosses.js');
+  assert.ok(MINIBOSS_PORTRAITS.size >= 3);
+  for (const id of MINIBOSS_PORTRAITS) {
+    assert.match(id, /^[0-2]-[0-2]$/);
+    const file = `public/art/mini-${id}.webp`;
+    assert.ok(fs.existsSync(file), file);
+    assert.ok(fs.statSync(file).size <= 60 * 1024, `${file} is over 60 KB`);
+    assert.ok(fs.existsSync(`docs/art-source/mini-${id}.png`), 'source kept');
+    const [chapter, variant] = id.split('-').map(Number);
+    assert.ok(hasMinibossPortrait(chapter, variant));
+  }
+  const onDisk = fs.readdirSync('public/art').filter((n) => /^mini-\d-\d\.webp$/.test(n)).map((n) => n.slice(5, 8));
+  assert.deepEqual(onDisk.sort(), [...MINIBOSS_PORTRAITS].sort());
+  assert.equal(hasMinibossPortrait(2, 2), false, 'without a file the card stays plain');
+  assert.equal(hasMinibossPortrait(9, 9), false, 'out of range is clamped, and that one has no file either');
+});

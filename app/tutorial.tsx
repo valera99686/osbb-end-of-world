@@ -243,14 +243,14 @@ export function Tutorial({
                 </button>
                 <button onClick={() => act('pulse')}>
                   <Zap />
-                  Хвиля
+                  Вміння
                 </button>
               </div>
               <ul className="tutorial-checks">
                 {[
                   ['move', 'WASD / стрілки — рух'],
                   ['dash', 'Пробіл — ривок із коротким захистом'],
-                  ['pulse', 'E — хвиля проти ворогів поруч'],
+                  ['pulse', 'E — вміння героя проти ворогів поруч'],
                 ].map(([id, label]) => (
                   <li key={id} className={actions.includes(id) ? 'done' : ''}>
                     <Check size={16} />

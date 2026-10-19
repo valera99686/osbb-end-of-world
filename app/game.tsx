@@ -1,5 +1,6 @@
 'use client';
 import { asset } from '@/lib/game/assets';
+import { heroAbility } from '@/lib/game/heroes';
 import {
   PROFILE_BACKUP_KEY,
   importProfile,
@@ -1094,6 +1095,13 @@ export default function Game() {
               {run
                 ? `Голова ОСББ: ${RESIDENT_BY_ID[run.character].name}. На борту — ${run.residents.length}. Урятовані в цій експедиції: ${run.rescued.length}.`
                 : CHARACTERS.find((c) => c.id === character)?.desc}
+              {!run && (
+                <>
+                  <br />
+                  <b>E — {heroAbility(character).name}.</b>{' '}
+                  {heroAbility(character).text}
+                </>
+              )}
             </p>
             {run ? (
               <RunBadge run={run} />
@@ -1934,7 +1942,8 @@ export default function Game() {
             </p>
             <p>
               <b>02 / Уникай шкоди.</b> Пробіл — ривок із коротким захистом. E —
-              ударна хвиля. На телефоні використовуй кнопки праворуч.
+              вміння героя: у кожного голови ОСББ своє. На телефоні використовуй
+              кнопки праворуч.
             </p>
             <p>
               <b>03 / Збирай ресурси.</b> Жовте — монети для магазину. Зелене —

@@ -132,6 +132,20 @@ export const MINIBOSSES = [
   },
 ] as const;
 
+// The mini-bosses that have a portrait on the intro card, as "chapter-variant"
+// (public/art/mini-<chapter>-<variant>.webp). The rest are drawn the same way
+// as soon as their file exists and the id is added here.
+export const MINIBOSS_PORTRAITS: ReadonlySet<string> = new Set([
+  '0-0',
+  '0-1',
+  '0-2',
+  '1-0',
+]);
+export const hasMinibossPortrait = (chapter: number, variant: number) =>
+  MINIBOSS_PORTRAITS.has(
+    `${Math.max(0, Math.min(2, Math.floor(chapter)))}-${Math.max(0, Math.min(2, Math.floor(variant)))}`,
+  );
+
 export function minibossFor(chapter: number, variant = 0) {
   return MINIBOSSES[
     Math.max(0, Math.min(2, Math.floor(chapter))) * 3 +

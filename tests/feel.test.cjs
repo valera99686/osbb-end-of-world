@@ -617,3 +617,80 @@ test('Colour-blind mode gives affixed enemies their own distinct palette', () =>
   b.setSettings(M.DEFAULT_SETTINGS);
   assert.equal(b.affixStyle(medic).color, ELITE_AFFIXES[index].color);
 });
+
+test('The boss presentation holds the fight, swallows dash and E, and a tap skips it after half a second', () => {
+  const { STAGE_SECONDS } = require('../.test-build/engine.js');
+  const { b } = battle('boss', { canvas: fakeCanvas([]) });
+  assert.ok(b.holdIntro && b.presenting);
+  assert.equal(b.introTotal, STAGE_SECONDS.boss);
+  const t0 = b.elapsed;
+  assert.equal(b.skipIntro(), true, 'it is on, so the key press is swallowed');
+  assert.equal(b.intro, STAGE_SECONDS.boss, 'but too early to skip');
+  for (let i = 0; i < 32; i++) b.tick(1 / 60); // just over half a second
+  assert.equal(b.elapsed, t0, 'the fight stands still');
+  b.dash();
+  b.pulse();
+  assert.equal(b.dashCd, 0);
+  assert.equal(b.pulseCd, 0);
+  assert.equal(b.skipIntro(), true);
+  assert.ok(b.intro <= 0.3 + 1e-9, 'a skip leaves a short fade');
+  for (let i = 0; i < 30; i++) b.tick(1 / 60);
+  assert.equal(b.presenting, false);
+  assert.equal(b.skipIntro(), false, 'nothing to skip any more');
+  const t1 = b.elapsed;
+  for (let i = 0; i < 10; i++) b.tick(1 / 60);
+  assert.ok(b.elapsed > t1, 'the fight runs');
+  b.dash();
+  assert.ok(b.dashCd > 0, 'and dash works again');
+});
+
+test('Without a canvas (tests, the audit) nothing is held and the old intro time stays', () => {
+  const { b } = battle('boss');
+  assert.equal(b.holdIntro, false);
+  assert.equal(b.presenting, false);
+  assert.equal(b.skipIntro(), false);
+  const t0 = b.elapsed;
+  b.tick(0.1);
+  assert.ok(b.elapsed > t0);
+});
+
+test('Every boss and mini-boss presentation draws, with a portrait or without, in every setting', () => {
+  const { MINIBOSS_PORTRAITS } = require('../.test-build/minibosses.js');
+  for (const settings of [
+    M.DEFAULT_SETTINGS,
+    { ...M.DEFAULT_SETTINGS, colorblind: true, reducedFlashes: true, textScale: 1.3 },
+  ])
+    for (const kind of ['boss', 'miniboss'])
+      for (const chapter of [0, 1, 2]) {
+        const styles = [];
+        const { b } = battle(kind, { chapter, canvas: fakeCanvas(styles), options: { settings, introQuote: 'Спроба 3. Ви ще не зрозуміли? Я не тримаю вас тут.' } });
+        for (const age of [0.05, 0.6, 1.4, 2.2]) {
+          while (b.introTotal - b.intro < age) b.tick(1 / 60);
+          b.draw();
+        }
+        assert.ok(b.introCard.hint && b.introCard.hp > 0, `${kind} ${chapter}`);
+        assert.ok(!styles.some(([k, v]) => k === 'shadowBlur' && v > 0), 'no shadowBlur');
+        if (kind === 'miniboss') {
+          const has = MINIBOSS_PORTRAITS.has(`${chapter}-${b.minibossVariant}`);
+          assert.equal(b.introCard.portrait !== undefined, has && typeof Image !== 'undefined');
+        }
+      }
+});
+
+test('The tip on the intro card drops the reward line and stays short for every leader', () => {
+  const { leaderHint, minibossFor } = require('../.test-build/minibosses.js');
+  const { BOSS_VARIANTS } = require('../.test-build/encounters.js');
+  assert.equal(leaderHint('Бий збоку. Перемога: предмет і монети.'), 'Бий збоку.');
+  assert.equal(leaderHint(''), '');
+  const long = 'Слово '.repeat(80) + '.';
+  assert.ok(leaderHint(long).length <= 200);
+  for (const boss of BOSS_VARIANTS) {
+    const hint = leaderHint(boss.guide);
+    assert.ok(hint.length > 20 && hint.length <= 200 && !hint.includes('Перемога'), boss.name);
+  }
+  for (let c = 0; c < 3; c++)
+    for (let v = 0; v < 3; v++) {
+      const hint = leaderHint(minibossFor(c, v).guide);
+      assert.ok(hint.length > 20 && hint.length <= 200 && !hint.includes('Перемога'), minibossFor(c, v).name);
+    }
+});

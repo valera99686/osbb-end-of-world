@@ -141,7 +141,7 @@ export function Combat({
       stopWaiting: (() => void) | null = null;
     if (boss) {
       // The machine speaks first; the crew answers once it has finished.
-      tauntTimer = window.setTimeout(() => speak(BOSS_VOICE, taunt), 900);
+      tauntTimer = window.setTimeout(() => speak(BOSS_VOICE, taunt), 1500);
       startTimer = window.setTimeout(() => {
         if (!isSpeaking()) return say('start');
         stopWaiting = onSpeaking((on) => {
@@ -150,7 +150,7 @@ export function Combat({
           stopWaiting = null;
           say('start');
         });
-      }, 2600);
+      }, 3600);
     }
     const b = new Battle(
       canvas.current,
@@ -199,6 +199,11 @@ export function Combat({
     const keys = (e: KeyboardEvent) => {
       // Sliders and switches in the settings dialog need the arrow keys.
       if (holdRef.current) return;
+      // While a boss is being presented any of these keys only skips it.
+      if (['Space', 'KeyE', 'Enter'].includes(e.code) && b.skipIntro()) {
+        e.preventDefault();
+        return;
+      }
       if (
         [
           'KeyW',
@@ -308,6 +313,7 @@ export function Combat({
       <canvas
         ref={canvas}
         className="battle-canvas"
+        onPointerDown={() => engine.current?.skipIntro()}
         aria-label={`Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`}
       />
       {bark && !draft && (

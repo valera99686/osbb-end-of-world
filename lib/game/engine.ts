@@ -54,6 +54,7 @@ import { RESIDENT_BY_ID } from './residents';
 import {
   MINIBOSS_TYPE,
   hasMinibossPortrait,
+  leaderHint,
   minibossFor,
   minibossPattern,
 } from './minibosses';
@@ -97,6 +98,9 @@ const PAD_DEAD = 0.2;
 const PARTICLE_CAP = 500;
 const NUMBER_CAP = 40;
 const INTRO = 1.4;
+// How long the presentation of a boss or mini-boss lasts (seconds). With a
+// canvas the fight is frozen meanwhile; a tap or key skips it.
+export const STAGE_SECONDS = { boss: 3, miniboss: 2.6 } as const;
 const MUZZLE = 0.07;
 // Roof turret height above the house's feet line (world px).
 const TURRET_Y = -66;
@@ -596,6 +600,9 @@ export class Battle {
   flash = 0;
   fxClock = 0;
   intro = 0;
+  // Seconds the intro lasts, and whether the fight waits for it.
+  introTotal = INTRO;
+  holdIntro = false;
   introCard: {
     quote?: string;
     kicker: string;
@@ -604,6 +611,9 @@ export class Battle {
     color: string;
     // The boss's portrait, shown on the card once it has loaded.
     portrait?: HTMLImageElement | null;
+    // A tip on how the fight goes and the leader's health.
+    hint?: string;
+    hp?: number;
   } | null = null;
   outro = 0;
   pendingEnd: BattleResult | null = null;
@@ -753,6 +763,10 @@ export class Battle {
       };
     if (run.kind === 'boss' || run.kind === 'miniboss') {
       const lead = this.leaderStyle(run.kind === 'boss' ? 99 : MINIBOSS_TYPE),
+        def =
+          run.kind === 'boss'
+            ? campaignBoss(run.chapter, run.bossVariants[run.chapter])
+            : minibossFor(run.chapter, this.minibossVariant),
         place = LOCATIONS[Math.min(2, run.chapter)]?.name ?? '',
         loop = run.loop ?? 0;
       this.introCard = {
@@ -761,6 +775,8 @@ export class Battle {
         text: loop > 0 ? `${place} · коло ${loop + 1}` : place,
         color: lead.color,
         quote: this.introQuote || undefined,
+        hint: leaderHint(def.guide),
+        hp: def.health,
         // null reserves the room while the picture loads.
         portrait: undefined,
       };
@@ -785,7 +801,11 @@ export class Battle {
         };
         img.src = asset(`art/${file}.webp`);
       }
-      this.intro = INTRO;
+      this.holdIntro = !!canvas;
+      this.introTotal = canvas
+        ? STAGE_SECONDS[run.kind === 'boss' ? 'boss' : 'miniboss']
+        : INTRO;
+      this.intro = this.introTotal;
       this.calm = 1;
     }
   }
@@ -912,6 +932,8 @@ export class Battle {
     this.ambient?.update(real, this.view);
     for (const b of this.banners) b.life -= real;
     this.banners = this.banners.filter((b) => b.life > 0);
+    // The presentation of a boss freezes the fight for a few seconds.
+    if (this.presenting) return;
     if (this.drafting) return;
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - real);
@@ -1017,12 +1039,31 @@ export class Battle {
       pulse = pressed(1, 5),
       start = pressed(9);
     this.padHeld = now;
+    if ((dash || pulse) && this.skipIntro()) return;
     if (start) this.onPause?.();
     if (dash) this.dash();
     if (pulse) this.pulse();
   }
+  get presenting() {
+    return this.holdIntro && this.intro > 0;
+  }
+  // A tap or key ends the presentation early (not in its first half second).
+  // True while it is on, so the key press is not also a dash.
+  skipIntro() {
+    if (!this.presenting) return false;
+    if (this.introTotal - this.intro >= 0.5)
+      this.intro = Math.min(this.intro, 0.3);
+    return true;
+  }
   dash() {
-    if (this.dashCd > 0 || this.paused || this.ended || this.drafting) return;
+    if (
+      this.dashCd > 0 ||
+      this.paused ||
+      this.ended ||
+      this.drafting ||
+      this.presenting
+    )
+      return;
     this.dashCd = this.specials.dashCooldown;
     if (this.specials.dashShot) {
       this.dashCharged = true;
@@ -1041,7 +1082,14 @@ export class Battle {
   // The E key. Every head of ОСББ has their own ability (heroes.ts); they
   // share the cooldown, the sound, the shake and the healing room special.
   pulse() {
-    if (this.pulseCd > 0 || this.paused || this.ended || this.drafting) return;
+    if (
+      this.pulseCd > 0 ||
+      this.paused ||
+      this.ended ||
+      this.drafting ||
+      this.presenting
+    )
+      return;
     this.pulseCd = 12 - 3 * this.pk('short_fuse');
     this.addTrauma(0.42);
     this.vibrate(25);
@@ -4927,59 +4975,329 @@ export class Battle {
     if (line) lines.push(line);
     return lines;
   }
+  // Word wrap for canvas text with a line limit; what does not fit goes on the
+  // last line and is cut with an ellipsis.
+  wrapLines(
+    c: CanvasRenderingContext2D,
+    text: string,
+    width: number,
+    max: number,
+  ) {
+    const lines: string[] = [];
+    const words = text.split(' ');
+    let line = '';
+    for (let i = 0; i < words.length; i++) {
+      const next = line ? line + ' ' + words[i] : words[i];
+      if (line && c.measureText(next).width > width) {
+        lines.push(line);
+        line = words[i];
+        if (lines.length === max - 1) {
+          const rest = words.slice(i).join(' ');
+          let cut = rest;
+          while (cut.length > 4 && c.measureText(cut).width > width)
+            cut = cut.slice(0, -2).trimEnd();
+          lines.push(
+            cut === rest ? rest : cut.replace(/[\s.,;:!?]+$/, '') + '…',
+          );
+          return lines;
+        }
+      } else line = next;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+  // A leader with no portrait yet: its own sprite on a dark panel with rings.
+  drawLeaderCameo(
+    c: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    size: number,
+    color: string,
+  ) {
+    const boss = this.run.kind === 'boss';
+    const chapter = Math.min(2, this.run.chapter),
+      variant = this.run.bossVariants[this.run.chapter] ?? 0;
+    const def = boss
+      ? campaignBoss(chapter, variant)
+      : minibossFor(chapter, this.minibossVariant);
+    const g = c.createRadialGradient(cx, cy, 0, cx, cy, size * 0.75);
+    g.addColorStop(0, '#182630');
+    g.addColorStop(1, '#060b10');
+    c.fillStyle = g;
+    c.fillRect(cx - size / 2, cy - size / 2, size, size);
+    c.strokeStyle = rgba(color, 0.45);
+    c.lineWidth = 2;
+    for (const r of [0.28, 0.42, 0.58]) {
+      c.beginPath();
+      c.arc(cx, cy, size * r, 0, Math.PI * 2);
+      c.stroke();
+    }
+    const body = {
+      x: 0,
+      y: 0,
+      hp: 1,
+      max: 1,
+      r: 30,
+      type: boss ? 99 : MINIBOSS_TYPE,
+      speed: 0,
+      hit: 0,
+      timer: 0,
+      phase: 0,
+      walk: 0,
+      facing: 1,
+      aim: 0,
+      attack: 0,
+      visualSeed: 0,
+      pattern: 0,
+    } as unknown as Enemy;
+    const k = (size * 0.74) / def.size;
+    c.save();
+    c.translate(cx, cy + size * 0.04);
+    c.scale(k, k);
+    drawEnemy(
+      c,
+      body,
+      chapter,
+      this.fxClock,
+      0,
+      variant,
+      this.minibossVariant,
+      this.settings.colorblind,
+      null,
+    );
+    c.restore();
+  }
+  // The presentation of a boss or mini-boss before the fight: a dark stage,
+  // the portrait sliding in, the name typed out, a tip, the health and the
+  // machine's taunt. A tap or a key skips it (skipIntro).
   drawIntro(c: CanvasRenderingContext2D, w: number, h: number) {
     const card = this.introCard;
     if (!card || this.intro <= 0) return;
-    const ts = this.settings.textScale || 1,
-      age = INTRO - this.intro,
-      slide = (1 - Math.min(1, age / 0.25)) ** 3,
-      y = h * 0.36,
-      bh = (card.quote ? 134 : 108) * ts,
-      // A portrait takes the left of the band; the words centre in the rest.
-      art = card.portrait !== undefined ? Math.min(bh + 28, w * 0.3) : 0,
-      pad = art ? art + 22 : 0,
-      x = (w + pad) / 2 + slide * 80;
-    const alpha = Math.max(0, Math.min(1, age / 0.12, this.intro / 0.35));
-    c.globalAlpha = alpha * 0.82;
-    c.fillStyle = '#04090d';
-    c.fillRect(0, y - bh / 2, w, bh);
-    c.globalAlpha = alpha;
-    c.fillStyle = card.color;
-    c.fillRect(0, y - bh / 2, w * (1 - slide), 3);
-    c.fillRect(w * slide, y + bh / 2 - 3, w * (1 - slide), 3);
-    if (art && card.portrait) {
-      const px = 14 - slide * 120,
-        py = y - art / 2;
-      c.drawImage(card.portrait, px, py, art, art);
-      c.strokeStyle = card.color;
-      c.lineWidth = 2;
-      c.strokeRect(px, py, art, art);
+    const total = this.introTotal || INTRO,
+      ts = this.settings.textScale || 1,
+      still = this.settings.reducedFlashes,
+      age = total - this.intro,
+      clamp = (t: number) => Math.max(0, Math.min(1, t)),
+      ease = (t: number) => 1 - (1 - clamp(t)) ** 3,
+      out = clamp(this.intro / 0.35),
+      stage = clamp(age / 0.3) * out,
+      // An element fades in over 0.3 s from `at`.
+      show = (at: number) => clamp((age - at) / 0.3) * out;
+    const wide = w >= h * 1.05,
+      S = Math.round(
+        wide ? Math.min(h * 0.62, w * 0.4) : Math.min(w * 0.7, h * 0.34),
+      ),
+      slide = still ? 0 : 1 - ease(age / 0.6),
+      px0 = wide ? Math.round(w * 0.065) : Math.round((w - S) / 2),
+      py0 = wide ? Math.round((h - S) / 2) : Math.round(h * 0.075) + 26,
+      px = Math.round(px0 - (wide ? slide * w * 0.3 : 0)),
+      py = Math.round(py0 - (wide ? 0 : slide * 70)),
+      color = card.color;
+    c.save();
+    // The stage: dark cloth, stripes and a glow in the leader's colour.
+    c.globalAlpha = stage * 0.88;
+    c.fillStyle = '#03070b';
+    c.fillRect(0, 0, w, h);
+    c.globalAlpha = stage * 0.07;
+    c.strokeStyle = color;
+    c.lineWidth = 2;
+    c.beginPath();
+    for (let x = -h; x < w; x += 44) {
+      c.moveTo(x, h);
+      c.lineTo(x + h, 0);
     }
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.font = `800 ${Math.round(12 * ts)}px ${FONT}`;
-    c.fillText(card.kicker, x, y - 32 * ts);
-    let size = 34 * ts;
-    c.font = `900 ${Math.round(size)}px ${FONT}`;
-    const width = c.measureText(card.title).width;
-    if (width > w - pad - 32) {
-      size *= (w - pad - 32) / width;
-      c.font = `900 ${Math.round(size)}px ${FONT}`;
+    c.stroke();
+    const gx = px0 + S / 2,
+      gy = py0 + S / 2,
+      glow = c.createRadialGradient(gx, gy, S * 0.1, gx, gy, S * 1.05);
+    glow.addColorStop(0, rgba(color, 0.4));
+    glow.addColorStop(1, rgba(color, 0));
+    c.globalAlpha = stage;
+    c.fillStyle = glow;
+    c.fillRect(0, 0, w, h);
+    // Cinema bars with a line in the leader's colour.
+    const bar = Math.round(h * 0.075 * ease(age / 0.4));
+    c.fillStyle = '#010305';
+    c.fillRect(0, 0, w, bar);
+    c.fillRect(0, h - bar, w, bar);
+    c.globalAlpha = stage;
+    c.fillStyle = color;
+    c.fillRect(0, bar - 2, w * ease(age / 0.5), 2);
+    c.fillRect(w * (1 - ease(age / 0.5)), h - bar, w * ease(age / 0.5), 2);
+
+    // The portrait in its frame.
+    const pa = show(0.05);
+    c.globalAlpha = pa;
+    c.fillStyle = rgba(color, 0.22);
+    c.fillRect(px - 7, py - 7, S + 14, S + 14);
+    c.fillStyle = '#05090d';
+    c.fillRect(px, py, S, S);
+    c.save();
+    c.beginPath();
+    c.rect(px, py, S, S);
+    c.clip();
+    if (card.portrait) {
+      const z = S * (still ? 1 : 1.07 - 0.07 * clamp(age / total));
+      c.drawImage(card.portrait, px - (z - S) / 2, py - (z - S) / 2, z, z);
+    } else if (card.portrait === undefined)
+      this.drawLeaderCameo(c, px + S / 2, py + S / 2, S, color);
+    const shade = c.createLinearGradient(0, py + S * 0.62, 0, py + S);
+    shade.addColorStop(0, 'rgba(3,7,11,0)');
+    shade.addColorStop(1, 'rgba(3,7,11,0.7)');
+    c.fillStyle = shade;
+    c.fillRect(px, py, S, S);
+    if (!still) {
+      c.globalAlpha = pa * 0.16;
+      c.fillStyle = color;
+      c.fillRect(px, py + ((age * 0.7) % 1) * S, S, 3);
+    }
+    c.restore();
+    c.globalAlpha = pa;
+    c.strokeStyle = color;
+    c.lineWidth = 3;
+    c.strokeRect(px, py, S, S);
+    c.lineWidth = 5;
+    for (const [sx, sy] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ]) {
+      const cx = sx ? px + S + 9 : px - 9,
+        cy = sy ? py + S + 9 : py - 9,
+        dx = sx ? -24 : 24,
+        dy = sy ? -24 : 24;
+      c.beginPath();
+      c.moveTo(cx + dx, cy);
+      c.lineTo(cx, cy);
+      c.lineTo(cx, cy + dy);
+      c.stroke();
+    }
+
+    // The words.
+    const small = Math.round(14 * ts),
+      tx = wide ? px0 + S + Math.round(w * 0.05) : Math.round(w * 0.07),
+      tw = wide ? w - tx - Math.round(w * 0.06) : w - tx * 2,
+      nameBase = (wide ? 54 : 38) * ts;
+    c.textAlign = 'left';
+    c.textBaseline = 'alphabetic';
+    c.font = `900 ${Math.round(nameBase)}px ${FONT}`;
+    const nameW = c.measureText(card.title).width,
+      nameSize = Math.round(nameW > tw ? (nameBase * tw) / nameW : nameBase);
+    c.font = `600 ${small}px ${FONT}`;
+    const hint = card.hint
+        ? this.wrapLines(c, card.hint, tw, wide ? 3 : 2)
+        : [],
+      line = Math.round(small * 1.4);
+    c.font = `italic 600 ${small + 1}px ${FONT}`;
+    const quoteLines = card.quote
+      ? this.wrapLines(c, '«' + card.quote + '»', tw, 2)
+      : [];
+    const gap = Math.round(14 * ts),
+      kicker = Math.round(13 * ts);
+    let y = wide ? 0 : py0 + S + Math.round(26 * ts);
+    const height =
+      kicker +
+      gap +
+      nameSize +
+      gap * 0.8 +
+      small +
+      (hint.length ? gap * 1.6 + small + hint.length * line : 0) +
+      (card.hp ? gap * 1.6 + 26 * ts : 0) +
+      (quoteLines.length ? gap * 1.6 + quoteLines.length * line : 0);
+    if (wide) y = Math.max(bar + 10, (h - height) / 2);
+    const rise = (at: number) =>
+      still ? 0 : (1 - clamp((age - at) / 0.3)) * 14;
+    // Kicker with a rule.
+    y += kicker;
+    c.globalAlpha = show(0.3);
+    c.fillStyle = color;
+    c.font = `800 ${kicker}px ${FONT}`;
+    c.fillText(card.kicker, tx, y + rise(0.3));
+    c.fillRect(
+      tx + c.measureText(card.kicker).width + 12,
+      y - kicker * 0.35,
+      Math.max(
+        0,
+        (tw - c.measureText(card.kicker).width - 12) * ease((age - 0.4) / 0.6),
+      ),
+      2,
+    );
+    // The name, typed out.
+    y += gap + nameSize;
+    const shown = Math.floor(clamp((age - 0.5) / 0.9) * card.title.length);
+    c.globalAlpha = out;
+    c.font = `900 ${nameSize}px ${FONT}`;
+    const typed = card.title.slice(0, shown);
+    if (!still) {
+      // A cheap glow: the name once more in the leader's colour, offset.
+      c.globalAlpha = out * 0.4;
+      c.fillStyle = color;
+      c.fillText(typed, tx + 2, y + 2);
+      c.fillText(typed, tx - 2, y - 1);
+      c.globalAlpha = out;
     }
     c.fillStyle = '#fff6e6';
-    c.fillText(card.title, x, y);
-    c.font = `600 ${Math.round(13 * ts)}px ${FONT}`;
+    c.fillText(typed, tx, y);
+    // The place.
+    y += gap * 0.8 + small;
+    c.globalAlpha = show(1.0);
+    c.font = `700 ${small}px ${FONT}`;
     c.fillStyle = '#b9c7c9';
-    c.fillText(card.text, x, y + 32 * ts);
-    if (card.quote) {
-      c.font = `italic 600 ${Math.round(13 * ts)}px ${FONT}`;
-      c.fillStyle = card.color;
-      const max = w - pad - 32;
-      let q = '«' + card.quote + '»';
-      while (q.length > 8 && c.measureText(q).width > max)
-        q = q.slice(0, -4) + '…»';
-      c.fillText(q, x, y + 54 * ts);
+    c.fillText(card.text, tx, y);
+    // The tip: how the fight goes.
+    if (hint.length) {
+      y += gap * 1.6 + small;
+      c.globalAlpha = show(1.15);
+      c.font = `800 ${Math.round(11 * ts)}px ${FONT}`;
+      c.fillStyle = color;
+      c.fillText('ЯК ПЕРЕМОГТИ', tx, y - small * 0.2);
+      c.font = `600 ${small}px ${FONT}`;
+      c.fillStyle = '#e6ece9';
+      hint.forEach((l, i) =>
+        c.fillText(l, tx, y + line * (i + 1) - small * 0.2),
+      );
+      y += hint.length * line;
     }
+    // Health.
+    if (card.hp) {
+      y += gap * 1.6;
+      c.globalAlpha = show(1.3);
+      const label = 'ЗДОРОВ’Я ' + Math.round(card.hp).toLocaleString('uk-UA'),
+        ph = Math.round(26 * ts);
+      c.font = `800 ${Math.round(12 * ts)}px ${FONT}`;
+      const pw = c.measureText(label).width + 24;
+      c.fillStyle = rgba(color, 0.16);
+      c.fillRect(tx, y - ph * 0.7, pw, ph);
+      c.strokeStyle = rgba(color, 0.7);
+      c.lineWidth = 1.5;
+      c.strokeRect(tx, y - ph * 0.7, pw, ph);
+      c.fillStyle = '#fff6e6';
+      c.fillText(label, tx + 12, y + ph * 0.08);
+      y += ph * 0.3;
+    }
+    // The taunt, typed out.
+    if (quoteLines.length) {
+      y += gap * 1.6;
+      c.font = `italic 600 ${small + 1}px ${FONT}`;
+      c.fillStyle = color;
+      c.globalAlpha = show(1.4);
+      let left = Math.floor(clamp((age - 1.4) / 1.0) * 70);
+      quoteLines.forEach((l, i) => {
+        const part = l.slice(0, Math.max(0, left));
+        left -= l.length;
+        c.fillText(part, tx, y + line * (i + 1) - small * 0.2);
+      });
+    }
+    // How to skip, once it is allowed.
+    if (age > 0.6 && !still) {
+      c.globalAlpha = out * (0.35 + 0.25 * Math.sin(this.fxClock * 5));
+      c.textAlign = 'center';
+      c.font = `700 ${Math.round(11 * ts)}px ${FONT}`;
+      c.fillStyle = '#b9c7c9';
+      c.fillText('Торкнись або натисни Space, щоб почати', w / 2, h - bar - 12);
+    }
+    c.restore();
     c.globalAlpha = 1;
     c.textBaseline = 'alphabetic';
   }

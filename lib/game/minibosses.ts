@@ -146,6 +146,20 @@ export const hasMinibossPortrait = (chapter: number, variant: number) =>
     `${Math.max(0, Math.min(2, Math.floor(chapter)))}-${Math.max(0, Math.min(2, Math.floor(variant)))}`,
   );
 
+// The tip shown on the intro card: the first sentences of the guide without
+// the line about the reward.
+export function leaderHint(guide: string) {
+  const sentences = guide
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => s && !/^Перемога/.test(s));
+  let text = '';
+  for (const s of sentences) {
+    if ((text + ' ' + s).trim().length > 190 && text) break;
+    text = (text + ' ' + s).trim();
+  }
+  return text.length > 200 ? text.slice(0, 197).trimEnd() + '…' : text;
+}
+
 export function minibossFor(chapter: number, variant = 0) {
   return MINIBOSSES[
     Math.max(0, Math.min(2, Math.floor(chapter))) * 3 +

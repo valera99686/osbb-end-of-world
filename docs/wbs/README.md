@@ -7,7 +7,7 @@ The work breakdown of the «Конкурс проєктів 2026». It is the sa
 | Project | ОСББ кінця світу (Doomsday H.O.A.): a Ukrainian 2D roguelite, React + Canvas + Vite, offline Android APK |
 | Development deadline | November 30, 2026 |
 | Cross-testing | December 1-15, 2026 |
-| Team | Povzun Valerii: development, design and QA (a one-person team, tab «Team 6») |
+| Team | Povzun Valerii: development, design and QA (a one-person team, tab «Team 7») |
 | Total | 110 h in 31 tasks; 15 done, 1 ready for review, 15 to do |
 
 ## Rules

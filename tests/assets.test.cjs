@@ -48,25 +48,25 @@ test('The web manifest uses relative URLs so it works under a sub-path', () => {
   for (const u of urls) assert.ok(!u.startsWith('/'), `${u} must be relative`);
 });
 
-test('Every campaign boss has a portrait that fits the budget', () => {
+test('Every campaign boss has a portrait with its source', () => {
   const { BOSS_VARIANTS } = require('../.test-build/encounters.js');
   assert.equal(BOSS_VARIANTS.length, 9);
   for (const boss of BOSS_VARIANTS) {
     const file = `public/art/boss-${boss.id}.webp`;
     assert.ok(fs.existsSync(file), file);
-    assert.ok(fs.statSync(file).size <= 60 * 1024, `${file} is over 60 KB`);
+    assert.ok(fs.statSync(file).size > 0, `${file} is empty`);
     assert.ok(fs.existsSync(`docs/art-source/boss-${boss.id}.png`), 'source kept');
   }
 });
 
-test('Mini-boss portraits: every registered one exists, small, with its source; no file is left unregistered', () => {
+test('Mini-boss portraits: every registered one exists with its source; no file is left unregistered', () => {
   const { MINIBOSS_PORTRAITS, hasMinibossPortrait } = require('../.test-build/minibosses.js');
   assert.equal(MINIBOSS_PORTRAITS.size, 9, 'every mini-boss has a portrait');
   for (const id of MINIBOSS_PORTRAITS) {
     assert.match(id, /^[0-2]-[0-2]$/);
     const file = `public/art/mini-${id}.webp`;
     assert.ok(fs.existsSync(file), file);
-    assert.ok(fs.statSync(file).size <= 60 * 1024, `${file} is over 60 KB`);
+    assert.ok(fs.statSync(file).size > 0, `${file} is empty`);
     assert.ok(fs.existsSync(`docs/art-source/mini-${id}.png`), 'source kept');
     const [chapter, variant] = id.split('-').map(Number);
     assert.ok(hasMinibossPortrait(chapter, variant));

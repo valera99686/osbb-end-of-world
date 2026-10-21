@@ -74,4 +74,4 @@ flowchart LR
 
 **Сцену чи репліку.** Рядок у `story.ts` (`L('галина', 'текст')`); потім `npm test`, `node scripts/voice/export-lines.cjs scripts/voice/lines.json` і `generate.py` (див. README озвучки). Тест сам скаже, якщо репліка без запису.
 
-**Малюнок.** PNG-джерело в `docs/art-source/`, `webp` у `public/art/` (портрет боса ≤ 60 КБ), промпт у `docs/art-prompts/`. Ліміту на розмір APK немає; розмір видно у виводі `npm run build:android`.
+**Малюнок.** PNG-джерело в `docs/art-source/`, `webp` у `public/art/`, промпт у `docs/art-prompts/`. Ліміту на розмір APK немає; розмір видно у виводі `npm run build:android`.

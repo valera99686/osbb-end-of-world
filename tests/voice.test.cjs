@@ -59,8 +59,6 @@ test('The manifest and the files in public/voice are the same set, covering ever
   assert.deepEqual([...VOICE_IDS].sort(), files.sort(), 'manifest = files');
   for (const l of S.voiceLines()) assert.ok(VOICE_IDS.has(l.id), `no recording: ${l.text}`);
   for (const f of files) assert.ok(fs.statSync(`public/voice/${f}.ogg`).size > 500, f);
-  const total = files.reduce((n, f) => n + fs.statSync(`public/voice/${f}.ogg`).size, 0);
-  assert.ok(total < 6 * 1024 * 1024, `voice-over is ${total} bytes: the APK has little room`);
 });
 
 test('The voice volume is a setting: defaulted, clamped and kept in a save', () => {

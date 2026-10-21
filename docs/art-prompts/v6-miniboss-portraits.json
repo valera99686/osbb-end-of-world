@@ -1,0 +1,33 @@
+{
+  "tool": "mage.space GPT Image 2.5 Flare, 1K 1:1",
+  "date": "2026-10-21",
+  "common": "Mini-boss portrait for a Ukrainian retro-futuristic post-apocalyptic roguelite (2086), painted game illustration, bust framing, no text, no watermark.",
+  "note": "The first four mini-boss portraits (0-0, 0-1, 0-2, 1-0) were made on 2026-10-19 in the same style; their prompts were not archived.",
+  "assets": [
+    {
+      "name": "mini-1-1.webp",
+      "source": "docs/art-source/mini-1-1.png",
+      "prompt": "The Swarm Queen: a rusty beekeeper-robot matriarch with a domed glass helmet full of drifting pollen, her back a hive-rack of honeycomb cells where mechanical pollen-moths with glowing lime wings crawl out, seed-pod launchers on her shoulders, moss and tiny flowers growing on her riveted armour, overgrown ruined greenhouse behind with hanging planters and cracked glass, muted teal-green dusk, soft lime-green rim light (#c5d28a)."
+    },
+    {
+      "name": "mini-1-2.webp",
+      "source": "docs/art-source/mini-1-2.png",
+      "prompt": "The Root Hunter: a lean hunched trapper-robot made of rusted pipes and gnarled living roots, a long root-claw arm raised, thick root walls rising from the ground on both sides with a narrow gap between them, glowing teal-green eye slits (#86caaa), moss, thorny vines and dangling bulbs on its frame, overgrown greenhouse ruin behind with broken glass panes, muted teal-green dusk, soft sea-green rim light."
+    },
+    {
+      "name": "mini-2-0.webp",
+      "source": "docs/art-source/mini-2-0.png",
+      "prompt": "The Relay Hunter: a sleek angular sniper-robot built from a relay tower, a tall antenna crown and signal dishes, a single violet targeting lens with a thin cross-shaped laser grid sweeping the dark floor in front of it, cable bundles and blinking relay lights, rusty armour plates with violet glow (#b1a5f0), futuristic ruined city street at night behind with tram wires, muted deep teal background, violet rim light."
+    },
+    {
+      "name": "mini-2-1.webp",
+      "source": "docs/art-source/mini-2-1.png",
+      "prompt": "The Mirror Agent: a tall sleek agent-robot in a long tarnished coat, its chest and forehead covered by polished mirror plates reflecting the ruined city and a pale ice-blue glow (#a5d7f1), a smooth featureless visor, cracked mirror shards floating around, diagonal thin blue laser lines crossing behind it, futuristic ruined city skyline at dusk, muted teal background, icy blue rim light."
+    },
+    {
+      "name": "mini-2-2.webp",
+      "source": "docs/art-source/mini-2-2.png",
+      "prompt": "The Chronometer: a bulky clockwork-robot with a huge cracked clock face for a chest and a smaller broken clock for a head, exposed brass gears and springs, hanging chains, small glowing lilac time-bombs with ticking dials attached to its arms (#d2a8f1), a faint rippling slow-motion field of stretched light around it, dusty futuristic ruined hall behind, muted teal background, lilac rim light."
+    }
+  ]
+}

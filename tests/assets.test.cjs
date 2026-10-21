@@ -61,7 +61,7 @@ test('Every campaign boss has a portrait that fits the budget', () => {
 
 test('Mini-boss portraits: every registered one exists, small, with its source; no file is left unregistered', () => {
   const { MINIBOSS_PORTRAITS, hasMinibossPortrait } = require('../.test-build/minibosses.js');
-  assert.ok(MINIBOSS_PORTRAITS.size >= 3);
+  assert.equal(MINIBOSS_PORTRAITS.size, 9, 'every mini-boss has a portrait');
   for (const id of MINIBOSS_PORTRAITS) {
     assert.match(id, /^[0-2]-[0-2]$/);
     const file = `public/art/mini-${id}.webp`;
@@ -73,6 +73,9 @@ test('Mini-boss portraits: every registered one exists, small, with its source; 
   }
   const onDisk = fs.readdirSync('public/art').filter((n) => /^mini-\d-\d\.webp$/.test(n)).map((n) => n.slice(5, 8));
   assert.deepEqual(onDisk.sort(), [...MINIBOSS_PORTRAITS].sort());
-  assert.equal(hasMinibossPortrait(2, 2), false, 'without a file the card stays plain');
-  assert.equal(hasMinibossPortrait(9, 9), false, 'out of range is clamped, and that one has no file either');
+  for (let chapter = 0; chapter < 3; chapter++)
+    for (let variant = 0; variant < 3; variant++)
+      assert.equal(hasMinibossPortrait(chapter, variant), true, `${chapter}-${variant}`);
+  assert.equal(hasMinibossPortrait(9, 9), true, 'out of range is clamped to the last mini-boss, which has a file');
+  assert.equal(hasMinibossPortrait(-3, -3), true, 'and below range to the first');
 });

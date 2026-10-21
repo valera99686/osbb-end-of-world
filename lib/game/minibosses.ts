@@ -133,13 +133,18 @@ export const MINIBOSSES = [
 ] as const;
 
 // The mini-bosses that have a portrait on the intro card, as "chapter-variant"
-// (public/art/mini-<chapter>-<variant>.webp). The rest are drawn the same way
-// as soon as their file exists and the id is added here.
+// (public/art/mini-<chapter>-<variant>.webp). A new one is drawn the same way
+// as soon as its file exists and the id is added here.
 export const MINIBOSS_PORTRAITS: ReadonlySet<string> = new Set([
   '0-0',
   '0-1',
   '0-2',
   '1-0',
+  '1-1',
+  '1-2',
+  '2-0',
+  '2-1',
+  '2-2',
 ]);
 export const hasMinibossPortrait = (chapter: number, variant: number) =>
   MINIBOSS_PORTRAITS.has(
@@ -151,7 +156,7 @@ export const hasMinibossPortrait = (chapter: number, variant: number) =>
 export function leaderHint(guide: string) {
   const sentences = guide
     .split(/(?<=[.!?])\s+/)
-    .filter((s) => s && !/^Перемога/.test(s));
+    .filter((s) => s && !s.startsWith('Перемога'));
   let text = '';
   for (const s of sentences) {
     if ((text + ' ' + s).trim().length > 190 && text) break;

@@ -780,8 +780,8 @@ export class Battle {
         // null reserves the room while the picture loads.
         portrait: undefined,
       };
-      // Location bosses all have a portrait; of the mini-bosses only those
-      // listed in MINIBOSS_PORTRAITS do, the others keep the plain card.
+      // Every boss has a portrait; a mini-boss has one once its id is listed
+      // in MINIBOSS_PORTRAITS, otherwise the card keeps its own sprite.
       const file =
         run.kind === 'boss'
           ? `boss-${lead.id}`

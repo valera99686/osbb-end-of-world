@@ -57,7 +57,6 @@ Three short answers: what was finished since the last sync (with the task id), w
 
 Not in the WBS and not promised. Each item is picked up only if a week has spare time and the APK budget allows it.
 
-- Portraits for the five remaining mini-bosses (four of nine are done; the image account is out of gems, so the rest wait for more).
 - Solid arena props that block movement (now only decor and explosive barrels).
 - Protection against replaying the daily run to improve the score.
 - An extra weapon core and its evolution.

@@ -643,6 +643,20 @@ export const ITEMS: Item[] = [
     ),
     weapon: 'rail',
   },
+  {
+    ...item(
+      'core_rocket',
+      'Балконна ракетниця',
+      'rocket',
+      'machine',
+      3,
+      82,
+      'ЯДРО ЗБРОЇ: повільна ракета, що наздоганяє ворога й вибухає по площі. +30 дальності.',
+      { range: 30 },
+      'rescue6',
+    ),
+    weapon: 'rocket',
+  },
 ];
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 export const FAMILY: Record<Family, { name: string; color: string }> = {

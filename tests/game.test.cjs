@@ -684,8 +684,8 @@ test('Five complete campaigns unlock repeat-run blueprints, while early bosses d
     )
       .map((i) => i.id)
       .sort(),
-    // core_rail: the rail weapon core opens with the third elite win.
-    ['core_rail', 'hive', 'ram', 'recycler', 'spores', 'vampire'],
+    // core_rail opens with the third elite win, core_rocket with six rescued residents.
+    ['core_rail', 'core_rocket', 'hive', 'ram', 'recycler', 'spores', 'vampire'],
   );
 });
 
@@ -758,8 +758,8 @@ test('Shop and reward offers never contain locked items or duplicates; elite dro
     bestDepth: 30,
   });
   M.unlock(meta);
-  // 36 modules + 6 weapon cores (0.11).
-  assert.equal(meta.unlocked.length, 42);
+  // 36 modules + 7 weapon cores (6 in 0.11, the rocket launcher in 0.15).
+  assert.equal(meta.unlocked.length, 43);
   let basic = 0,
     elite = 0;
   for (let seed = 0; seed < 2000; seed++) {

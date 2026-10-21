@@ -8,7 +8,8 @@ export type WeaponId =
   | 'mortar'
   | 'arc'
   | 'coins'
-  | 'flame';
+  | 'flame'
+  | 'rocket';
 
 export interface Weapon {
   id: WeaponId;
@@ -85,6 +86,15 @@ export const WEAPONS: Record<WeaponId, Weapon> = {
     color: '#ff8a3d',
     text: 'Струмінь полум’я впритул; вороги горять ще 1,5 с.',
   },
+  rocket: {
+    id: 'rocket',
+    name: 'Балконна ракетниця',
+    rate: 0.5,
+    damage: 1.9,
+    range: 80,
+    color: '#ff9f6e',
+    text: 'Повільна ракета наздоганяє ворога й вибухає по площі.',
+  },
 };
 
 export interface Evolution {
@@ -137,6 +147,13 @@ export const EVOLUTIONS: readonly Evolution[] = [
     weapon: 'flame',
     partner: 'greenhouse',
     text: 'Горіння вдвічі сильніше.',
+  },
+  {
+    id: 'magnet_swarm',
+    name: 'Магнітний рій',
+    weapon: 'rocket',
+    partner: 'magnet',
+    text: 'Дві ракети за залп замість однієї.',
   },
 ];
 

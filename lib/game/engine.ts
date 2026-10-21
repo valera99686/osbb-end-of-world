@@ -312,7 +312,9 @@ interface Bullet {
   hitSet?: Enemy[];
   shard?: boolean;
   // Weapon-core projectile look and on-hit extras.
-  kind?: 'pellet' | 'rail' | 'coin' | 'flame';
+  kind?: 'pellet' | 'rail' | 'coin' | 'flame' | 'rocket';
+  // Rocket: radius of the blast where it lands.
+  blast?: number;
 }
 // A mortar shell in flight: lands at (tx, ty) after T seconds.
 interface Shell {
@@ -2403,6 +2405,30 @@ export class Battle {
     b.vx *= speed / now;
     b.vy *= speed / now;
   }
+  // A rocket lands: a blast around it for everything that stood there, and
+  // the rocket is spent.
+  rocketBlast(b: Bullet, hit: Enemy, around: Enemy[]) {
+    const r = b.blast ?? 0;
+    this.ring(b.x, b.y, r, '#ff9f6e', 0.3, 4);
+    this.burst(b.x, b.y, '#ffb36b', 14);
+    this.addTrauma(0.1, 0.4);
+    if (this.explosionCd <= 0) {
+      this.audio.play('explosion', { volume: 0.5 });
+      this.explosionCd = 0.18;
+    }
+    for (const other of around)
+      if (
+        other !== hit &&
+        other.hp > 0 &&
+        Math.hypot(other.x - b.x, other.y - b.y) < r + other.r
+      )
+        this.damage(other, b.damage * 0.7);
+    this.abilityProps(
+      (x, y) => Math.hypot(x - b.x, y - b.y) < r,
+      b.damage * 0.7,
+    );
+    b.life = 0;
+  }
   // Weapon cores (weapons.ts): every kind but the plain cannon.
   fireCore(
     weapon: string,
@@ -2460,6 +2486,13 @@ export class Battle {
         bullet(a + (i - (shots - 1) / 2) * 0.12, 560, 1.2, 'coin', {
           bounce: bounce + (evo === 'jackpot' ? 4 : 3),
           damage: damage * (evo === 'jackpot' ? 1.25 : 1),
+        });
+    } else if (weapon === 'rocket') {
+      const n = (evo === 'magnet_swarm' ? 2 : 1) + shots - 1;
+      for (let i = 0; i < n; i++)
+        bullet(a + (i - (n - 1) / 2) * 0.32, 300, 1.9, 'rocket', {
+          homing: true,
+          blast: 85,
         });
     } else if (weapon === 'flame') {
       const n = 3 + shots - 1;
@@ -3589,6 +3622,7 @@ export class Battle {
           this.damage(e, b.damage, b.crit, Math.atan2(b.vy, b.vx));
           this.perkHit(e, b);
           this.passOn(b, e);
+          if (b.blast) this.rocketBlast(b, e, this.enemies.slice(0, standing));
           const around =
             this.stats.explosion || this.stats.chain
               ? this.enemies.slice(0, standing)
@@ -4484,6 +4518,25 @@ export class Battle {
         0,
         Math.PI * 2,
       );
+      c.fill();
+    } else if (b.kind === 'rocket') {
+      // A short body with a flame behind it, pointing where it flies.
+      c.strokeStyle = 'rgba(255,170,90,0.55)';
+      c.lineWidth = 4;
+      c.beginPath();
+      c.moveTo(b.x - ux * 26, b.y - uy * 26);
+      c.lineTo(b.x - ux * 8, b.y - uy * 8);
+      c.stroke();
+      this.glowAt(c, color, b.x - ux * 8, b.y - uy * 8, 11, 0.8);
+      c.strokeStyle = '#e9ddc7';
+      c.lineWidth = 5;
+      c.beginPath();
+      c.moveTo(b.x - ux * 8, b.y - uy * 8);
+      c.lineTo(b.x + ux * 4, b.y + uy * 4);
+      c.stroke();
+      c.fillStyle = '#ff7a3d';
+      c.beginPath();
+      c.arc(b.x + ux * 5, b.y + uy * 5, 2.6, 0, Math.PI * 2);
       c.fill();
     } else if (b.kind === 'flame') {
       const k = Math.min(1, (b.age ?? 0) / 0.38);

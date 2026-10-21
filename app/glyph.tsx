@@ -33,6 +33,7 @@ import {
   Bomb,
   Target,
   Sparkles,
+  Rocket,
   type LucideIcon,
 } from 'lucide-react';
 const ICONS: Record<string, LucideIcon> = {
@@ -70,6 +71,7 @@ const ICONS: Record<string, LucideIcon> = {
   bomb: Bomb,
   target: Target,
   spread: Sparkles,
+  rocket: Rocket,
 };
 export function Glyph({
   name,

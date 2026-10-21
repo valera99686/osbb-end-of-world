@@ -52,6 +52,7 @@ test('Scenes are found by id; unknown ids are not story', () => {
   assert.ok(S.LIBRARY_IDS.includes('origins') && S.LIBRARY_IDS.includes('ending-c'));
 });
 
+const HEADS = ['mechanic', 'spark', 'flora', 'boris', 'nina', 'lev', 'marta', 'danilo', 'solomia'];
 test('The Shelter tells one new story beat per raid, in order, then protocols', () => {
   let meta = M.initialMeta();
   meta.deaths = 1;
@@ -72,6 +73,8 @@ test('The Shelter tells one new story beat per raid, in order, then protocols', 
     if (meta.runs > 12) meta.endings = ['a'];
     if (meta.runs > 16) meta.endings = ['a', 'b'];
     if (meta.runs > 20) meta.endings = ['a', 'b', 'c'];
+    // From here every head of ОСББ has won once (their epilogues open).
+    if (meta.runs > 22) meta.winsByCharacter = Object.fromEntries(HEADS.map((id) => [id, 1]));
     const scene = S.hubScene(meta, false);
     if (!/^hub-protocol/.test(scene.id)) {
       offered.push(scene.id);
@@ -264,4 +267,24 @@ test('Each ending changes the Shelter: its own beat once, and its own protocols'
   const scene = S.hubScene(meta, false);
   assert.match(scene.id, /^hub-protocol-17$/);
   assert.deepEqual(S.storyScene(scene.id, meta).lines, scene.lines);
+});
+
+test('Each head has an epilogue that opens only after a raid won with them, once', () => {
+  const others = S.HUB_SCENES.filter((x) => !x.id.startsWith('hub-epilogue-')).map((x) => x.id);
+  for (const hero of HEADS) {
+    const base = { ...M.initialMeta(), runs: 30, scenesSeen: others };
+    assert.ok(!S.hubScene(base, true).id.startsWith('hub-epilogue-'), 'nobody has won yet');
+    const won = { ...base, winsByCharacter: { [hero]: 1 } };
+    const scene = S.hubScene(won, true);
+    assert.equal(scene.id, 'hub-epilogue-' + hero);
+    assert.ok(scene.lines.length >= 4 && scene.choices.length === 2);
+    assert.ok(scene.lines.some((l) => l.who === hero), 'the hero speaks in their own epilogue');
+    for (const line of [...scene.lines, ...scene.choices.map((c) => c.reply)]) {
+      assert.ok(line.text.length > 8 && line.text.length <= 140, hero + ': ' + line.text);
+      assert.ok(S.SPEAKERS[line.who], hero + ': known speaker ' + line.who);
+    }
+    const seen = { ...won, scenesSeen: [...others, scene.id] };
+    assert.ok(!S.hubScene(seen, true).id.startsWith('hub-epilogue-'), 'told once');
+    assert.ok(S.isStoryId(scene.id));
+  }
 });

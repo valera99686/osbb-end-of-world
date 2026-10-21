@@ -42,7 +42,7 @@ function target(b, x, y) {
 
 test('Every weapon core is an item that arms its own turret', () => {
   const cores = Object.values(ITEM_BY_ID).filter((i) => i.weapon);
-  assert.equal(cores.length, 6);
+  assert.equal(cores.length, 7);
   for (const item of cores) {
     const { meta, run } = armed(item.id);
     assert.equal(M.statsFor(run, meta).weapon, item.weapon, item.id);
@@ -64,6 +64,7 @@ test('Each core fires and hurts the enemy it aims at', () => {
     'core_arc',
     'core_coins',
     'core_flame',
+    'core_rocket',
   ]) {
     const b = fight(core);
     const e = target(b, b.x + 150, b.y - 40);
@@ -112,4 +113,25 @@ test('Perks compose with cores: pierce on pellets', () => {
   const e = target(b, b.x + 80, b.y - 66);
   b.shoot(b.x, b.y - 66, e);
   assert.ok(b.bullets.filter((x) => !x.enemy).every((x) => x.pierce === 1));
+});
+
+test('Rocket launcher: the rocket homes in, blasts the crowd round its target and is spent; the magnet doubles it', () => {
+  const b = fight('core_rocket');
+  const main = target(b, b.x + 220, b.y - 40),
+    side = target(b, b.x + 270, b.y - 10),
+    far = target(b, b.x + 620, b.y - 40);
+  b.shoot(b.x, b.y - 66, main);
+  const rockets = b.bullets.filter((x) => !x.enemy && x.kind === 'rocket');
+  assert.equal(rockets.length, 1);
+  assert.ok(rockets[0].homing && rockets[0].blast > 0);
+  for (let i = 0; i < 150; i++) b.update(1 / 60);
+  assert.ok(main.hp < 5000, 'the target is hit');
+  assert.ok(side.hp < 5000, 'the blast reaches its neighbour');
+  assert.equal(far.hp, 5000, 'and stops there');
+  assert.ok(side.hp > main.hp, 'the neighbour takes less than the direct hit');
+  assert.equal(b.bullets.filter((x) => x.kind === 'rocket').length, 0, 'the rocket is spent');
+  const swarm = fight('core_rocket', 'magnet');
+  assert.equal(swarm.stats.evolution, 'magnet_swarm');
+  swarm.shoot(swarm.x, swarm.y - 66, target(swarm, swarm.x + 220, swarm.y - 40));
+  assert.equal(swarm.bullets.filter((x) => !x.enemy && x.kind === 'rocket').length, 2);
 });

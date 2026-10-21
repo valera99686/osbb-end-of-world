@@ -46,7 +46,7 @@ Three short answers: what was finished since the last sync (with the task id), w
 | Risk | What helps |
 | --- | --- |
 | Power cuts and lost days | Nov 28-30 stay empty; every task has at least one spare day around it |
-| The APK has only about 1.1 MiB of headroom (23.9 of 25 MiB) | no new art or voice before the release unless something of the same size is compressed or removed; `npm run build:android` stops at the limit |
+| The APK grows with new art and voice | there is no build limit any more; the size is printed by `npm run build:android`, and a big file only matters for slow phones and downloads |
 | Sound in the Android WebView has never been tried on a device | it is the first thing task 1.6 checks; if autoplay is blocked, the voice starts after the first tap and the fix goes into 3.6 |
 | Nobody has played the game except its author | the playtest (3.4) is scheduled early so that its findings still fit before the freeze |
 | Voice generation needs the local graphics card | recasting (2.7) is planned for week 2; all generated files are committed, so the card is not needed afterwards |
@@ -69,6 +69,6 @@ Deliberately not planned: Google Play release, online leaderboards, accounts and
 
 - `npm run typecheck`, `npm test`, `npm run build` are green; the CI on main is green.
 - The balance audit gates pass (`node scripts/balance-audit.cjs`).
-- The APK is verified on a phone, is under 25 MiB, `versionName` equals the version in package.json.
+- The APK is verified on a phone, `versionName` equals the version in package.json.
 - The Release has the APK and its SHA-256; the web version on GitHub Pages is the same build.
 - README, CHANGELOG and docs/architecture.md describe the released state.

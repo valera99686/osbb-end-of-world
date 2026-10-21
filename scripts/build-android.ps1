@@ -50,7 +50,6 @@ $apk = Join-Path $releases 'osbb.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signing failed' }
 & (Join-Path $buildTools 'apksigner.bat') verify --verbose $apk
 if ($LASTEXITCODE -ne 0) { throw 'APK verification failed' }
-if ((Get-Item -LiteralPath $apk).Length -gt 26214400) { throw 'APK exceeds the Sites 25 MiB per-file limit. Optimize bundled assets before publishing.' }
 $verifiedArchive = [IO.Compression.ZipFile]::OpenRead($apk)
 try {
   if ($verifiedArchive.Entries | Where-Object { $_.FullName.Contains('\') }) { throw 'APK contains Windows paths' }

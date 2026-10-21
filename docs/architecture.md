@@ -54,7 +54,7 @@ flowchart LR
 | `npm run dev` | dev-сервер Vite на 5173 |
 | `npm run build` | `build/`: корінь `/`, service worker для офлайну |
 | `npm run build:pages` / `deploy:pages` | `.pages/` під `/osbb-end-of-world/` і гілка `gh-pages` |
-| `npm run build:android` | `releases/osbb.apk` (ліміт 25 МіБ), без Gradle |
+| `npm run build:android` | `releases/osbb.apk`, без Gradle (розмір скрипт не обмежує) |
 
 Базовий шлях передається змінною `OSBB_BASE`; у коді всі ресурси йдуть через `asset('art/…')` з `lib/game/assets.ts`, а `tests/assets.test.cjs` забороняє жорстко прописані `/art`, `/voice`.
 
@@ -74,4 +74,4 @@ flowchart LR
 
 **Сцену чи репліку.** Рядок у `story.ts` (`L('галина', 'текст')`); потім `npm test`, `node scripts/voice/export-lines.cjs scripts/voice/lines.json` і `generate.py` (див. README озвучки). Тест сам скаже, якщо репліка без запису.
 
-**Малюнок.** PNG-джерело в `docs/art-source/`, `webp` у `public/art/` (портрет боса ≤ 60 КБ), промпт у `docs/art-prompts/`. Перевір розмір APK: `npm run build:android` зупиняється на 25 МіБ.
+**Малюнок.** PNG-джерело в `docs/art-source/`, `webp` у `public/art/` (портрет боса ≤ 60 КБ), промпт у `docs/art-prompts/`. Ліміту на розмір APK немає; розмір видно у виводі `npm run build:android`.

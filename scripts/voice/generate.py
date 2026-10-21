@@ -7,8 +7,9 @@ Run it with the Python of the OmniVoice environment, after `npm test` and
                                                   [--limit 5] [--force] [--refs-only]
 
 Every speaker gets one reference clip designed from voices.json (kept in
---refs); each line is then spoken by cloning that clip, so a character sounds
-the same in every line. Output: public/voice/<id>.ogg (Opus, mono) and
+--refs; scripts/voice/cast.py measures and picks them); each line is then spoken
+by cloning that clip, so a character sounds the same in every line. voices.json
+also sets a pace (`speed`) and a sound shape (`fx`, ffmpeg filters) per speaker. Output: public/voice/<id>.ogg (Opus, mono) and
 lib/game/voice-manifest.ts (the ids that exist).
 """
 from __future__ import annotations
@@ -58,8 +59,8 @@ def write_wav(path: Path, wave_data) -> float:
     return len(pcm) / RATE
 
 
-def encode(source: Path, target: Path, key: str) -> None:
-    chain = ",".join(part for part in (TRIM, EFFECTS.get(key), LOUDNESS) if part)
+def encode(source: Path, target: Path, key: str, effects: dict) -> None:
+    chain = ",".join(part for part in (TRIM, effects.get(key), LOUDNESS) if part)
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-af", chain, "-ac", "1",
          "-c:a", "libopus", "-b:a", BITRATE, "-application", "voip", str(target)],
@@ -92,6 +93,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="at most this many lines per speaker")
     parser.add_argument("--force", action="store_true", help="speak lines again even if a file exists")
     parser.add_argument("--refs-only", action="store_true", help="only (re)create the reference clips")
+    parser.add_argument("--keep-refs", action="store_true",
+                        help="with --force: speak the lines again but keep the reference clips (cast.py picked them)")
     args = parser.parse_args()
 
     import torch
@@ -109,14 +112,17 @@ def main() -> None:
     model = OmniVoice.from_pretrained("k2-fsa/OmniVoice", device_map="cuda:0", dtype=torch.float16)
     log(f"model ready in {time.time() - started:.0f}s")
 
+    # voices.json can add a `fx` filter chain (ffmpeg) and a `speed` per speaker.
+    effects = {**EFFECTS, **{k: c["fx"] for k, c in voices.items() if c.get("fx")}}
+    pace = {k: {"speed": c["speed"]} if c.get("speed") else {} for k, c in voices.items()}
     refs: dict[str, tuple[Path, str]] = {}
     for key, cfg in voices.items():
         if only and key not in only:
             continue
         wav = args.refs / f"{key}.wav"
-        if not wav.exists() or args.force:
+        if not wav.exists() or (args.force and not args.keep_refs):
             torch.manual_seed(cfg["seed"])
-            audio = model.generate(text=cfg["refText"], language="Ukrainian", instruct=cfg["instruct"], num_step=STEPS)
+            audio = model.generate(text=cfg["refText"], language="Ukrainian", instruct=cfg["instruct"], num_step=STEPS, **pace[key])
             seconds = write_wav(wav, audio[0])
             log(f"ref {key}: {cfg['instruct']} -> {seconds:.1f}s")
         refs[key] = (wav, cfg["refText"])
@@ -143,10 +149,11 @@ def main() -> None:
         try:
             torch.manual_seed(int(line["id"], 36) % (2**31))
             audio = model.generate(
-                text=line["speech"], language="Ukrainian", ref_audio=str(ref_wav), ref_text=ref_text, num_step=STEPS)
+                text=line["speech"], language="Ukrainian", ref_audio=str(ref_wav), ref_text=ref_text, num_step=STEPS,
+                **pace[key])
             raw = work / f"{line['id']}.wav"
             seconds = write_wav(raw, audio[0])
-            encode(raw, target, key)
+            encode(raw, target, key, effects)
             made[line["id"]] = line["speech"]
             done += 1
             log(f"[{done + skipped + failed}/{len(lines)}] {key} {seconds:.1f}s {target.stat().st_size // 1024} KB  {line['speech'][:48]}")

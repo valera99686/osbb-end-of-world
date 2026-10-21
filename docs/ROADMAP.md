@@ -57,11 +57,9 @@ Three short answers: what was finished since the last sync (with the task id), w
 
 Not in the WBS and not promised. Each item is picked up only if a week has spare time and the APK budget allows it.
 
-- An extra weapon core and its evolution.
-- A short story epilogue per hero.
 - English text and voice (large: about 4 weeks of work, so it stays a stretch idea).
 
-Done ahead of the plan in 0.14.0: five more playable heroes, solid arena props, a ranked first daily attempt and recast voices (so these are no longer backlog items).
+Done ahead of the plan: five more playable heroes, solid arena props, a ranked first daily attempt and recast voices (0.14.0), a seventh weapon core with its evolution and an epilogue per hero (0.15.0). None of these is backlog any more.
 
 Deliberately not planned: Google Play release, online leaderboards, accounts and telemetry. The game works offline and collects no data by design.
 

@@ -22,6 +22,14 @@ const PROP_SIZES = [
 ];
 // Puddles, spills and glass lie flat: drawn first and never shadowed.
 const FLAT = [[8], [7], [8]];
+// Cells that are heavy enough to stop the house and walking enemies and to
+// swallow hostile bullets: concrete, dumpsters, rubble, crates, racks.
+const SOLID = [
+  [2, 4, 5, 6],
+  [1, 4, 6],
+  [1, 4, 5],
+];
+const MAX_SOLID = 5;
 // The house spawns in the centre; decor keeps this ellipse clear.
 const CLEAR = { rx: 340, ry: 240 };
 
@@ -34,6 +42,8 @@ export interface ArenaProp {
   flip: boolean;
   flat: boolean;
   explosive: boolean;
+  // Blocks movement and enemy bullets (see solidCircle).
+  solid: boolean;
   hp: number;
   max: number;
   // Hit flash, and a chain-reaction fuse while above zero.
@@ -43,6 +53,10 @@ export interface ArenaProp {
 }
 export const themeIndex = (chapter: number) =>
   Number.isFinite(chapter) ? Math.max(0, Math.min(2, Math.floor(chapter))) : 0;
+// The footprint of a solid prop on the ground.
+export function solidCircle(p: ArenaProp) {
+  return { x: p.x, y: p.y - p.size * 0.1, r: p.size * 0.3 };
+}
 // Centre and radius of the part of an explosive prop that bullets hit.
 export function propTarget(p: ArenaProp) {
   return { x: p.x, y: p.y - p.size * 0.28, r: p.size * 0.36 };
@@ -60,15 +74,16 @@ function stream(seed: number) {
   };
 }
 
-// 14-20 props per arena, 2-4 of them explosive. No collisions: enemies path
-// straight at the house, so decor never blocks movement.
+// 14-20 props per arena, 2-4 of them explosive and up to five solid: the
+// rest is decor that nobody collides with.
 export function generateProps(seed: number, chapter: number): ArenaProp[] {
   const theme = themeIndex(chapter);
   const rng = stream((seed ^ 0x2c1b3c6d) + theme * 7919);
   const total = 14 + Math.floor(rng() * 7),
     explosives = 2 + Math.floor(rng() * 3);
   const props: ArenaProp[] = [];
-  let flats = 0;
+  let flats = 0,
+    solids = 0;
   for (let attempt = 0; props.length < total && attempt < 800; attempt++) {
     const explosive = props.length < explosives;
     const cell = explosive ? 0 : 1 + Math.floor(rng() * 8);
@@ -98,6 +113,9 @@ export function generateProps(seed: number, chapter: number): ArenaProp[] {
     )
       continue;
     const max = explosive ? 32 + theme * 28 : 0;
+    const solid =
+      !explosive && !flat && solids < MAX_SOLID && SOLID[theme].includes(cell);
+    if (solid) solids++;
     props.push({
       x: Math.round(x),
       y: Math.round(y),
@@ -106,6 +124,7 @@ export function generateProps(seed: number, chapter: number): ArenaProp[] {
       flip,
       flat,
       explosive,
+      solid,
       hp: max,
       max,
       hit: 0,

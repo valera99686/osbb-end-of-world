@@ -20,8 +20,18 @@ export const VOICE_KEYS = [
   'narrator',
 ] as const;
 export type VoiceKey = (typeof VOICE_KEYS)[number];
-// The four heads of ОСББ a player can choose.
-export const HEAD_VOICES = ['mechanic', 'spark', 'flora', 'boris'] as const;
+// The heads of ОСББ a player can choose.
+export const HEAD_VOICES = [
+  'mechanic',
+  'spark',
+  'flora',
+  'boris',
+  'nina',
+  'lev',
+  'marta',
+  'danilo',
+  'solomia',
+] as const;
 
 // 53-bit string hash (cyrb53); identical in Node, the browser and tests.
 export function hash53(text: string, seed = 0) {

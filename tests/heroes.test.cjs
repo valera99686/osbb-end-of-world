@@ -9,7 +9,7 @@ const audio = { play() {}, setLayer() {}, setPaused() {} };
 function battle(hero = 'mechanic') {
   const meta = M.initialMeta();
   // The other heads are unlocked by finished expeditions.
-  meta.wins = 5;
+  meta.wins = 9;
   const run = M.makeRun(meta, hero, 0, 7);
   assert.equal(run.character, hero);
   run.kind = 'battle';
@@ -156,4 +156,178 @@ test('Abilities with nobody around still cost the cooldown and never throw', () 
     assert.ok(b.pulseCd > 0, c.id);
     assert.ok(Number.isFinite(b.run.hp) && Number.isFinite(b.run.coins), c.id);
   }
+});
+
+test('Nine heads of ОСББ: later ones need more finished expeditions, a start item and a voice', () => {
+  const Story = require('../.test-build/story.js');
+  const V = require('../.test-build/voice.js');
+  const R = require('../.test-build/residents.js');
+  assert.equal(D.CHARACTERS.length, 9);
+  let last = 0;
+  for (const c of D.CHARACTERS) {
+    assert.ok(c.win >= last, 'unlocks never go back: ' + c.id);
+    last = c.win;
+    assert.ok(D.ITEM_BY_ID[c.start], 'start item exists: ' + c.id);
+    assert.ok(R.RESIDENT_BY_ID[c.id], 'is a resident with a portrait: ' + c.id);
+    assert.ok(Story.CAPTAINS[c.id]?.name && Story.CAPTAINS[c.id]?.voc, 'has a name for the lines: ' + c.id);
+    assert.ok(V.HEAD_VOICES.includes(c.id), 'has a captain voice: ' + c.id);
+  }
+  const fresh = M.initialMeta();
+  assert.equal(M.makeRun(fresh, 'solomia', 0, 3).character, 'mechanic', 'locked heads fall back');
+  fresh.wins = 7;
+  assert.equal(M.makeRun(fresh, 'solomia', 0, 3).character, 'mechanic', 'the last one needs eight');
+  assert.equal(M.makeRun(fresh, 'danilo', 0, 3).character, 'danilo');
+  assert.equal(M.makeRun(fresh, 'nina', 0, 3).character, 'nina');
+  fresh.wins = 8;
+  assert.equal(M.makeRun(fresh, 'solomia', 0, 3).character, 'solomia');
+});
+
+test('Every head can really be unlocked: the wins counter reaches the highest threshold and saves keep it', () => {
+  const top = Math.max(...D.CHARACTERS.map((c) => c.win));
+  let meta = M.initialMeta();
+  for (let i = 0; i < top + 3; i++) {
+    const run = M.makeRun(meta, 'mechanic', 2, 17 + i);
+    run.kind = 'boss';
+    run.bossesDefeated = 2;
+    run.step = run.nodes.length - 1;
+    meta = M.finishRun(meta, run, true).meta;
+  }
+  assert.ok(meta.wins >= top, 'wins reached ' + meta.wins + ' of ' + top);
+  assert.equal(M.readSave(M.saveData(meta, null)).meta.wins, meta.wins, 'and the save keeps it');
+  for (const c of D.CHARACTERS) assert.equal(M.makeRun(meta, c.id, 0, 3).character, c.id);
+});
+
+test('Personal bonuses of the new heads show in the stats; Марта starts every fight with a shield', () => {
+  const meta = M.initialMeta();
+  meta.wins = 9;
+  const stat = (hero) => M.statsFor(M.makeRun(meta, hero, 0, 5), meta);
+  const R = require('../.test-build/residents.js');
+  const item = (id, key) => D.ITEM_BY_ID[id].stats[key] ?? 0;
+  const own = (id, key) => R.RESIDENT_BY_ID[id].stats[key] ?? 0;
+  // Hero bonus + the resident's own room + the three start items (cannon, legs, own).
+  assert.ok(Math.abs(stat('nina').regen - (0.5 + own('nina', 'regen') + item('kitchen', 'regen'))) < 1e-9, 'Нінина кухня');
+  assert.equal(stat('lev').damage, 16 + 4 + own('lev', 'damage') + item('cannon', 'damage'));
+  // The courier has a one-room apartment: the cannon is installed, the legs and rails wait in the backpack.
+  assert.equal(stat('danilo').speed, 155 + 20 + own('danilo', 'speed'));
+  const courier = M.makeRun(meta, 'danilo', 0, 5);
+  assert.deepEqual(courier.items.filter(Boolean), ['cannon']);
+  assert.deepEqual(courier.backpack.map((i) => i.id).sort(), ['courier_rails', 'engine']);
+  assert.equal(new Set(courier.backpack.map((i) => i.uid)).size, 2);
+  assert.ok(courier.nextBagId > Math.max(...courier.backpack.map((i) => i.uid)));
+  for (const hero of ['nina', 'lev', 'marta']) {
+    const r = M.makeRun(meta, hero, 0, 5);
+    assert.equal(r.items.filter(Boolean).length, 2, hero + ': cannon and the own item');
+    assert.deepEqual(r.backpack.map((i) => i.id), ['engine'], hero);
+  }
+  for (const hero of ['mechanic', 'solomia'])
+    assert.equal(M.makeRun(meta, hero, 0, 5).items.filter(Boolean).length, 3, hero);
+  assert.equal(stat('solomia').range, 410 + 60 + item('rescue_beacon', 'range'));
+  assert.equal(battle('marta').shieldCharges, 1);
+  assert.equal(battle('mechanic').shieldCharges, 0);
+});
+
+test('Ніна: the scald sets everyone around on fire and leaves the far ones alone', () => {
+  const b = battle('nina');
+  const near = dummy(b, b.x + 150, b.y),
+    far = dummy(b, b.x + 400, b.y);
+  b.pulse();
+  assert.ok(b.pulseCd > 0);
+  assert.ok(near.hp < near.max, 'the splash hits');
+  assert.ok(near.burn >= H.SCALD.seconds - 1e-9 && near.burnDps > 0, 'and it burns');
+  assert.equal(far.hp, far.max);
+  assert.ok(!far.burn);
+  const hp = near.hp;
+  for (let i = 0; i < 60; i++) b.update(1 / 60);
+  assert.ok(near.hp < hp, 'burning goes on after the splash');
+});
+
+test('Микола: sixteen bullets leave in a ring and pass through the first enemy', () => {
+  const b = battle('lev');
+  const before = b.bullets.length;
+  const near = dummy(b, b.x + 60, b.y, 5000);
+  b.pulse();
+  const fired = b.bullets.slice(before);
+  assert.equal(fired.length, H.VOLLEY.count);
+  assert.ok(fired.every((x) => !x.enemy && x.pierce === H.VOLLEY.pierce));
+  const speed = Math.hypot(fired[0].vx, fired[0].vy);
+  assert.ok(Math.abs(speed - H.VOLLEY.speed) < 1e-6);
+  const angles = fired.map((x) => Math.atan2(x.vy, x.vx));
+  assert.ok(new Set(angles.map((a) => a.toFixed(3))).size === H.VOLLEY.count, 'all different directions');
+  for (let i = 0; i < 20; i++) b.update(1 / 60);
+  assert.ok(near.hp < near.max, 'the ring reaches an enemy next to the house');
+});
+
+test('Марта: two shields up to the cap, a bit of healing, and a full house says so', () => {
+  const b = battle('marta');
+  b.run.hp = b.stats.health * 0.5;
+  const hp = b.run.hp;
+  b.pulse();
+  assert.equal(b.shieldCharges, 1 + H.WARD.charges);
+  assert.ok(b.run.hp > hp && b.run.hp <= hp + b.stats.health * H.WARD.heal + 1e-9);
+  b.pulseCd = 0;
+  b.pulse();
+  assert.equal(b.shieldCharges, H.WARD.cap, 'capped');
+  b.pulseCd = 0;
+  b.pulse();
+  assert.equal(b.shieldCharges, H.WARD.cap, 'still capped');
+  assert.ok(b.particles.some((p) => p.text === 'ЩИТ ПОВНИЙ'));
+  // A shield really blocks a hit.
+  b.invincible = 0;
+  const safe = b.run.hp;
+  b.receiveHit(30);
+  assert.equal(b.run.hp, safe);
+  assert.equal(b.shieldCharges, H.WARD.cap - 1);
+});
+
+test('Данило: the express gives a fresh dash, brief safety and 40% more speed for four seconds', () => {
+  const run = (express) => {
+    const b = battle('danilo');
+    b.invincible = 0;
+    if (express) {
+      b.dashCd = 4;
+      b.pulse();
+      assert.equal(b.dashCd, 0);
+      assert.ok(b.invincible >= H.EXPRESS.guard - 1e-9);
+      assert.equal(b.hasteTime, H.EXPRESS.seconds);
+    }
+    b.keys.add('KeyD');
+    const x0 = b.x;
+    for (let i = 0; i < 20; i++) b.update(1 / 60);
+    return { dx: b.x - x0, b };
+  };
+  const plain = run(false),
+    fast = run(true);
+  assert.ok(Math.abs(fast.dx / plain.dx - H.EXPRESS.haste) < 0.02, 'ratio ' + fast.dx / plain.dx);
+  for (let i = 0; i < 300; i++) fast.b.update(1 / 60);
+  assert.equal(fast.b.hasteTime, 0, 'it runs out');
+});
+
+test('Соломія: the jam removes hostile bullets nearby and stuns the yard but spares the far side', () => {
+  const b = battle('solomia');
+  const shot = (x, y) => ({ x, y, vx: 0, vy: 0, life: 5, damage: 10, enemy: true, crit: false });
+  const nearShot = shot(b.x + 200, b.y),
+    farShot = shot(b.x + 900, b.y),
+    mine = { ...shot(b.x + 100, b.y), enemy: false };
+  b.bullets.push(nearShot, farShot, mine);
+  const near = dummy(b, b.x + 250, b.y),
+    far = dummy(b, b.x + 800, b.y);
+  b.pulse();
+  assert.equal(nearShot.life, 0);
+  assert.equal(farShot.life, 5);
+  assert.equal(mine.life, 5, 'our own bullets stay');
+  assert.ok(near.stagger >= H.JAM.stagger - 1e-9);
+  assert.ok(!far.stagger);
+  assert.ok(near.hp < near.max);
+});
+
+test('The daily run can pick any head that is open, the new ones included', () => {
+  const Modes = require('../.test-build/modes.js');
+  const meta = M.initialMeta();
+  meta.wins = 9;
+  const seen = new Set();
+  for (let d = 1; d <= 28; d++) seen.add(Modes.dailySetup('2026-11-' + String(d).padStart(2, '0'), meta).character);
+  assert.ok(seen.size >= 6, [...seen].join());
+  assert.ok([...seen].some((id) => ['nina', 'lev', 'marta', 'danilo', 'solomia'].includes(id)));
+  meta.wins = 0;
+  for (let d = 1; d <= 28; d++) assert.equal(Modes.dailySetup('2026-11-' + String(d).padStart(2, '0'), meta).character, 'mechanic');
 });

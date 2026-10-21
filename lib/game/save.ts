@@ -55,6 +55,31 @@ function finite(n: unknown, min: number, max: number, fallback: number) {
     ? Math.max(min, Math.min(max, n))
     : fallback;
 }
+// Daily attempts by local date. A day that has a record has been played, so
+// old profiles without the counter do not get a second ranked attempt.
+function restoreAttempts(
+  raw: unknown,
+  best: Record<string, number>,
+): Record<string, number> {
+  const saved =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const out: Record<string, number> = {};
+  for (const key of Object.keys(best)) out[key] = 1;
+  for (const [key, value] of Object.entries(saved))
+    if (DATE_KEY.test(key))
+      out[key] = Math.max(
+        out[key] ?? 0,
+        Math.floor(finite(value, 0, 99, 0)),
+      );
+  return Object.fromEntries(
+    Object.entries(out)
+      .filter(([, n]) => n > 0)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 400),
+  );
+}
 // Best daily scores by local date; only the newest year is worth keeping.
 function restoreScores(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -197,7 +222,7 @@ export function readSave(raw: string | null): {
       'bestCombo',
       'eliteWins',
     ] as const)
-      base[k] = Math.floor(finite(m[k], 0, k === 'wins' ? 5 : 1e8, 0));
+      base[k] = Math.floor(finite(m[k], 0, k === 'wins' ? 8 : 1e8, 0));
     base.totalBosses = Math.max(base.totalBosses, base.wins * 3);
     // Before 0.11 depth was not recorded: a win reached the end, a beaten
     // boss at least finished location one.
@@ -219,6 +244,7 @@ export function readSave(raw: string | null): {
     );
     base.endlessBest = Math.floor(finite(m.endlessBest, 0, 1e4, 0));
     base.dailyBest = restoreScores(m.dailyBest);
+    base.dailyAttempts = restoreAttempts(m.dailyAttempts, base.dailyBest);
     base.winsByCharacter = restoreWins(m.winsByCharacter);
     base.clues = Array.isArray(m.clues)
       ? [
@@ -359,6 +385,10 @@ export function readSave(raw: string | null): {
         { mode, heat: finite(r.heat, 0, heatCap(mode), 0), daily },
       );
       run.loop = mode === 'endless' ? Math.floor(finite(r.loop, 0, 1e4, 0)) : 0;
+      // A run saved before ranking existed counts as the ranked one.
+      run.dailyRanked =
+        mode === 'daily' &&
+        (typeof r.dailyRanked === 'boolean' ? r.dailyRanked : true);
       for (const k of [
         'elitesKilled',
         'bestCombo',

@@ -126,6 +126,7 @@ export function HubModes({
   const modifier = DAILY_MODIFIERS.find((m) => m.id === setup.modifier);
   const hero = CHARACTERS.find((c) => c.id === setup.character);
   const best = meta.dailyBest?.[key];
+  const practice = (meta.dailyAttempts?.[key] ?? 0) > 0;
   const dailyActive = run?.mode === 'daily' && run.daily === key,
     endlessActive = run?.mode === 'endless';
   return (
@@ -146,6 +147,15 @@ export function HubModes({
             Голова: {hero?.name ?? '—'} · Загроза {setup.heat} · Рекорд дня:{' '}
             {best ?? '—'}
           </p>
+          <p className="mode-meta">
+            {dailyActive
+              ? run?.dailyRanked
+                ? 'Це залікова спроба дня.'
+                : 'Це тренування: рекорд не зміниться.'
+              : practice
+                ? 'Спробу дня вже використано. Далі лише тренування.'
+                : 'Рекорд ставить перша спроба дня.'}
+          </p>
           <footer>
             <span>
               <Timer size={14} /> Новий через {untilMidnight(now)}
@@ -156,7 +166,8 @@ export function HubModes({
                 dailyActive ? onContinue() : onLaunch(dailyLaunch(meta, key))
               }
             >
-              {dailyActive ? 'Продовжити' : 'Почати'} <ArrowRight size={15} />
+              {dailyActive ? 'Продовжити' : practice ? 'Тренування' : 'Почати'}{' '}
+              <ArrowRight size={15} />
             </button>
           </footer>
         </article>
@@ -205,6 +216,7 @@ export function RunBadge({ run }: { run: Run }) {
       {run.mode === 'daily' && (
         <span>
           <CalendarDays size={13} /> Денний · {shortDate(run.daily)}
+          {!run.dailyRanked && ' · тренування'}
         </span>
       )}
       {run.mode === 'endless' && (

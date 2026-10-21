@@ -143,6 +143,7 @@ import {
 import {
   initialMeta,
   makeRun,
+  startDaily,
   statsFor,
   priceFor,
   enterNode,
@@ -665,15 +666,20 @@ export default function Game() {
   }
   function launch(spec: Launch, base: Meta = meta) {
     audio.current!.unlock();
-    setRun(
-      makeRun(base, spec.character || character, 0, spec.seed ?? Date.now(), {
+    const started = makeRun(
+      base,
+      spec.character || character,
+      0,
+      spec.seed ?? Date.now(),
+      {
         mode: spec.mode,
         heat: spec.heat,
         daily: spec.daily,
-      }),
+      },
     );
+    setRun(started);
     setMeta({
-      ...base,
+      ...startDaily(base, started),
       // The new run carries the 'НОВЕ' items into its first reward.
       fresh: [],
       lore: loreForProgress(base.lore, base.wins, chapter),
@@ -740,7 +746,7 @@ export default function Game() {
         unlocks: f.unlocks,
         final,
         score,
-        record: daily && score > dayBest,
+        record: daily && b.run.dailyRanked && score > dayBest,
         dayBest: Math.max(dayBest, score),
         protocol: after.protocol,
       });
@@ -1818,9 +1824,11 @@ export default function Game() {
                       </span>
                       <b>Рахунок: {result.score}</b>
                       <small className={result.record ? 'record' : ''}>
-                        {result.record
-                          ? 'Новий рекорд дня!'
-                          : `Рекорд дня: ${result.dayBest}`}
+                        {!result.run.dailyRanked
+                          ? `Тренування: рекорд дня не змінюється (${result.dayBest})`
+                          : result.record
+                            ? 'Новий рекорд дня!'
+                            : `Рекорд дня: ${result.dayBest}`}
                       </small>
                     </>
                   )}

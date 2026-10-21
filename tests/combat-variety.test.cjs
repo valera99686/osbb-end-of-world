@@ -447,3 +447,83 @@ test('Orbit blades cut the event courier too', () => {
   assert.ok(courier.hp < hp);
   assert.ok(courier.hp > 0);
 });
+
+test('Some props are solid: a few per arena, never explosive or flat, and the layout does not change', () => {
+  let withSolid = 0,
+    arenas = 0;
+  for (let seed = 1; seed <= 60; seed++)
+    for (let chapter = 0; chapter < 3; chapter++) {
+      const props = Arena.generateProps(seed, chapter);
+      const solids = props.filter((p) => p.solid);
+      assert.ok(solids.length <= 5, 'at most five');
+      for (const p of solids) assert.ok(!p.explosive && !p.flat);
+      for (const p of props.filter((p) => p.explosive || p.flat)) assert.equal(p.solid, false);
+      arenas++;
+      if (solids.length) withSolid++;
+      // The footprint stays inside the playfield and out of the house's clear zone.
+      for (const p of solids) {
+        const c = Arena.solidCircle(p);
+        assert.ok(c.r > 15 && c.r < 40, 'a sensible footprint');
+        assert.ok(c.x - c.r > 0 && c.x + c.r < 1600 && c.y - c.r > 0 && c.y + c.r < 1000);
+        assert.ok(Math.hypot((p.x - 800) / 340, (p.y - 500) / 240) >= 1, 'clear of the house');
+      }
+    }
+  assert.ok(withSolid / arenas > 0.8, 'most arenas have cover: ' + withSolid + '/' + arenas);
+});
+
+test('The house cannot walk through a solid prop and keeps sliding along it', () => {
+  const { b } = battle();
+  b.solids = [{ x: b.x + 90, y: b.y, r: 40 }];
+  b.invincible = 999;
+  b.keys.add('KeyD');
+  for (let i = 0; i < 120; i++) {
+    b.update(1 / 60);
+    assert.ok(Math.hypot(b.x - b.solids[0].x, b.y - b.solids[0].y) >= 40 + 24 - 1e-6, 'frame ' + i);
+  }
+  assert.ok(b.x < b.solids[0].x, 'still on the near side');
+  // Pressing diagonally slides round it.
+  b.keys.add('KeyS');
+  const y0 = b.y;
+  for (let i = 0; i < 120; i++) b.update(1 / 60);
+  assert.ok(b.y > y0 + 60, 'slid downwards');
+});
+
+test('A walking enemy goes round a solid prop on its way to the house; a parked one is left alone', () => {
+  const { b } = battle();
+  b.invincible = 999;
+  b.stats.thorns = b.stats.orbit = b.stats.drones = 0;
+  b.shotTimer = 999;
+  b.solids = [{ x: b.x + 150, y: b.y, r: 45 }];
+  const e = b.spawn(0, { force: true, x: b.x + 330, y: b.y + 1 });
+  assert.ok(e);
+  const parked = b.spawn(0, { force: true, x: b.x + 150, y: b.y + 5 });
+  parked.speed = 0;
+  parked.timer = 999;
+  const parkedAt = [parked.x, parked.y];
+  let closest = Infinity;
+  for (let i = 0; i < 900; i++) {
+    b.update(1 / 60);
+    if (e.hp > 0) {
+      closest = Math.min(closest, Math.hypot(e.x - b.x, e.y - b.y));
+      const inside = Math.hypot(e.x - b.solids[0].x, e.y - b.solids[0].y) < b.solids[0].r + e.r * 0.7 - 1.5;
+      assert.ok(!inside || i < 2, 'never inside the prop, frame ' + i);
+    }
+  }
+  assert.ok(closest < 110, 'it reached the house: ' + closest);
+  assert.deepEqual([parked.x, parked.y], parkedAt, 'an enemy that does not walk is not shoved');
+});
+
+test('Hostile bullets stop at a solid prop; with no cover the same bullet hits the house', () => {
+  const shot = (b) => ({ x: b.x + 300, y: b.y, vx: -600, vy: 0, life: 2, damage: 20, enemy: true, crit: false });
+  for (const cover of [true, false]) {
+    const { b } = battle();
+    b.stats.regen = 0;
+    b.invincible = 0;
+    b.solids = cover ? [{ x: b.x + 150, y: b.y, r: 40 }] : [];
+    const hp = b.run.hp;
+    b.bullets.push(shot(b));
+    for (let i = 0; i < 60; i++) b.update(1 / 60);
+    if (cover) assert.equal(b.run.hp, hp, 'the crate took it');
+    else assert.ok(b.run.hp < hp, 'it landed');
+  }
+});

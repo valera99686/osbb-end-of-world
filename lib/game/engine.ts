@@ -3,7 +3,12 @@ import {
   AUDIT,
   BLOOM,
   DISCHARGE,
+  EXPRESS,
+  JAM,
   QUAKE,
+  SCALD,
+  VOLLEY,
+  WARD,
   chainTargets,
   heroAbility,
 } from './heroes';
@@ -81,6 +86,7 @@ import {
   generateProps,
   preloadArenaArt,
   propTarget,
+  solidCircle,
   type ArenaProp,
   type ArenaView,
 } from './arena';
@@ -253,6 +259,9 @@ export interface Enemy {
   chief?: boolean;
   // Aims where the house is heading instead of where it is.
   leads?: boolean;
+  // Position after the last solid-prop check (see Battle.collideSolids).
+  lx?: number;
+  ly?: number;
   // Last stragglers of a squad close in instead of holding their range.
   rush?: boolean;
   // Leaders: simulation second when a heavy slam lands, then the seconds
@@ -565,6 +574,8 @@ export class Battle {
   pulseRing = 0;
   // Борис: seconds left of the audit that raises coins from kills.
   auditTime = 0;
+  // Данило: seconds left of the express speed-up.
+  hasteTime = 0;
   battleKills = 0;
   lowHpTimer = 0;
   explosionCd = 0;
@@ -584,6 +595,8 @@ export class Battle {
   event: BattleEvent | null = null;
   props: ArenaProp[];
   explosives: ArenaProp[];
+  // Footprints of the solid props: the house and walking enemies slide round them.
+  solids: { x: number; y: number; r: number }[];
   ambient: ArenaAmbient | null = null;
   // Camera of the last drawn frame, for ambience and edge markers.
   view: ArenaView & { zoom: number } = { x: 800, y: 500, w: 1, h: 1, zoom: 1 };
@@ -691,7 +704,8 @@ export class Battle {
     this.minibossVariant = minibossVariant(run);
     this.stats = statsFor(run, meta);
     this.specials = specialEffects(run);
-    this.shieldCharges = this.specials.shields;
+    // Марта starts every fight with one shield.
+    this.shieldCharges = this.specials.shields + (run.character === 'marta' ? 1 : 0);
     this.audio = audio;
     this.settings = { ...DEFAULT_SETTINGS, ...options.settings };
     this.onPause = options.onPause;
@@ -744,6 +758,7 @@ export class Battle {
       run.chapter,
     );
     this.explosives = this.props.filter((p) => p.explosive);
+    this.solids = this.props.filter((p) => p.solid).map(solidCircle);
     if (canvas) {
       preloadArenaArt();
       this.ambient = new ArenaAmbient(run.chapter, run.seed + run.step);
@@ -1096,13 +1111,18 @@ export class Battle {
     const hero = heroAbility(this.run.character);
     this.audio.play('pulse', {
       pitch:
-        hero.id === 'discharge'
-          ? 1.3
-          : hero.id === 'bloom'
-            ? 0.85
-            : hero.id === 'audit'
-              ? 1.1
-              : 1,
+        (
+          {
+            discharge: 1.3,
+            bloom: 0.85,
+            audit: 1.1,
+            scald: 0.95,
+            volley: 1.2,
+            ward: 0.8,
+            express: 1.4,
+            jam: 1.25,
+          } as Record<string, number>
+        )[hero.id] ?? 1,
     });
     const landed =
       hero.id === 'discharge'
@@ -1111,7 +1131,17 @@ export class Battle {
           ? this.abilityBloom()
           : hero.id === 'audit'
             ? this.abilityAudit()
-            : this.abilityQuake();
+            : hero.id === 'scald'
+              ? this.abilityScald()
+              : hero.id === 'volley'
+                ? this.abilityVolley()
+                : hero.id === 'ward'
+                  ? this.abilityWard()
+                  : hero.id === 'express'
+                    ? this.abilityExpress()
+                    : hero.id === 'jam'
+                      ? this.abilityJam()
+                      : this.abilityQuake();
     if (landed && this.specials.pulseHeal) {
       const healed = Math.min(
         this.specials.pulseHeal,
@@ -1241,6 +1271,127 @@ export class Battle {
       this.stats.damage * AUDIT.damage,
     );
     return hit > 0;
+  }
+  // Is a living enemy within reach of the house?
+  anyNear(radius: number) {
+    return this.enemies.some(
+      (e) => e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < radius,
+    );
+  }
+  // Ніна: boiling water on everything around the house; it keeps burning.
+  abilityScald() {
+    const color = heroAbility('nina').color;
+    this.ring(this.x, this.y, SCALD.radius, color, 0.5, 5);
+    this.ring(this.x, this.y, SCALD.radius * 0.55, color, 0.35, 3);
+    this.burst(this.x, this.y, color, 24);
+    let landed = false;
+    for (const e of this.enemies.slice()) {
+      if (e.hp <= 0 || Math.hypot(e.x - this.x, e.y - this.y) >= SCALD.radius)
+        continue;
+      landed = true;
+      e.burn = Math.max(e.burn ?? 0, SCALD.seconds);
+      e.burnDps = Math.max(e.burnDps ?? 0, this.stats.damage * SCALD.dps);
+      this.damage(e, this.stats.damage * SCALD.hit);
+      this.burst(e.x, e.y, color, 5);
+      if (this.ended) break;
+    }
+    this.abilityProps(
+      (x, y) => Math.hypot(x - this.x, y - this.y) < SCALD.radius,
+      this.stats.damage * SCALD.hit,
+    );
+    return landed;
+  }
+  // Микола: a ring of bullets from the roof, each one passing through the
+  // first enemy it hits.
+  abilityVolley() {
+    const color = heroAbility('lev').color;
+    this.ring(this.x, this.y, 90, color, 0.3, 4);
+    const turn = (this.elapsed * 1.7) % (Math.PI * 2);
+    for (let i = 0; i < VOLLEY.count; i++) {
+      const a = turn + (i / VOLLEY.count) * Math.PI * 2;
+      this.bullets.push({
+        x: this.x,
+        y: this.y,
+        vx: Math.cos(a) * VOLLEY.speed,
+        vy: Math.sin(a) * VOLLEY.speed,
+        life: VOLLEY.life,
+        damage: this.stats.damage * VOLLEY.damage,
+        enemy: false,
+        crit: false,
+        age: 0,
+        kind: 'pellet',
+        pierce: VOLLEY.pierce,
+      });
+    }
+    this.burst(this.x, this.y, color, 16);
+    return this.anyNear(VOLLEY.speed * VOLLEY.life);
+  }
+  // Марта: shields (each blocks one hit) and a little healing.
+  abilityWard() {
+    const color = heroAbility('marta').color;
+    const before = this.shieldCharges;
+    this.shieldCharges = Math.max(
+      before,
+      Math.min(WARD.cap, before + WARD.charges),
+    );
+    const gained = this.shieldCharges - before;
+    const heal = Math.max(
+      0,
+      Math.min(this.stats.health * WARD.heal, this.stats.health - this.run.hp),
+    );
+    this.run.hp += heal;
+    this.ring(this.x, this.y, 120, color, 0.5, 5);
+    this.burst(this.x, this.y, color, 18);
+    this.label(
+      this.x,
+      this.y - 65,
+      gained > 0 ? 'ЩИТ +' + gained : 'ЩИТ ПОВНИЙ',
+      color,
+    );
+    if (heal > 0)
+      this.label(this.x + 26, this.y - 40, '+' + Math.round(heal), color);
+    return this.anyNear(260);
+  }
+  // Данило: a fresh dash, a short burst of speed and a moment of safety.
+  abilityExpress() {
+    const color = heroAbility('danilo').color;
+    this.dashCd = 0;
+    this.hasteTime = EXPRESS.seconds;
+    this.invincible = Math.max(this.invincible, EXPRESS.guard);
+    this.ring(this.x, this.y, 110, color, 0.35, 4);
+    this.burst(this.x, this.y, color, 20);
+    this.label(this.x, this.y - 65, 'ЕКСПРЕС', color);
+    return this.anyNear(260);
+  }
+  // Соломія: kills every hostile bullet near the house and stuns the yard.
+  abilityJam() {
+    const color = heroAbility('solomia').color;
+    this.ring(this.x, this.y, JAM.radius, color, 0.55, 5);
+    this.ring(this.x, this.y, JAM.radius * 0.5, color, 0.4, 3);
+    let cleared = 0;
+    for (const b of this.bullets) {
+      if (
+        b.enemy &&
+        b.life > 0 &&
+        Math.hypot(b.x - this.x, b.y - this.y) < JAM.radius
+      ) {
+        b.life = 0;
+        cleared++;
+        if (cleared <= 24) this.burst(b.x, b.y, color, 3);
+      }
+    }
+    let stunned = 0;
+    for (const e of this.enemies.slice()) {
+      if (e.hp <= 0 || Math.hypot(e.x - this.x, e.y - this.y) >= JAM.radius)
+        continue;
+      stunned++;
+      if (!isLeader(e.type))
+        e.stagger = Math.max(e.stagger ?? 0, JAM.stagger);
+      this.damage(e, this.stats.damage * JAM.damage);
+      if (this.ended) break;
+    }
+    this.label(this.x, this.y - 65, 'ГЛУШИЛКА', color);
+    return cleared > 0 || stunned > 0;
   }
   receiveHit(amount: number) {
     if (this.shieldCharges > 0) {
@@ -2956,6 +3107,46 @@ export class Battle {
       );
     }
   }
+  // Pushes a body out of every solid prop. Returns the contact normal of the
+  // last prop it touched, if any.
+  pushOutOfSolids(body: { x: number; y: number }, radius: number) {
+    let touched: { nx: number; ny: number } | null = null;
+    for (const c of this.solids) {
+      const dx = body.x - c.x,
+        dy = body.y - c.y,
+        d = Math.hypot(dx, dy),
+        reach = c.r + radius;
+      if (d >= reach) continue;
+      const nx = d > 1e-3 ? dx / d : 1,
+        ny = d > 1e-3 ? dy / d : 0;
+      body.x = c.x + nx * reach;
+      body.y = c.y + ny * reach;
+      touched = { nx, ny };
+    }
+    return touched;
+  }
+  // Walking enemies (the ones that moved this frame) slide round solid props
+  // towards the house instead of pressing into them.
+  collideSolids(dt: number) {
+    if (!this.solids.length) return;
+    for (const e of this.enemies) {
+      if (e.hp <= 0) continue;
+      const moved = e.lx !== undefined && (e.x !== e.lx || e.y !== e.ly);
+      if (moved && e.type !== COURIER) {
+        const touched = this.pushOutOfSolids(e, e.r * 0.7);
+        if (touched) {
+          const side =
+            -touched.ny * (this.x - e.x) + touched.nx * (this.y - e.y) >= 0
+              ? 1
+              : -1;
+          e.x += -touched.ny * side * e.speed * dt * 0.6;
+          e.y += touched.nx * side * e.speed * dt * 0.6;
+        }
+      }
+      e.lx = e.x;
+      e.ly = e.y;
+    }
+  }
   // Smoothed walking velocity for enemies that aim ahead; a dash does not
   // fling the estimate past walking speed.
   trackVelocity(fromX: number, fromY: number, dt: number) {
@@ -2963,7 +3154,7 @@ export class Battle {
     let vx = (this.x - fromX) / dt,
       vy = (this.y - fromY) / dt;
     const speed = Math.hypot(vx, vy),
-      cap = this.stats.speed;
+      cap = this.stats.speed * (this.hasteTime > 0 ? EXPRESS.haste : 1);
     if (speed > cap) {
       vx *= cap / speed;
       vy *= cap / speed;
@@ -2978,6 +3169,7 @@ export class Battle {
     this.dashCd = Math.max(0, this.dashCd - dt);
     this.pulseCd = Math.max(0, this.pulseCd - dt);
     this.auditTime = Math.max(0, this.auditTime - dt);
+    this.hasteTime = Math.max(0, this.hasteTime - dt);
     this.invincible -= dt;
     this.dashing -= dt;
     this.pulseRing = Math.max(0, this.pulseRing - dt);
@@ -3020,15 +3212,20 @@ export class Battle {
             1,
           );
     const fromX = this.x,
-      fromY = this.y;
+      fromY = this.y,
+      haste = this.hasteTime > 0 ? EXPRESS.haste : 1;
     this.x = Math.max(
       55,
-      Math.min(1545, this.x + dx * this.stats.speed * slow * dt),
+      Math.min(1545, this.x + dx * this.stats.speed * slow * haste * dt),
     );
     this.y = Math.max(
       55,
-      Math.min(945, this.y + dy * this.stats.speed * slow * dt),
+      Math.min(945, this.y + dy * this.stats.speed * slow * haste * dt),
     );
+    if (this.pushOutOfSolids(this, 24)) {
+      this.x = Math.max(55, Math.min(1545, this.x));
+      this.y = Math.max(55, Math.min(945, this.y));
+    }
     this.trackVelocity(fromX, fromY, dt);
     this.run.hp = Math.min(
       this.stats.health,
@@ -3347,6 +3544,7 @@ export class Battle {
     const magnets = this.enemies.filter(
       (e) => e.hp > 0 && e.affix === 'magnetic',
     );
+    this.collideSolids(dt);
     this.updatePerks(dt);
     this.updateShells(dt);
     for (const b of this.bullets) {
@@ -3358,6 +3556,14 @@ export class Battle {
       b.life -= dt;
       b.age = (b.age ?? 0) + dt;
       if (b.enemy) {
+        // A crate or a dumpster between the shooter and the house is cover.
+        if (
+          this.solids.some((c) => Math.hypot(b.x - c.x, b.y - c.y) < c.r)
+        ) {
+          b.life = 0;
+          this.burst(b.x, b.y, '#b9a98a', 3);
+          continue;
+        }
         if (
           Math.hypot(b.x - this.x, b.y - this.y) < 27 &&
           this.invincible <= 0
@@ -4161,6 +4367,15 @@ export class Battle {
       c.beginPath();
       c.arc(this.x, this.y, (0.55 - this.pulseRing) * 470, 0, Math.PI * 2);
       c.stroke();
+    }
+    if (this.hasteTime > 0) {
+      c.strokeStyle = `rgba(240,193,94,${Math.min(0.85, this.hasteTime)})`;
+      c.lineWidth = 3;
+      c.setLineDash([3, 9]);
+      c.beginPath();
+      c.arc(this.x, this.y, 48, 0, Math.PI * 2);
+      c.stroke();
+      c.setLineDash([]);
     }
     if (this.auditTime > 0) {
       c.strokeStyle = `rgba(240,196,102,${Math.min(0.85, this.auditTime)})`;

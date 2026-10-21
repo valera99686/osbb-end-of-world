@@ -4,9 +4,14 @@ import { minibossFor } from '@/lib/game/minibosses';
 import { minibossVariant } from '@/lib/game/model';
 import { useState, useEffect, useRef } from 'react';
 import {
+  ChefHat,
   Coins,
+  Crosshair,
   Hammer,
+  Radio,
+  ShieldPlus,
   Sprout,
+  Wind,
   Play,
   Pause,
   Home,
@@ -72,6 +77,11 @@ export function Combat({
       discharge: Zap,
       bloom: Sprout,
       audit: Coins,
+      scald: ChefHat,
+      volley: Crosshair,
+      ward: ShieldPlus,
+      express: Wind,
+      jam: Radio,
     }[ability.id];
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;

@@ -121,6 +121,11 @@ export const CAPTAINS: Record<string, { name: string; voc: string }> = {
   spark: { name: 'Іскра', voc: 'Іскро' },
   flora: { name: 'Флора', voc: 'Флоро' },
   boris: { name: 'Борис', voc: 'Борисе' },
+  nina: { name: 'Ніна', voc: 'Ніно' },
+  lev: { name: 'Микола', voc: 'Миколо' },
+  marta: { name: 'Марта', voc: 'Марто' },
+  danilo: { name: 'Данило', voc: 'Даниле' },
+  solomia: { name: 'Соломія', voc: 'Соломіє' },
 };
 
 export interface Line {

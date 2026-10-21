@@ -29,7 +29,7 @@ function veteran() {
     totalBosses: 15,
     totalMinibosses: 10,
     totalRescues: 10,
-    wins: 5,
+    wins: 8,
     deaths: 10,
     playTime: 36000,
     totalElites: 50,
@@ -45,7 +45,7 @@ function veteran() {
       [1, 2, 3, 4, 5, 6, 7].map((d) => [`2026-09-0${d}`, 100 + d]),
     ),
     winsByCharacter: Object.fromEntries(
-      CHARACTERS.slice(0, 3).map((c) => [c.id, 1]),
+      CHARACTERS.map((c) => [c.id, 1]),
     ),
   };
   return M.readSave(M.saveData(meta, null)).meta;

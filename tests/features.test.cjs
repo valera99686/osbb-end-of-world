@@ -49,6 +49,7 @@ const NEW_META = [
   'bestHeat',
   'heatUnlocked',
   'dailyBest',
+  'dailyAttempts',
   'achievements',
   'endlessBest',
   'winsByCharacter',
@@ -59,6 +60,7 @@ const NEW_RUN = [
   'mode',
   'heat',
   'daily',
+  'dailyRanked',
   'loop',
   'elitesKilled',
   'bestCombo',
@@ -738,4 +740,86 @@ test('Reset, restore and import keep device options and the real backup', () => 
   assert.deepEqual(adopted.meta.settings, custom);
   assert.equal(adopted.meta.sound, false);
   assert.equal(blank.data[Profile.PROFILE_BACKUP_KEY], current);
+});
+
+test('Only the first daily run of a day is ranked; later ones are practice', () => {
+  const key = '2026-09-24';
+  let meta = M.initialMeta();
+  const setup = Modes.dailySetup(key, meta);
+  const opts = { mode: 'daily', heat: setup.heat, daily: key };
+  const first = M.makeRun(meta, setup.character, 0, setup.seed, opts);
+  assert.equal(first.dailyRanked, true);
+  assert.equal(M.makeRun(meta, 'mechanic', 0, 5).dailyRanked, false, 'a campaign is never ranked');
+  meta = M.startDaily(meta, first);
+  assert.equal(meta.dailyAttempts[key], 1);
+  const campaign = M.makeRun(meta, 'mechanic', 0, 5);
+  assert.equal(M.startDaily(meta, campaign), meta, 'other modes spend nothing');
+  const again = M.makeRun(meta, setup.character, 0, setup.seed, opts);
+  assert.equal(again.dailyRanked, false);
+  first.kills = 20;
+  const end = M.finishRun(meta, first, false);
+  const record = end.meta.dailyBest[key];
+  assert.equal(record, Modes.runScore(first));
+  assert.ok(end.achievements.includes('daily_1'));
+  // A practice run with a far better result changes neither the record nor the achievements.
+  const spent = M.startDaily(end.meta, again);
+  assert.equal(spent.dailyAttempts[key], 2);
+  const better = { ...again, kills: 400, time: 90 };
+  assert.ok(Modes.runScore(better) > record);
+  const practice = M.finishRun(spent, better, false);
+  assert.equal(practice.meta.dailyBest[key], record);
+  assert.ok(!practice.achievements.includes('daily_1'));
+  // Another day is a fresh attempt.
+  const other = Modes.dailySetup('2026-09-25', practice.meta);
+  assert.equal(
+    M.makeRun(practice.meta, other.character, 0, other.seed, { mode: 'daily', heat: other.heat, daily: '2026-09-25' }).dailyRanked,
+    true,
+  );
+});
+
+test('A daily left before any fight gives the ranked attempt back', () => {
+  const key = '2026-09-24';
+  let meta = M.initialMeta();
+  const setup = Modes.dailySetup(key, meta);
+  const opts = { mode: 'daily', heat: setup.heat, daily: key };
+  const run = M.makeRun(meta, setup.character, 0, setup.seed, opts);
+  meta = M.startDaily(meta, run);
+  assert.equal(meta.dailyAttempts[key], 1);
+  const end = M.finishRun(meta, run, false);
+  assert.deepEqual(end.meta.dailyBest, {});
+  assert.equal(end.meta.dailyAttempts[key], 0);
+  assert.equal(M.makeRun(end.meta, setup.character, 0, setup.seed, opts).dailyRanked, true, 'ranked again');
+  // A practice run left at once changes nothing.
+  const used = M.startDaily(M.startDaily(M.initialMeta(), run), run);
+  const practice = M.makeRun(used, setup.character, 0, setup.seed, opts);
+  assert.equal(practice.dailyRanked, false);
+  assert.equal(M.finishRun(used, practice, false).meta.dailyAttempts[key], 2);
+});
+
+test('Daily attempts and the ranked flag survive saving; old saves do not get a second ranked try', () => {
+  const key = '2026-09-24';
+  let meta = M.initialMeta();
+  const setup = Modes.dailySetup(key, meta);
+  const opts = { mode: 'daily', heat: setup.heat, daily: key };
+  const first = M.makeRun(meta, setup.character, 0, setup.seed, opts);
+  meta = M.startDaily(meta, first);
+  const practice = M.makeRun(meta, setup.character, 0, setup.seed, opts);
+  meta = M.startDaily(meta, practice);
+  const loaded = M.readSave(M.saveData(meta, practice));
+  assert.deepEqual(loaded.meta.dailyAttempts, { [key]: 2 });
+  assert.equal(loaded.run.dailyRanked, false);
+  assert.equal(M.readSave(M.saveData(meta, first)).run.dailyRanked, true);
+  // Junk in the counters is dropped.
+  const broken = JSON.parse(M.saveData(meta, null));
+  broken.meta.dailyAttempts = { 'not-a-date': 4, [key]: 'many', '2026-09-26': 500, '2026-09-27': -3 };
+  const fixed = M.readSave(JSON.stringify(broken)).meta.dailyAttempts;
+  assert.deepEqual(fixed, { '2026-09-26': 99 });
+  // A profile from before the counter: the day that has a record was already played.
+  const old = JSON.parse(M.saveData({ ...meta, dailyBest: { [key]: 300 } }, first));
+  delete old.meta.dailyAttempts;
+  delete old.run.dailyRanked;
+  const migrated = M.readSave(JSON.stringify(old));
+  assert.deepEqual(migrated.meta.dailyAttempts, { [key]: 1 });
+  assert.equal(migrated.run.dailyRanked, true, 'the run in progress is still the ranked one');
+  assert.equal(M.makeRun(migrated.meta, setup.character, 0, setup.seed, opts).dailyRanked, false);
 });

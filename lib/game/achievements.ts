@@ -31,6 +31,9 @@ const lifetime =
   (key: Counter, target: number): Check =>
   (meta) =>
     count(meta, key) >= target;
+// How many different heads of ОСББ have won a raid.
+const headsWon = (meta: Meta) =>
+  Object.values(meta.winsByCharacter ?? {}).filter((n) => n > 0).length;
 const finalWin = (run: Run | null, won: boolean): run is Run =>
   !!run && won && run.chapter >= 2 && run.mode !== 'endless';
 const combo =
@@ -291,9 +294,21 @@ const DEFINITIONS: (Achievement & { check: Check })[] = [
     title: 'Команда мрії',
     text: 'Виграй рейди трьома різними героями.',
     icon: 'Award',
-    check: (meta) =>
-      Object.values(meta.winsByCharacter ?? {}).filter((n) => n > 0).length >=
-      3,
+    check: (meta) => headsWon(meta) >= 3,
+  },
+  {
+    id: 'five_heroes',
+    title: 'Збірна двору',
+    text: 'Виграй рейди п’ятьма різними героями.',
+    icon: 'Award',
+    check: (meta) => headsWon(meta) >= 5,
+  },
+  {
+    id: 'all_heroes',
+    title: 'Увесь будинок за кермом',
+    text: 'Виграй рейди всіма дев’ятьма головами ОСББ.',
+    icon: 'Crown',
+    check: (meta) => headsWon(meta) >= 9,
   },
   {
     id: 'clues_3',

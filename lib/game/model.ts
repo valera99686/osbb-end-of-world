@@ -37,7 +37,7 @@ import {
   type Stat,
   type Item,
 } from './data';
-import { type PackedItem } from './backpack';
+import { type PackedItem, findSpace } from './backpack';
 import { loreForProgress } from './lore';
 import {
   residentRoster,
@@ -100,6 +100,9 @@ export interface Meta {
   // Highest heat the player may select for a campaign run.
   heatUnlocked: number;
   dailyBest: Record<string, number>;
+  // How many daily runs were started on each local date. Only the first one
+  // of a day is ranked: the rest are practice and leave the record alone.
+  dailyAttempts: Record<string, number>;
   achievements: string[];
   endlessBest: number;
   winsByCharacter: Record<string, number>;
@@ -241,6 +244,8 @@ export interface Run {
   heat: number;
   // Local 'YYYY-MM-DD' of a daily run, otherwise empty.
   daily: string;
+  // The first daily run of its date; only a ranked run can set the record.
+  dailyRanked: boolean;
   // Completed endless circuits; always 0 outside the endless mode.
   loop: number;
   elitesKilled: number;
@@ -932,6 +937,7 @@ export function initialMeta(): Meta {
     bestHeat: 0,
     heatUnlocked: 0,
     dailyBest: {},
+    dailyAttempts: {},
     achievements: [],
     endlessBest: 0,
     winsByCharacter: {},
@@ -969,6 +975,17 @@ export function unlock(meta: Meta): string[] {
   }
   return added;
 }
+// A daily run was started: the day's attempt is spent (a practice run too).
+export function startDaily(meta: Meta, run: Run): Meta {
+  if (run.mode !== 'daily' || !DATE_KEY.test(run.daily)) return meta;
+  return {
+    ...meta,
+    dailyAttempts: {
+      ...meta.dailyAttempts,
+      [run.daily]: Math.min(99, (meta.dailyAttempts?.[run.daily] ?? 0) + 1),
+    },
+  };
+}
 export function makeRun(
   meta: Meta,
   character: string,
@@ -986,6 +1003,12 @@ export function makeRun(
     ? Math.max(0, Math.min(heatCap(mode), Math.floor(opts.heat!)))
     : 0;
   const nodes = campaignTree(seed, chapter);
+  const dailyKey =
+    mode !== 'daily'
+      ? ''
+      : opts.daily && DATE_KEY.test(opts.daily)
+        ? opts.daily
+        : dateKey(new Date());
   const run: Run = {
     blueprints: [...meta.blueprints],
     minibossKills: 0,
@@ -1039,12 +1062,8 @@ export function makeRun(
     eventDone: false,
     mode,
     heat,
-    daily:
-      mode !== 'daily'
-        ? ''
-        : opts.daily && DATE_KEY.test(opts.daily)
-          ? opts.daily
-          : dateKey(new Date()),
+    daily: dailyKey,
+    dailyRanked: mode === 'daily' && (meta.dailyAttempts?.[dailyKey] ?? 0) === 0,
     loop: 0,
     elitesKilled: 0,
     bestCombo: 0,
@@ -1060,11 +1079,22 @@ export function makeRun(
     perks: [],
     eliteWins: 0,
   };
-  equipmentTargets(run)
-    .slice(0, 3)
-    .forEach((target, index) => {
-      run.items[target.slot] = ['cannon', 'engine', c.start][index];
-    });
+  // A small apartment has fewer slots: the hero's own item takes the second
+  // one and the legs wait in the backpack with whatever else did not fit.
+  const targets = equipmentTargets(run).slice(0, 3);
+  const kit =
+    targets.length < 3
+      ? ['cannon', c.start, 'engine']
+      : ['cannon', 'engine', c.start];
+  targets.forEach((target, index) => {
+    run.items[target.slot] = kit[index];
+  });
+  for (const id of kit.slice(targets.length)) {
+    const spot = findSpace(run.backpack, id);
+    if (!spot) continue;
+    run.backpack.push({ uid: run.nextBagId, id, ...spot });
+    run.nextBagId++;
+  }
   run.fresh = (meta.fresh ?? []).filter(
     (id) =>
       !!ITEM_BY_ID[id] && meta.unlocked.includes(id) && blueprintPool(run, id),
@@ -1109,16 +1139,17 @@ export function runRescues(run: Run): number {
 export function statsFor(run: Run, meta: Meta, legacyLayout = false): Stats {
   const research = run.research ?? meta.research;
   const s: Stats = {
-    damage: 16 + (research.garage ?? 0) * 3,
+    damage: 16 + (research.garage ?? 0) * 3 + (run.character === 'lev' ? 4 : 0),
     rate: 1.65,
-    speed: 155 + (research.servos ?? 0) * 3,
+    speed: 155 + (research.servos ?? 0) * 3 + (run.character === 'danilo' ? 20 : 0),
     health:
       110 + (research.hull ?? 0) * 10 + (run.character === 'mechanic' ? 15 : 0),
     armor: 0,
     regen:
       (run.character === 'flora' ? 0.8 : 0) +
+      (run.character === 'nina' ? 0.5 : 0) +
       (research.maintenance ?? 0) * 0.06,
-    range: 410,
+    range: 410 + (run.character === 'solomia' ? 60 : 0),
     crit: 0.05,
     shots: 1,
     chain: 0,
@@ -1872,6 +1903,7 @@ export function finishRun(
       ]),
     ],
     dailyBest: { ...meta.dailyBest },
+    dailyAttempts: { ...meta.dailyAttempts },
     winsByCharacter: { ...meta.winsByCharacter },
     achievements: [...(meta.achievements ?? [])],
     clues: [...(meta.clues ?? [])],
@@ -1898,7 +1930,8 @@ export function finishRun(
   n.totalElites = (n.totalElites ?? 0) + (run.elitesKilled ?? 0);
   n.bestCombo = Math.max(n.bestCombo ?? 0, run.bestCombo ?? 0);
   if (final) {
-    n.wins = Math.min(5, n.wins + 1);
+    // Eight finished expeditions open the last head of ОСББ.
+    n.wins = Math.min(8, n.wins + 1);
     n.winsByCharacter[run.character] =
       (n.winsByCharacter[run.character] ?? 0) + 1;
     n.bestHeat = Math.max(n.bestHeat ?? 0, run.heat ?? 0);
@@ -1911,12 +1944,17 @@ export function finishRun(
   const score = runScore(run, final);
   // A daily abandoned before its first fight is not a result: it would set a
   // zero record and count towards the daily achievements.
-  if (
-    run.mode === 'daily' &&
-    DATE_KEY.test(run.daily) &&
-    (score > 0 || (run.time ?? 0) > 0)
-  )
-    n.dailyBest[run.daily] = Math.max(n.dailyBest[run.daily] ?? 0, score);
+  if (run.mode === 'daily' && DATE_KEY.test(run.daily)) {
+    const fought = score > 0 || (run.time ?? 0) > 0;
+    if (run.dailyRanked && fought)
+      n.dailyBest[run.daily] = Math.max(n.dailyBest[run.daily] ?? 0, score);
+    // The ranked attempt of a day that was never played is not used up.
+    else if (run.dailyRanked && !fought)
+      n.dailyAttempts[run.daily] = Math.max(
+        0,
+        (n.dailyAttempts[run.daily] ?? 1) - 1,
+      );
+  }
   // Progress pays even in defeat: every cleared location and every rescued
   // resident, then minibosses and a capped share for the kill count. An
   // abandoned run that never won a fight earns nothing for its rescues.

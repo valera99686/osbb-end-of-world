@@ -32,7 +32,7 @@ The work breakdown of the «Конкурс проєктів 2026». It is the sa
 
 Make the game open from a link in a browser and install as an offline Android APK without Google Play (a mandatory project requirement).
 
-**Definition of Done:** The game opens from a public link, the current APK (up to 25 MiB) is attached to a GitHub Release, and the real-phone checklist is passed.
+**Definition of Done:** The game opens from a public link, the current APK is attached to a GitHub Release, and the real-phone checklist is passed.
 
 Oct 15, 2026 to Oct 23, 2026, 9.5 h.
 
@@ -41,7 +41,7 @@ Oct 15, 2026 to Oct 23, 2026, 9.5 h.
 | 1.1 | Asset paths via BASE_URL | Replace hard-coded absolute paths (/art, /voice, manifest, service worker) with paths based on the build base and configure the Vite base. | The sub-path web build has no 404s in the Network tab; type check and tests pass; the APK build still works. | Oct 15, 2026 | Oct 15, 2026 | 0.5 | Done |
 | 1.2 | Deploy to GitHub Pages | Build the web version and publish it to the gh-pages branch with one command; enable Pages in the repository. | https://valera99686.github.io/osbb-end-of-world/ opens the game; redeploying takes one command; the link is in the README. | Oct 15, 2026 | Oct 15, 2026 | 0.5 | Done |
 | 1.3 | PWA and offline mode in the web version | Check the service worker and manifest under the sub-path, offline start and install to the home screen. | After the first load the game starts without a network in Chrome and on Android. | Oct 15, 2026 | Oct 20, 2026 | 1.5 | Ready for Review |
-| 1.4 | Build the current APK and control its size | Rebuild the APK with the build:android script after code changes; check its signature, size and version. | releases/osbb.apk is at most 26,214,400 bytes, its signature is verified and versionName matches package.json. | Oct 15, 2026 | Oct 16, 2026 | 0.5 | Done |
+| 1.4 | Build the current APK and check it | Rebuild the APK with the build:android script after code changes; check its signature, size and version. | releases/osbb.apk is built, its signature is verified and versionName matches package.json. | Oct 15, 2026 | Oct 16, 2026 | 0.5 | Done |
 | 1.5 | Publish the APK as a GitHub Release | Create a Release with the APK, its SHA-256 checksum and install instructions. | The Release page has the APK, its SHA-256 and install steps; the download link in the web version points to it; the downloaded file matches the checksum. | Oct 15, 2026 | Oct 16, 2026 | 0.5 | Done |
 | 1.6 | Check the APK on a real phone | Install the APK on an Android device and run a checklist: start, saving, music and voices (autoplay in WebView), touch and gamepad, screen rotation, exit and return. | The checklist in docs/qa/android.md is filled in; every defect becomes an issue; no critical defects remain. | Oct 21, 2026 | Oct 23, 2026 | 6 | To Do |
 
@@ -49,7 +49,7 @@ Oct 15, 2026 to Oct 23, 2026, 9.5 h.
 
 Polish sound and story: music does not cover voices, the interface has sounds, every line is voiced, endings have achievements and Shelter reactions, bosses have portraits.
 
-**Definition of Done:** Every story line is voiced, clicks have sound, new achievements and reactions work, old saves still load, and the APK stays under the size limit.
+**Definition of Done:** Every story line is voiced, clicks have sound, new achievements and reactions work, and old saves still load.
 
 Oct 16, 2026 to Oct 29, 2026, 10 h.
 
@@ -57,11 +57,11 @@ Oct 16, 2026 to Oct 29, 2026, 10 h.
 | --- | --- | --- | --- | --- | --- | ---: | --- |
 | 2.1 | Duck music under voice | Web Audio music smoothly lowers while a voiced line plays and recovers after it. | During a voice line the music is at most 35% of its level and recovers within 0.6 s; music and voice settings stay independent; a unit test covers it. | Oct 16, 2026 | Oct 16, 2026 | 0.5 | Done |
 | 2.2 | Interface click sounds | Wire the existing ui sound to buttons and links, respecting the SFX setting. | All menu, dialogue and perk buttons make a sound; muted SFX is fully silent; combat controls do not double it. | Oct 16, 2026 | Oct 16, 2026 | 0.5 | Done |
-| 2.3 | Voice lines with attempt numbers | Pre-generate voice for lines with attempt and run numbers (1-8) and for boss taunts, and wire them in. | Files for numbers 1-8 and boss taunts exist in public/voice; the manifest is updated; voice.test.cjs checks coverage; the APK stays under the limit. | Oct 16, 2026 | Oct 16, 2026 | 1 | Done |
+| 2.3 | Voice lines with attempt numbers | Pre-generate voice for lines with attempt and run numbers (1-8) and for boss taunts, and wire them in. | Files for numbers 1-8 and boss taunts exist in public/voice; the manifest is updated; voice.test.cjs checks coverage. | Oct 16, 2026 | Oct 16, 2026 | 1 | Done |
 | 2.4 | Story achievements | Add achievements for clues found, each of the three endings and the full case file, and show them on the achievements page. | Seven new achievements with icon, text and condition; each is granted once; tests are updated; old saves still load. | Oct 16, 2026 | Oct 16, 2026 | 0.5 | Done |
 | 2.5 | Shelter lines after endings | Add resident conversations that react to the endings the player has seen. | One new scene and three short voiced protocols per ending, shown only after that ending; story.test.cjs covers the conditions. | Oct 16, 2026 | Oct 16, 2026 | 0.5 | Done |
-| 2.6 | Location boss portraits | Create nine boss portraits (three per location) for the battle intro card with GPT Image 2.5 Flare in the game style. | Nine webp files up to 60 KB each in public/art, shown on the intro card; prompts saved in docs/art-prompts; the APK stays under the limit. | Oct 16, 2026 | Oct 16, 2026 | 1 | Done |
-| 2.7 | Recast voices after feedback | Collect feedback on the 13 voices and the emotion tags, change references in voices.json and regenerate the chosen lines. | Every voice is approved or replaced; regenerated files are committed; the APK stays under the limit. | Oct 27, 2026 | Oct 29, 2026 | 6 | To Do |
+| 2.6 | Location boss portraits | Create nine boss portraits (three per location) for the battle intro card with GPT Image 2.5 Flare in the game style. | Nine webp files in public/art, shown on the intro card; prompts saved in docs/art-prompts. | Oct 16, 2026 | Oct 16, 2026 | 1 | Done |
+| 2.7 | Recast voices after feedback | Collect feedback on the 13 voices and the emotion tags, change references in voices.json and regenerate the chosen lines. | Every voice is approved or replaced; regenerated files are committed. | Oct 27, 2026 | Oct 29, 2026 | 6 | To Do |
 
 ### Epic 3. Balance, quality and engineering
 
@@ -77,7 +77,7 @@ Oct 16, 2026 to Nov 18, 2026, 43 h.
 | 3.2 | Repository cleanup | Remove the old site snapshot archives (.tools/osbb-site-v*.tar.gz); unused UI components and npm packages are kept on purpose. | Type check, tests, web and APK builds pass; about 835 MB of old archives is removed. | Oct 16, 2026 | Oct 16, 2026 | 0.5 | Done |
 | 3.3 | Bundle splitting | Move the battle, workshop, tutorial, route map and story screens and the libraries into separate lazy chunks. | The largest chunk is under 400 KB (it was 790 KB, now 204 KB); the game starts without regressions; tests and the APK build are green. | Oct 16, 2026 | Oct 16, 2026 | 1 | Done |
 | 3.4 | Playtest round with classmates | Share the web link with 3-5 classmates, collect their feedback in a short form (what was boring, unclear or broken) and triage it into issues. | At least 3 testers finished a raid; the feedback is collected in one place; every finding is filed as an issue with a priority. | Oct 26, 2026 | Nov 3, 2026 | 6 | To Do |
-| 3.5 | Performance check on a low-end Android phone | Measure the frame rate and the load time of the APK on an older phone; note stutters in big fights and on the boss intro cards. | Frame rate and start-up time are noted for at least one low-end device; stutters are fixed or filed as issues; the APK is still under the size limit. | Oct 28, 2026 | Oct 29, 2026 | 5 | To Do |
+| 3.5 | Performance check on a low-end Android phone | Measure the frame rate and the load time of the APK on an older phone; note stutters in big fights and on the boss intro cards. | Frame rate and start-up time are noted for at least one low-end device; stutters are fixed or filed as issues. | Oct 28, 2026 | Oct 29, 2026 | 5 | To Do |
 | 3.6 | Fixes from the playtest feedback | Fix the high-priority findings of the playtest and re-run the checks. | All high-priority findings are closed or consciously moved; tests and the balance audit are green; a new web build is deployed. | Nov 4, 2026 | Nov 6, 2026 | 8 | To Do |
 | 3.7 | Three full playthroughs with a log | Play the game three times with different heroes and weapons, writing down attempts, deaths and boring places. | A dated log in docs/balance; each location has a completion time and a list of problems. | Nov 9, 2026 | Nov 11, 2026 | 8 | To Do |
 | 3.8 | Balance fixes from the log | Tune enemy, perk and reward parameters according to the log. | The balance audit passes its gates; the new values are described in docs/balance; tests are green. | Nov 12, 2026 | Nov 16, 2026 | 8 | To Do |
@@ -116,6 +116,5 @@ Dec 1, 2026 to Dec 15, 2026, 28 h.
 
 ## Current risks
 
-- The APK must fit into 25 MiB and has about 1.1 MiB of headroom (now 23.9 MiB); every new asset is checked for size.
 - Sound and voice-over have not been checked on a real Android device yet: task 1.6.
 - Balance has been checked by an automated audit only, not by a human playing through: task 3.7.

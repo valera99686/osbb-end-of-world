@@ -5353,7 +5353,7 @@ export class Battle {
       show = (at: number) => clamp((age - at) / 0.3) * out;
     const wide = w >= h * 1.05,
       S = Math.round(
-        wide ? Math.min(h * 0.62, w * 0.4) : Math.min(w * 0.7, h * 0.34),
+        wide ? Math.min(h * 0.62, w * 0.4) : Math.min(w * 0.62, h * 0.3),
       ),
       slide = still ? 0 : 1 - ease(age / 0.6),
       px0 = wide ? Math.round(w * 0.065) : Math.round((w - S) / 2),
@@ -5442,38 +5442,67 @@ export class Battle {
       c.stroke();
     }
 
-    // The words.
-    const small = Math.round(14 * ts),
+    // The words. Small screens get fewer of them: the taunt goes first, then
+    // the health line, then the tip is cut short and the type shrinks, so
+    // nothing runs under the cinema bar or over the "touch to start" line.
+    const barEnd = Math.round(h * 0.075),
+      footer = Math.round(28 * ts),
       tx = wide ? px0 + S + Math.round(w * 0.05) : Math.round(w * 0.07),
       tw = wide ? w - tx - Math.round(w * 0.06) : w - tx * 2,
-      nameBase = (wide ? 54 : 38) * ts;
+      top = wide ? barEnd + 10 : py0 + S + Math.round(26 * ts),
+      room = h - barEnd - footer - top;
     c.textAlign = 'left';
     c.textBaseline = 'alphabetic';
-    c.font = `900 ${Math.round(nameBase)}px ${FONT}`;
-    const nameW = c.measureText(card.title).width,
-      nameSize = Math.round(nameW > tw ? (nameBase * tw) / nameW : nameBase);
-    c.font = `600 ${small}px ${FONT}`;
-    const hint = card.hint
-        ? this.wrapLines(c, card.hint, tw, wide ? 3 : 2)
-        : [],
-      line = Math.round(small * 1.4);
-    c.font = `italic 600 ${small + 1}px ${FONT}`;
-    const quoteLines = card.quote
-      ? this.wrapLines(c, '«' + card.quote + '»', tw, 2)
-      : [];
-    const gap = Math.round(14 * ts),
-      kicker = Math.round(13 * ts);
-    let y = wide ? 0 : py0 + S + Math.round(26 * ts);
-    const height =
-      kicker +
-      gap +
-      nameSize +
-      gap * 0.8 +
-      small +
-      (hint.length ? gap * 1.6 + small + hint.length * line : 0) +
-      (card.hp ? gap * 1.6 + 26 * ts : 0) +
-      (quoteLines.length ? gap * 1.6 + quoteLines.length * line : 0);
-    if (wide) y = Math.max(bar + 10, (h - height) / 2);
+    const plan = (
+      k: number,
+      hintMax: number,
+      withQuote: boolean,
+      withHp: boolean,
+    ) => {
+      const tk = ts * k,
+        small = Math.round(14 * tk),
+        nameBase = (wide ? 54 : 38) * tk;
+      c.font = `900 ${Math.round(nameBase)}px ${FONT}`;
+      const nameW = c.measureText(card.title).width,
+        nameSize = Math.round(nameW > tw ? (nameBase * tw) / nameW : nameBase);
+      c.font = `600 ${small}px ${FONT}`;
+      const hint =
+        card.hint && hintMax ? this.wrapLines(c, card.hint, tw, hintMax) : [];
+      c.font = `italic 600 ${small + 1}px ${FONT}`;
+      const quoteLines =
+        card.quote && withQuote
+          ? this.wrapLines(c, '«' + card.quote + '»', tw, 2)
+          : [];
+      const line = Math.round(small * 1.4),
+        gap = Math.round(14 * tk),
+        kicker = Math.round(13 * tk),
+        hp = !!card.hp && withHp;
+      const height =
+        kicker +
+        gap +
+        nameSize +
+        gap * 0.8 +
+        small +
+        (hint.length ? gap * 1.6 + small + hint.length * line : 0) +
+        (hp ? gap * 1.6 + 26 * tk : 0) +
+        (quoteLines.length ? gap * 1.6 + quoteLines.length * line : 0);
+      return { tk, small, nameSize, hint, quoteLines, line, gap, kicker, hp, height };
+    };
+    let words = plan(1, wide ? 3 : 2, true, true);
+    for (const [k, hintMax, quote, hp] of [
+      [1, 2, true, true],
+      [0.9, 2, false, true],
+      [0.85, 1, false, true],
+      [0.8, 1, false, false],
+      [0.75, 0, false, false],
+    ] as const) {
+      if (words.height <= room) break;
+      words = plan(k, hintMax, quote, hp);
+    }
+    const { tk, small, nameSize, hint, quoteLines, line, gap, kicker, height } =
+      words;
+    let y = wide ? 0 : top;
+    if (wide) y = Math.max(barEnd + 10, (h - height) / 2);
     const rise = (at: number) =>
       still ? 0 : (1 - clamp((age - at) / 0.3)) * 14;
     // Kicker with a rule.
@@ -5517,7 +5546,7 @@ export class Battle {
     if (hint.length) {
       y += gap * 1.6 + small;
       c.globalAlpha = show(1.15);
-      c.font = `800 ${Math.round(11 * ts)}px ${FONT}`;
+      c.font = `800 ${Math.round(11 * tk)}px ${FONT}`;
       c.fillStyle = color;
       c.fillText('ЯК ПЕРЕМОГТИ', tx, y - small * 0.2);
       c.font = `600 ${small}px ${FONT}`;
@@ -5528,12 +5557,12 @@ export class Battle {
       y += hint.length * line;
     }
     // Health.
-    if (card.hp) {
+    if (words.hp) {
       y += gap * 1.6;
       c.globalAlpha = show(1.3);
-      const label = 'ЗДОРОВ’Я ' + Math.round(card.hp).toLocaleString('uk-UA'),
-        ph = Math.round(26 * ts);
-      c.font = `800 ${Math.round(12 * ts)}px ${FONT}`;
+      const label = 'ЗДОРОВ’Я ' + Math.round(card.hp ?? 0).toLocaleString('uk-UA'),
+        ph = Math.round(26 * tk);
+      c.font = `800 ${Math.round(12 * tk)}px ${FONT}`;
       const pw = c.measureText(label).width + 24;
       c.fillStyle = rgba(color, 0.16);
       c.fillRect(tx, y - ph * 0.7, pw, ph);

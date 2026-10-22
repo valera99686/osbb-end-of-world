@@ -694,3 +694,33 @@ test('The tip on the intro card drops the reward line and stays short for every 
       assert.ok(hint.length > 20 && hint.length <= 200 && !hint.includes('Перемога'), minibossFor(c, v).name);
     }
 });
+
+test('The boss card fits every screen: nothing under the cinema bars or over the start line, and the name always stays', () => {
+  const sizes = [[270, 480], [360, 640], [480, 270], [600, 270], [640, 360], [800, 360], [800, 450], [1280, 720], [1600, 900]];
+  for (const kind of ['boss', 'miniboss'])
+    for (const [w, h] of sizes)
+      for (const textScale of [1, 1.3]) {
+        const calls = [];
+        const { b } = battle(kind, {
+          canvas: recordingCanvas(calls),
+          options: {
+            settings: { ...M.DEFAULT_SETTINGS, textScale },
+            introQuote: 'Спроба 3. Ви ще не зрозуміли? Я не тримаю вас тут.',
+          },
+        });
+        while (b.introTotal - b.intro < 2.2) b.tick(1 / 60);
+        calls.length = 0;
+        b.drawIntro(b.ctx, w, h);
+        const texts = calls.filter(([key]) => key === 'fillText').map(([, a]) => ({ t: String(a[0]), y: a[2] }));
+        const bar = Math.round(h * 0.075),
+          startY = h - bar - 12,
+          where = kind + ' ' + w + 'x' + h + ' x' + textScale;
+        assert.ok(texts.some((x) => x.t === b.introCard.title), where + ': the name is drawn');
+        const start = texts.find((x) => x.t.startsWith('Торкнись'));
+        assert.ok(start && Math.abs(start.y - startY) < 1, where + ': the start line is drawn');
+        for (const x of texts) {
+          if (x === start) continue;
+          assert.ok(x.y >= bar && x.y <= startY - 6, where + ': ' + x.t.slice(0, 24) + ' at ' + Math.round(x.y) + ' of ' + h);
+        }
+      }
+});

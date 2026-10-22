@@ -29,6 +29,7 @@ import {
 } from './cutscenes';
 import { ACHIEVEMENT_BY_ID } from './achievements';
 import { DATE_KEY, heatCap } from './modes';
+import { isSecret } from './secrets';
 import {
   campaignTree,
   compactCampaignTree,
@@ -264,6 +265,9 @@ export function readSave(raw: string | null): {
             ),
           ),
         ]
+      : [];
+    base.secrets = Array.isArray(m.secrets)
+      ? [...new Set<string>(m.secrets.filter(isSecret))]
       : [];
     base.achievements = Array.isArray(m.achievements)
       ? [

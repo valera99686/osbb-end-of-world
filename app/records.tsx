@@ -258,8 +258,12 @@ export function AchievementsPage({
                 )}
               </span>
               <div>
-                <h3>{a.title}</h3>
-                <p>{a.text}</p>
+                <h3>{a.secret && !done ? '???' : a.title}</h3>
+                <p>
+                  {a.secret && !done
+                    ? `Секретне. ${a.hint ?? ''}`.trim()
+                    : a.text}
+                </p>
               </div>
             </article>
           );

@@ -39,6 +39,7 @@ function veteran() {
     endlessBest: 3,
     clues: CLUES.map((c) => c.id),
     endings: ['a', 'b', 'c'],
+    secrets: ['konami', 'night'],
     blueprints: BLUEPRINTS.slice(0, 5).map((b) => b.id),
     research: Object.fromEntries(RESEARCH.map((r) => [r.id, 1])),
     dailyBest: Object.fromEntries(

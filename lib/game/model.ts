@@ -118,6 +118,8 @@ export interface Meta {
   // endings the player has reached.
   clues: string[];
   endings: ('a' | 'b' | 'c')[];
+  // Hidden achievements found so far (see secrets.ts).
+  secrets: string[];
 }
 // `Meta.sound` stays the master mute; these are the fine-grained options.
 export interface Settings {
@@ -948,6 +950,7 @@ export function initialMeta(): Meta {
     eliteWins: 0,
     clues: [],
     endings: [],
+    secrets: [],
   };
 }
 export function seeded(seed: number) {
@@ -1908,6 +1911,7 @@ export function finishRun(
     achievements: [...(meta.achievements ?? [])],
     clues: [...(meta.clues ?? [])],
     endings: [...(meta.endings ?? [])],
+    secrets: [...(meta.secrets ?? [])],
   };
   const endless = run.mode === 'endless',
     final = won && run.chapter === 2 && !endless;

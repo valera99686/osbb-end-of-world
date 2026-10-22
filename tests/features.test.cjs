@@ -55,6 +55,7 @@ const NEW_META = [
   'winsByCharacter',
   'totalElites',
   'bestCombo',
+  'secrets',
 ];
 const NEW_RUN = [
   'mode',

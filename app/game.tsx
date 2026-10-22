@@ -86,6 +86,13 @@ import {
   newAchievements,
 } from '@/lib/game/achievements';
 import { dateKey, heatChoices, runScore } from '@/lib/game/modes';
+import { resultQuip, tabTitle } from '@/lib/game/notices';
+import {
+  discover,
+  isQuietHour,
+  konamiStep,
+  tapStep,
+} from '@/lib/game/secrets';
 import { SettingsDialog } from './settings';
 import { StatsPage, AchievementsPage, ownedAchievements } from './records';
 import { Toasts, achievementToasts, type Toast } from './toasts';
@@ -100,6 +107,7 @@ import {
   shortDate,
   type Launch,
 } from './modes-panel';
+import { NoticeBoard } from './notice-board';
 import './features.css';
 import {
   Dialog,
@@ -490,6 +498,43 @@ export default function Game() {
       window.removeEventListener('keydown', unlock, true);
     };
   }, []);
+  // Secrets: the old cheat code on a keyboard and seven quick taps on the title
+  // on a touch screen. The catch-all below announces what they unlock.
+  const konami = useRef(0),
+    titleTaps = useRef<number[]>([]);
+  useEffect(() => {
+    if (screen !== 'hub') return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (e.repeat) return;
+      const step = konamiStep(konami.current, e.key);
+      konami.current = step.at;
+      if (step.done) setMeta((m) => discover(m, 'konami'));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [screen]);
+  function tapTitle() {
+    const step = tapStep(titleTaps.current, Date.now());
+    titleTaps.current = step.taps;
+    if (step.done) setMeta((m) => discover(m, 'konami'));
+  }
+  // While the game waits in a background tab the title nags the player.
+  useEffect(() => {
+    const home = document.title;
+    let n = 0;
+    const onVisibility = () => {
+      document.title = document.hidden
+        ? tabTitle(Math.floor(Date.now() / 1000) + n++)
+        : home;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.title = home;
+    };
+  }, []);
   // Catch-all for goals reached outside battle (events, workshop, loading an
   // older profile); battle and raid ends announce their own.
   useEffect(() => {
@@ -678,8 +723,10 @@ export default function Game() {
       },
     );
     setRun(started);
+    const begun = startDaily(base, started);
     setMeta({
-      ...startDaily(base, started),
+      // A raid that starts in the quiet hours is a secret of its own.
+      ...(isQuietHour(new Date()) ? discover(begun, 'night') : begun),
       // The new run carries the 'НОВЕ' items into its first reward.
       fresh: [],
       lore: loreForProgress(base.lore, base.wins, chapter),
@@ -1066,7 +1113,7 @@ export default function Game() {
             <p className="eyebrow">
               <span className="status-dot" /> СВІТ ЗАКІНЧИВСЯ. ОРЕНДА — НІ.
             </p>
-            <h1>
+            <h1 onClick={tapTitle}>
               ОСББ
               <br />
               <em>кінця світу</em>
@@ -1148,6 +1195,7 @@ export default function Game() {
               onLaunch={requestLaunch}
               onContinue={start}
             />
+            {ready && meta.tutorialDone && <NoticeBoard />}
             <div className="hub-links">
               <button
                 className="text-button"
@@ -1793,6 +1841,14 @@ export default function Game() {
                 ? CHAPTERS[result.run.chapter].unlock
                 : 'Мешканці повернулися до меню. Новий дім буде іншим. Креслення й зароблені ядра залишилися з тобою.'}
           </DialogDescription>
+          {result && (
+            <p className="result-quip">
+              {resultQuip(
+                result.won,
+                result.run.seed + result.run.kills + result.run.step,
+              )}
+            </p>
+          )}
           {result?.protocol && (
             <ProtocolCard
               lines={result.protocol}

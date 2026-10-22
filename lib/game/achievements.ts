@@ -8,6 +8,9 @@ export interface Achievement {
   title: string;
   text: string;
   icon: string;
+  // Shown as «???» in the list until it is found, with `hint` instead of the text.
+  secret?: boolean;
+  hint?: string;
 }
 // `won` marks the final victory of a raid; mid-run checks leave it false.
 type Check = (meta: Meta, run: Run | null, won: boolean) => boolean;
@@ -362,9 +365,31 @@ const DEFINITIONS: (Achievement & { check: Check })[] = [
         (meta.endings ?? []).includes(id),
       ),
   },
+  // Hidden ones: found by a code or by a habit, not by a goal.
+  {
+    id: 'konami',
+    title: 'Тридцять життів',
+    text: 'Старий код із приставок спрацював. Життів він не додає, але досягнення справжнє.',
+    hint: 'Старий код, який знає кожен, хто грав на приставках. Вводити в Притулку з клавіатури; з телефона допоможуть швидкі дотики по назві.',
+    icon: 'Sparkles',
+    secret: true,
+    check: (meta) => (meta.secrets ?? []).includes('konami'),
+  },
+  {
+    id: 'night_raid',
+    title: 'Порушник тиші',
+    text: 'Рейд серед ночі. Марта вже пише скаргу.',
+    hint: 'У будинку є години тиші. Марта стежить, хто їх порушує.',
+    icon: 'Moon',
+    secret: true,
+    check: (meta) => (meta.secrets ?? []).includes('night'),
+  },
 ];
 export const ACHIEVEMENTS: Achievement[] = DEFINITIONS.map(
-  ({ id, title, text, icon }) => ({ id, title, text, icon }),
+  ({ id, title, text, icon, secret, hint }) =>
+    secret
+      ? { id, title, text, icon, secret, hint }
+      : { id, title, text, icon },
 );
 export const ACHIEVEMENT_BY_ID: Record<string, Achievement> =
   Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a]));

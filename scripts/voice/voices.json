@@ -13,7 +13,7 @@
   "refText": "Мережа міста мене не слухає, а ось наш щиток завжди. Головне не торкайся синього дроту.",
   "speed": 1.12,
   "target": 265,
-  "fx": "treble=g=2"
+  "fx": "highshelf=f=3500:g=-4"
  },
  "flora": {
   "instruct": "female, middle-aged, moderate pitch",
@@ -27,8 +27,7 @@
   "seed": 1400,
   "refText": "Кошторис погоджено, мною, одноголосно. Гроші не пахнуть, а ось наші вороги пахнуть дуже.",
   "speed": 1.04,
-  "target": 190,
-  "fx": "treble=g=1.5"
+  "target": 190
  },
  "nina": {
   "instruct": "female, elderly, low pitch",
@@ -47,28 +46,25 @@
   "fx": "lowpass=f=5200,equalizer=f=180:t=q:w=1:g=2"
  },
  "marta": {
-  "instruct": "female, middle-aged, very high pitch",
-  "seed": 1704,
+  "instruct": "female, middle-aged, high pitch",
+  "seed": 180002,
   "refText": "Я не кричу, у мене такий голос. Я на них напишу скаргу, і цього разу її розглянуть.",
-  "speed": 1.16,
-  "target": 335,
-  "fx": "equalizer=f=3000:t=q:w=1:g=3"
+  "speed": 1.1,
+  "target": 300
  },
  "danilo": {
   "instruct": "male, young adult, high pitch",
   "seed": 180006,
   "refText": "Я це з мікрохвильовки зібрав, і воно літає! Ну, майже літає. Мама казала не розбирати техніку.",
   "speed": 1.18,
-  "target": 215,
-  "fx": "equalizer=f=3600:t=q:w=1:g=2.5"
+  "target": 215
  },
  "solomia": {
   "instruct": "female, young adult, high pitch",
   "seed": 1906,
   "refText": "Я грала в оркестрі, там теж треба влучати вчасно. Послухай ритм будинку, він сам підкаже.",
   "speed": 1.05,
-  "target": 370,
-  "fx": "treble=g=3"
+  "target": 370
  },
  "galyna": {
   "instruct": "female, elderly, very low pitch",

@@ -133,7 +133,7 @@ export interface Settings {
   reducedFlashes: boolean;
 }
 export const DEFAULT_SETTINGS: Settings = {
-  music: 0.6,
+  music: 0.4,
   sfx: 0.8,
   voice: 0.9,
   vibration: true,
@@ -1991,7 +1991,7 @@ export function finishRun(
   const earned = coreBreakdown.reduce((sum, r) => sum + r.amount, 0);
   // Heat and daily modifiers multiply the haul; heat 0 adds no extra row.
   const bonus = Math.round(earned * heatForRun(run).coreBonus) - earned;
-  if (bonus > 0) coreBreakdown.push({ label: 'Бонус загрози', amount: bonus });
+  if (bonus > 0) coreBreakdown.push({ label: 'Бонус складності', amount: bonus });
   const cores = earned + Math.max(0, bonus);
   n.cores += cores;
   n.lore = loreForProgress(meta.lore, n.wins, run.chapter);

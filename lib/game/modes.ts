@@ -104,18 +104,22 @@ export const HEAT_LEVELS: { level: number; title: string; text: string }[] = [
   {
     level: 1,
     title: 'Неспокійні сусіди',
-    text: 'Вороги мають на 10% більше здоров’я.',
+    text: 'Вороги мають на 25% більше здоров’я.',
   },
-  { level: 2, title: 'Дорогий ремонт', text: 'Ремонт дорожчий на 50%.' },
+  {
+    level: 2,
+    title: 'Дорогий ремонт',
+    text: 'Ремонт дорожчий на 50%, а вороги завдають на 15% більше шкоди.',
+  },
   {
     level: 3,
     title: 'Швидкі кроки',
-    text: 'Вороги рухаються на 8% швидше.',
+    text: 'Вороги рухаються на 12% швидше й з’являються на 10% частіше.',
   },
   {
     level: 4,
     title: 'Гострі зуби',
-    text: 'Вороги завдають на 15% більше шкоди.',
+    text: 'Вороги завдають ще на 20% більше шкоди.',
   },
   {
     level: 5,
@@ -125,7 +129,7 @@ export const HEAT_LEVELS: { level: number; title: string; text: string }[] = [
   {
     level: 6,
     title: 'Щільна облога',
-    text: 'Вороги з’являються на 15% частіше.',
+    text: 'Вороги з’являються ще на 20% частіше.',
   },
   {
     level: 7,
@@ -141,9 +145,23 @@ export const HEAT_LEVELS: { level: number; title: string; text: string }[] = [
   {
     level: 10,
     title: 'Кінець світу',
-    text: 'Вороги мають ще +20% здоров’я й завдають ще +15% шкоди.',
+    text: 'Вороги мають ще +30% здоров’я й завдають ще +25% шкоди.',
   },
 ];
+// Levels 1-3 are open from the first run so the difficulty can be felt at once;
+// the rest open one by one with each finished expedition.
+export const FREE_HEAT = 3;
+export function heatChoices(unlocked?: number): number {
+  const u = Number.isFinite(unlocked) ? Math.floor(unlocked as number) : 0;
+  return Math.min(MAX_HEAT, Math.max(FREE_HEAT, u));
+}
+export function heatName(heat: number): string {
+  if (heat <= 0) return 'Звичайна';
+  if (heat <= 3) return 'Складніше';
+  if (heat <= 6) return 'Важко';
+  if (heat < MAX_HEAT) return 'Дуже важко';
+  return 'Кінець світу';
+}
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 // Each level adds one rule from HEAT_LEVELS and +10% cores. Heat 0 is neutral.
 export function heatEffects(heat: number, modifier?: string): HeatEffects {
@@ -152,12 +170,13 @@ export function heatEffects(heat: number, modifier?: string): HeatEffects {
   // Beyond the ladder (deep endless circuits) enemies keep getting tougher.
   const beyond = Math.max(0, h - MAX_HEAT);
   const e: HeatEffects = {
-    enemyHealth: 1 + 0.1 * at(1) + 0.2 * at(10) + 0.05 * beyond,
-    enemyDamage: 1 + 0.15 * at(4) + 0.15 * at(10) + 0.03 * beyond,
-    enemySpeed: 1 + 0.08 * at(3),
+    enemyHealth: 1 + 0.25 * at(1) + 0.3 * at(10) + 0.05 * beyond,
+    enemyDamage:
+      1 + 0.15 * at(2) + 0.2 * at(4) + 0.25 * at(10) + 0.03 * beyond,
+    enemySpeed: 1 + 0.12 * at(3),
     projectileSpeed: 1 + 0.15 * at(7),
-    spawnRate: 1 + 0.15 * at(6),
-    affixBonus: 0.06 * at(5),
+    spawnRate: 1 + 0.1 * at(3) + 0.2 * at(6),
+    affixBonus: 0.1 * at(5),
     repairCost: 1 + 0.5 * at(2),
     shopCost: 1 + 0.2 * at(8),
     bossTime: 1 - 0.15 * at(9),
@@ -187,6 +206,17 @@ export function heatEffects(heat: number, modifier?: string): HeatEffects {
   for (const key of Object.keys(e) as (keyof HeatEffects)[])
     e[key] = round(e[key]);
   return e;
+}
+const percent = (x: number) => `${x > 1 ? '+' : ''}${Math.round((x - 1) * 100)}%`;
+// What a heat level does to the enemies, in numbers a player can compare.
+export function heatSummary(heat: number): string {
+  const e = heatEffects(heat);
+  const parts: string[] = [];
+  if (e.enemyHealth !== 1) parts.push(`здоров’я ${percent(e.enemyHealth)}`);
+  if (e.enemyDamage !== 1) parts.push(`шкода ${percent(e.enemyDamage)}`);
+  if (e.enemySpeed !== 1) parts.push(`швидкість ${percent(e.enemySpeed)}`);
+  if (e.spawnRate !== 1) parts.push(`кількість ${percent(e.spawnRate)}`);
+  return parts.length ? `Вороги: ${parts.join(', ')}.` : '';
 }
 function dailyRoll(key: string) {
   const rng = stream(dailySeed(key) ^ 0x5bd1e995);

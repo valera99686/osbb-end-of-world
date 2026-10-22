@@ -85,7 +85,7 @@ import {
   applyAchievements,
   newAchievements,
 } from '@/lib/game/achievements';
-import { dateKey, runScore } from '@/lib/game/modes';
+import { dateKey, heatChoices, runScore } from '@/lib/game/modes';
 import { SettingsDialog } from './settings';
 import { StatsPage, AchievementsPage, ownedAchievements } from './records';
 import { Toasts, achievementToasts, type Toast } from './toasts';
@@ -644,7 +644,7 @@ export default function Game() {
       setMeta((m) => ({ ...m, sceneProgress: { id, index: 0 } }));
     }
   }
-  const heatChoice = Math.min(heat, meta.heatUnlocked ?? 0);
+  const heatChoice = Math.min(heat, heatChoices(meta.heatUnlocked));
   function pickHeat(value: number) {
     setHeat(value);
     try {
@@ -717,7 +717,7 @@ export default function Game() {
       grant(applyAchievements(meta, b.run).unlocked);
       ping(
         looped
-          ? `Коло ${next.loop + 1}. Загроза ${next.heat}: будинок, мешканці й здобич ідуть далі.`
+          ? `Коло ${next.loop + 1}. Складність ${next.heat}: будинок, мешканці й здобич ідуть далі.`
           : 'Локацію пройдено. Будинок і здобич переходять далі.',
       );
       return;
@@ -1112,13 +1112,11 @@ export default function Game() {
             {run ? (
               <RunBadge run={run} />
             ) : (
-              (meta.heatUnlocked ?? 0) > 0 && (
-                <HeatSelect
-                  max={meta.heatUnlocked}
-                  value={heatChoice}
-                  onChange={pickHeat}
-                />
-              )
+              <HeatSelect
+                max={heatChoices(meta.heatUnlocked)}
+                value={heatChoice}
+                onChange={pickHeat}
+              />
             )}
             <button
               className="primary start-button"
@@ -1843,7 +1841,7 @@ export default function Game() {
                   )}
                   {result.run.heat > 0 && (
                     <small>
-                      <Flame size={14} /> Загроза {result.run.heat}
+                      <Flame size={14} /> Складність {result.run.heat}
                     </small>
                   )}
                 </div>
@@ -1987,7 +1985,7 @@ export default function Game() {
             <p>
               <b>Режими.</b> Денний забіг щодня однаковий для всіх: той самий
               маршрут і особливе правило. Після першої перемоги відкриваються
-              рівні загрози — кожен додає правило й +10% ядер — і нескінченна
+              рівні складності — кожен додає правило й +10% ядер — і нескінченна
               експедиція, де після третього боса починається нове, гарячіше
               коло.
             </p>

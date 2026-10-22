@@ -275,6 +275,12 @@
 .heat-select p b {
   color: #f0cda9;
 }
+.heat-sum {
+  display: block;
+  margin-top: 4px;
+  color: #f2a46c;
+  font-variant-numeric: tabular-nums;
+}
 .mode-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));

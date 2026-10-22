@@ -41,6 +41,8 @@ TRIM = (
     "areverse,silenceremove=start_periods=1:start_threshold=-48dB:start_silence=0.12,areverse"
 )
 LOUDNESS = "loudnorm=I=-18:TP=-1.5:LRA=9"
+# Every voice loses a little of the top end (a first listener called the voices harsh): a gentle shelf above 4.5 kHz.
+SOFTEN = "highshelf=f=4500:g=-3"
 
 
 def log(message: str) -> None:
@@ -60,7 +62,7 @@ def write_wav(path: Path, wave_data) -> float:
 
 
 def encode(source: Path, target: Path, key: str, effects: dict) -> None:
-    chain = ",".join(part for part in (TRIM, effects.get(key), LOUDNESS) if part)
+    chain = ",".join(part for part in (TRIM, effects.get(key), SOFTEN, LOUDNESS) if part)
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-af", chain, "-ac", "1",
          "-c:a", "libopus", "-b:a", BITRATE, "-application", "voip", str(target)],
@@ -93,12 +95,11 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="at most this many lines per speaker")
     parser.add_argument("--force", action="store_true", help="speak lines again even if a file exists")
     parser.add_argument("--refs-only", action="store_true", help="only (re)create the reference clips")
+    parser.add_argument("--reencode", action="store_true",
+                        help="no synthesis: run the raw WAV files in --work through the filters again (after a change to fx or SOFTEN)")
     parser.add_argument("--keep-refs", action="store_true",
                         help="with --force: speak the lines again but keep the reference clips (cast.py picked them)")
     args = parser.parse_args()
-
-    import torch
-    from omnivoice import OmniVoice
 
     voices = json.loads(args.voices.read_text(encoding="utf-8"))
     lines = json.loads(args.lines.read_text(encoding="utf-8"))
@@ -107,6 +108,21 @@ def main() -> None:
     args.refs.mkdir(parents=True, exist_ok=True)
     work = args.work or (args.refs / "work")
     work.mkdir(parents=True, exist_ok=True)
+
+    if args.reencode:
+        effects = {**EFFECTS, **{k: c["fx"] for k, c in voices.items() if c.get("fx")}}
+        count = 0
+        for line in lines:
+            raw = work / f"{line['id']}.wav"
+            if (only and line["key"] not in only) or not raw.exists():
+                continue
+            encode(raw, args.out / f"{line['id']}.ogg", line["key"], effects)
+            count += 1
+        log(f"re-encoded {count} lines from {work}; {write_manifest(args.out)} files in {args.out}")
+        return
+
+    import torch
+    from omnivoice import OmniVoice
 
     started = time.time()
     model = OmniVoice.from_pretrained("k2-fsa/OmniVoice", device_map="cuda:0", dtype=torch.float16)

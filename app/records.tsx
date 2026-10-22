@@ -138,7 +138,7 @@ export function StatsPage({
     [Footprints, 'Ривків', meta.dashes],
     [Sparkles, 'Посилених ворогів', meta.totalElites ?? 0],
     [Zap, 'Найкраще комбо', meta.bestCombo ?? 0],
-    [Flame, 'Найвища загроза', meta.bestHeat ?? 0],
+    [Flame, 'Найвища складність', meta.bestHeat ?? 0],
     [InfinityIcon, 'Нескінченна: кіл', meta.endlessBest ?? 0],
     [Clock, 'Час у боях', playTime(meta.playTime ?? 0)],
     [CalendarDays, 'Денний забіг сьогодні', today ?? '—'],

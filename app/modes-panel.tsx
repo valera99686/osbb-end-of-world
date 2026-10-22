@@ -12,6 +12,8 @@ import {
   HEAT_LEVELS,
   dailySetup,
   dateKey,
+  heatName,
+  heatSummary,
   type RunMode,
 } from '@/lib/game/modes';
 import type { Meta, Run } from '@/lib/game/model';
@@ -74,11 +76,11 @@ export function HeatSelect({
     <div className="heat-select">
       <div className="heat-head">
         <span className="micro">
-          <Flame size={14} /> ЗАГРОЗА {value}
+          <Flame size={14} /> СКЛАДНІСТЬ {value} · {heatName(value)}
         </span>
         <small>{value > 0 ? `+${value * 10}% ядер` : 'Без бонусу'}</small>
       </div>
-      <div className="heat-levels" aria-label="Рівень загрози">
+      <div className="heat-levels" aria-label="Рівень складності">
         {Array.from({ length: max + 1 }, (_, i) => (
           <button
             key={i}
@@ -95,7 +97,8 @@ export function HeatSelect({
         {level ? (
           <>
             <b>{level.title}.</b> {level.text}
-            {value > 1 && ' Діють і всі попередні правила.'}
+            {value > 1 && ' Діють і всі попередні правила.'}{' '}
+            <span className="heat-sum">{heatSummary(value)}</span>
           </>
         ) : (
           'Звичайна експедиція без додаткових правил.'
@@ -144,7 +147,7 @@ export function HubModes({
             </p>
           )}
           <p className="mode-meta">
-            Голова: {hero?.name ?? '—'} · Загроза {setup.heat} · Рекорд дня:{' '}
+            Голова: {hero?.name ?? '—'} · Складність {setup.heat} · Рекорд дня:{' '}
             {best ?? '—'}
           </p>
           <p className="mode-meta">
@@ -179,15 +182,15 @@ export function HubModes({
             <b>Нескінченна експедиція</b>
           </header>
           <p>
-            Після третього боса будинок іде на нове коло: загроза +2, а
+            Після третього боса будинок іде на нове коло: складність +2, а
             мешканці, обладнання й ресурси залишаються.
           </p>
           <p className="mode-meta">
-            Рекорд: {meta.endlessBest ?? 0} кіл · Старт із загрозою {heat}
+            Рекорд: {meta.endlessBest ?? 0} кіл · Старт зі складністю {heat}
           </p>
           <footer>
             <span>
-              <Flame size={14} /> +2 загрози за коло
+              <Flame size={14} /> +2 складності за коло
             </span>
             <button
               className="secondary small"
@@ -225,7 +228,7 @@ export function RunBadge({ run }: { run: Run }) {
         </span>
       )}
       {run.heat > 0 && (
-        <span className="heat" title="Рівень загрози">
+        <span className="heat" title="Рівень складності">
           <Flame size={13} /> {run.heat}
         </span>
       )}

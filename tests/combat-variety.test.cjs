@@ -59,11 +59,11 @@ test('Heat 0 leaves enemy stats exact; higher heat makes enemies tougher', () =>
     m = dummy(max);
   assert.equal(a.max, base);
   assert.equal(cold.spawn(0, { affix: null, force: true }).speed, def.speed);
-  assert.ok(close(h.max, base * 1.1));
-  assert.ok(close(m.max, base * 1.3));
+  assert.ok(close(h.max, base * 1.25));
+  assert.ok(close(m.max, base * 1.55));
   assert.ok(max.spawn(0, { affix: null, force: true }).speed > def.speed);
   assert.equal(cold.threat(10), 10);
-  assert.ok(close(hot.threat(10), 11.5));
+  assert.ok(close(hot.threat(10), 13.5));
   // Contact damage under heat: the same touch costs more hull.
   const touch = (b) => {
     const e = dummy(b, 0, null, b.x + 5, b.y);
@@ -77,7 +77,7 @@ test('Heat 0 leaves enemy stats exact; higher heat makes enemies tougher', () =>
     hotHit = touch(battle({ heat: 5 }).b);
   assert.equal(coldHit, Math.max(2, def.contactDamage - cold.stats.armor));
   assert.ok(hotHit > coldHit);
-  // Spawn frequency: heat 6 spawns 15% more often.
+  // Spawn frequency: heat 6 spawns 30% more often.
   const spawnGap = (b) => {
     b.spawnTimer = 0;
     b.update(0.001);
@@ -85,7 +85,7 @@ test('Heat 0 leaves enemy stats exact; higher heat makes enemies tougher', () =>
   };
   const gap0 = spawnGap(battle({ heat: 0 }).b),
     gap6 = spawnGap(battle({ heat: 6 }).b);
-  assert.ok(close(gap0 / gap6, 1.15, 1e-3));
+  assert.ok(close(gap0 / gap6, 1.3, 1e-3));
 });
 
 test('Heat speeds up boss cooldowns and enemy projectiles; heat 0 is exact', () => {

@@ -344,6 +344,29 @@ test('Heat zero is neutral, every level makes things harder and prices follow', 
   assert.equal(M.repairShop(repaired, meta), repaired);
 });
 
+test('Difficulty is felt from the first run: free levels, names and a steep ladder', () => {
+  // A new profile can already pick levels 1-3; wins open the rest.
+  assert.equal(Modes.heatChoices(0), Modes.FREE_HEAT);
+  assert.equal(Modes.heatChoices(undefined), Modes.FREE_HEAT);
+  assert.equal(Modes.heatChoices(NaN), Modes.FREE_HEAT);
+  assert.equal(Modes.heatChoices(6), 6);
+  assert.equal(Modes.heatChoices(99), Modes.MAX_HEAT);
+  // The first three levels already bite: a clear step in health, damage and speed.
+  const e3 = Modes.heatEffects(3);
+  assert.ok(e3.enemyHealth >= 1.25 && e3.enemyDamage >= 1.15 && e3.enemySpeed >= 1.1);
+  assert.ok(Modes.heatEffects(1).enemyHealth >= 1.25);
+  const top = Modes.heatEffects(10);
+  assert.ok(top.enemyHealth >= 1.5 && top.enemyDamage >= 1.5 && top.spawnRate >= 1.25);
+  // Names grow with the level and every level has a line with the numbers.
+  assert.equal(Modes.heatName(0), 'Звичайна');
+  assert.equal(Modes.heatName(10), 'Кінець світу');
+  const names = new Set([0, 2, 5, 8, 10].map((h) => Modes.heatName(h)));
+  assert.equal(names.size, 5);
+  assert.equal(Modes.heatSummary(0), '');
+  for (let h = 1; h <= 10; h++) assert.match(Modes.heatSummary(h), /^Вороги: .*%/, String(h));
+  assert.match(Modes.heatSummary(1), /здоров’я \+25%/);
+});
+
 test('Affixes never appear early or on bosses and roll deterministically', () => {
   const never = () => {
     throw new Error('rng consumed');
@@ -496,7 +519,7 @@ test('Final wins raise heat, credit the hero and pay the heat bonus', () => {
   const won = 3 * M.CORES.location + M.CORES.dawn;
   assert.equal(end.cores, Math.round(won * 1.4));
   assert.deepEqual(end.coreBreakdown.at(-1), {
-    label: 'Бонус загрози',
+    label: 'Бонус складності',
     amount: Math.round(won * 1.4) - won,
   });
   for (const id of ['first_win', 'first_boss', 'heat_1', 'no_repair_win'])

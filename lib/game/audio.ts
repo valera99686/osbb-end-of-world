@@ -34,6 +34,8 @@ type Rng = () => number;
 const LOOKAHEAD = 0.12;
 const TICK_MS = 25;
 const FADE = 1.2;
+// Music that starts from silence swells in over this long: a first listener was startled by it.
+const COLD_FADE = 3;
 const MUSIC_LEVEL = 0.55;
 const SFX_LEVEL = 0.9;
 const MAX_VOICES = 24;
@@ -2368,7 +2370,7 @@ export class AudioEngine {
   private fading: Sequencer[] = [];
   private theme: MusicTheme | null = null;
   private layer: MusicLayer = 'calm';
-  private levels = { music: 0.6, sfx: 0.8 };
+  private levels = { music: 0.4, sfx: 0.8 };
   private paused = false;
   private hidden = false;
   private talking = false;
@@ -2538,7 +2540,7 @@ export class AudioEngine {
       this.layer,
       this.seed,
       c.currentTime + 0.06,
-      this.fading.length ? FADE : 0.6,
+      this.fading.length ? FADE : COLD_FADE,
     );
     if (this.timer === null && typeof setInterval !== 'undefined')
       this.timer = setInterval(() => this.tick(), TICK_MS);

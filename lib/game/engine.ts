@@ -205,9 +205,9 @@ const PALETTE = {
     crit: '#ffe3a2',
     over: '#ffd166',
   },
-  // High contrast for protanopia/deuteranopia: magenta vs cyan/white.
+  // High contrast for protanopia/deuteranopia: violet vs cyan/white (kept apart under protanopia and deuteranopia, see docs/qa/accessibility.md).
   colorblind: {
-    enemy: '#ff3fd0',
+    enemy: '#a55aff',
     player: '#5fe0ff',
     crit: '#ffffff',
     over: '#fff1a6',

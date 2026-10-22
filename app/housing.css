@@ -19,7 +19,7 @@
 }
 .mission-banner small {
   letter-spacing: 0.13em;
-  font-size: 10px;
+  font-size: 11px;
   color: #d5b880;
 }
 .mission-banner p {
@@ -63,7 +63,7 @@
 .cinema-top > span {
   color: #7f9da8;
   letter-spacing: 0.19em;
-  font-size: 10px;
+  font-size: 11px;
 }
 .cinema-top .text-button {
   color: #a2b7bd;
@@ -244,7 +244,7 @@
   margin-inline: 19px;
 }
 .story-card small {
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   color: #799faa;
   margin-top: 16px;

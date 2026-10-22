@@ -401,7 +401,7 @@ test('Drawing covers every overlay in normal and accessibility modes without sha
       b.draw();
       const set = (key, value) =>
         styles.some(([k, v]) => k === key && v === value);
-      assert.equal(set('fillStyle', '#ff3fd0'), settings.colorblind);
+      assert.equal(set('fillStyle', '#a55aff'), settings.colorblind);
       assert.equal(set('strokeStyle', '#ffb000'), settings.colorblind);
       assert.ok(set('fillStyle', '#fff6e6'), 'intro title and flash drawn');
       assert.ok(

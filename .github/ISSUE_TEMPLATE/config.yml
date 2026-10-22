@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Грати у веб-версію
+    url: https://valera99686.github.io/osbb-end-of-world/
+    about: Відкрий гру в браузері, потім повернись і залиш відгук
+  - name: Скачати APK
+    url: https://github.com/valera99686/osbb-end-of-world/releases/latest
+    about: Остання збірка для Android

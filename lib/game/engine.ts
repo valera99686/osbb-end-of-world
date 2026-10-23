@@ -701,7 +701,7 @@ export class Battle {
   ) {
     this.canvas = canvas;
     this.ctx = canvas?.getContext('2d') ?? null;
-    if (canvas) preloadEnemyArt();
+    if (canvas) preloadEnemyArt(run.chapter);
     this.run = { ...run, items: [...run.items] };
     this.minibossVariant = minibossVariant(run);
     this.stats = statsFor(run, meta);
@@ -762,7 +762,7 @@ export class Battle {
     this.explosives = this.props.filter((p) => p.explosive);
     this.solids = this.props.filter((p) => p.solid).map(solidCircle);
     if (canvas) {
-      preloadArenaArt();
+      preloadArenaArt(run.chapter);
       this.ambient = new ArenaAmbient(run.chapter, run.seed + run.step);
     }
     const eventId = rollBattleEvent(this.rng, this.run);

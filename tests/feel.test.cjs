@@ -724,3 +724,48 @@ test('The boss card fits every screen: nothing under the cinema bars or over the
         }
       }
 });
+
+test('Fight art is decoded one picture at a time with the current location first, never all at once', async () => {
+  // A slow phone froze at launch when the five enemy atlases and six arena
+  // pictures were all requested in the same instant.
+  const asked = [];
+  let inflight = 0,
+    peak = 0;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const had = { Image: global.Image, document: global.document };
+  global.document = { createElement: () => ({ getContext: () => null }) };
+  global.Image = class {
+    set src(url) {
+      asked.push(url.split('/').pop().replace('.webp', ''));
+      inflight++;
+      peak = Math.max(peak, inflight);
+      setTimeout(() => {
+        inflight--;
+        if (this.onerror) this.onerror();
+      }, 5);
+    }
+  };
+  try {
+    delete require.cache[require.resolve('../.test-build/arena.js')];
+    delete require.cache[require.resolve('../.test-build/enemy-art.js')];
+    const Art = require('../.test-build/enemy-art.js');
+    Art.preloadEnemyArt(2);
+    assert.ok(asked.length <= 2, `${asked.length} requested at once: ${asked}`);
+    await sleep(2200);
+    assert.ok(peak <= 2, `peak of ${peak} in flight`);
+    const enemies = asked.filter((u) => /^(enemies|bosses)-/.test(u));
+    assert.deepEqual(enemies, [
+      'enemies-v1',
+      'enemies-core-v2',
+      'bosses-v1',
+      'enemies-rust-v2',
+      'enemies-green-v2',
+    ]);
+    const arena = asked.filter((u) => /^(floor|props)-/.test(u));
+    assert.deepEqual(arena.slice(0, 2), ['floor-core', 'props-core']);
+    assert.equal(arena.length, 6, 'every location still gets its floor and props');
+  } finally {
+    global.Image = had.Image;
+    global.document = had.document;
+  }
+});

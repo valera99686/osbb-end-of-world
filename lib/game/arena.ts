@@ -144,27 +144,41 @@ class ArenaArt {
     CanvasRenderingContext2D,
     (CanvasPattern | null)[]
   >();
-  constructor() {
+  constructor(first = 0) {
     if (typeof Image === 'undefined' || typeof document === 'undefined') return;
-    ARENA_THEMES.forEach((theme, i) => {
-      this.image(asset(`art/floor-${theme}.webp`), (img) => (this.floors[i] = img));
-      this.image(asset(`art/props-${theme}.webp`), (img) => {
-        this.props[i] = cut(img);
-      });
-    });
+    // One picture at a time with a short pause, the current location first:
+    // six decodes at once froze the first seconds on slow phones.
+    const order = ARENA_THEMES.map((_, i) => i).sort(
+      (a, b) => Number(b === first) - Number(a === first) || a - b,
+    );
+    void (async () => {
+      for (const i of order) {
+        const theme = ARENA_THEMES[i];
+        await this.image(asset(`art/floor-${theme}.webp`), (img) => (this.floors[i] = img));
+        await new Promise<void>((resolve) => setTimeout(resolve, 120));
+        await this.image(asset(`art/props-${theme}.webp`), (img) => {
+          this.props[i] = cut(img);
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 120));
+      }
+    })();
   }
-  private image(url: string, done: (img: HTMLImageElement) => void) {
-    const img = new Image();
-    img.decoding = 'async';
-    img.onload = () => {
-      if (!img.naturalWidth) return;
-      try {
-        done(img);
-      } catch {}
-    };
-    // Missing art keeps the procedural look.
-    img.onerror = () => {};
-    img.src = url;
+  private image(url: string, done: (img: HTMLImageElement) => void): Promise<void> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        if (img.naturalWidth) {
+          try {
+            done(img);
+          } catch {}
+        }
+        resolve();
+      };
+      // Missing art keeps the procedural look.
+      img.onerror = () => resolve();
+      img.src = url;
+    });
   }
   pattern(c: CanvasRenderingContext2D, theme: number) {
     const img = this.floors[theme];
@@ -220,8 +234,8 @@ function cut(img: HTMLImageElement): Cell[] | null {
   return cells;
 }
 let art: ArenaArt | undefined;
-export function preloadArenaArt() {
-  art ??= new ArenaArt();
+export function preloadArenaArt(chapter = 0) {
+  art ??= new ArenaArt(chapter);
 }
 
 // Soft radial sprites (shadows, the house light), one per colour.

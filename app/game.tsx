@@ -387,9 +387,9 @@ export default function Game() {
   }, []);
   useEffect(() => {
     setNative(navigator.userAgent.includes('OSBBAndroid'));
-    preloadEnemyArt();
-    // The battle code loads while the menu is open, so the first raid starts at once.
-    window.setTimeout(() => void import('./combat'), 1200);
+    // The battle code loads while the menu is open, so the first raid starts
+    // at once; a few seconds in, after the first screens have settled.
+    window.setTimeout(() => void import('./combat'), 3500);
     if (import.meta.env.DEV)
       Object.assign(window, { __osbbAudioPreview: renderThemePreview });
     const shortcut = SHORTCUT;
@@ -498,6 +498,14 @@ export default function Game() {
       window.removeEventListener('keydown', unlock, true);
     };
   }, []);
+  // The art for the fights is decoded a moment after a raid begins, one
+  // picture at a time. At app start it froze the first seconds on slow phones.
+  const raidChapter = run ? run.chapter : -1;
+  useEffect(() => {
+    if (raidChapter < 0) return;
+    const id = window.setTimeout(() => preloadEnemyArt(raidChapter), 2500);
+    return () => window.clearTimeout(id);
+  }, [raidChapter]);
   // Secrets: the old cheat code on a keyboard and seven quick taps on the title
   // on a touch screen. The catch-all below announces what they unlock.
   const konami = useRef(0),

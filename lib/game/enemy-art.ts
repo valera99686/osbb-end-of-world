@@ -53,42 +53,75 @@ const OUTLINE = [
 
 // All animation is driven by simulation time. Rendering never consumes the
 // combat RNG, and the two atlases are decoded only once across expeditions.
+// A pause the browser can use to draw a frame and handle a touch.
+const breathe = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+// Pixels keyed per slice: the whole 1254 x 1254 atlas in one loop is a freeze
+// of a fifth of a second on a slow phone.
+const KEY_SLICE = 90_000;
+const REGION_FILES = [
+  'art/enemies-rust-v2.webp',
+  'art/enemies-green-v2.webp',
+  'art/enemies-core-v2.webp',
+];
 class EnemyAtlas {
   enemies: Sprite[] = [];
   bosses: Sprite[] = [];
   regions: Sprite[][] = [];
-  constructor() {
+  constructor(first = 0) {
     if (typeof Image === 'undefined') return;
-    this.load(asset('art/enemies-v1.webp'), false);
-    this.load(asset('art/bosses-v1.webp'), true);
-    this.load(asset('art/enemies-rust-v2.webp'), false, 0);
-    this.load(asset('art/enemies-green-v2.webp'), false, 1);
-    // If missing, location 3 keeps the v1 fallback sprites.
-    this.load(asset('art/enemies-core-v2.webp'), false, 2);
+    // One atlas at a time, with a pause after each, and the current location
+    // first: all five at once froze the first seconds on slow phones. If a
+    // file is missing, location 3 keeps the v1 fallback sprites.
+    const lead = Math.min(REGION_FILES.length - 1, Math.max(0, first | 0));
+    const jobs: [string, boolean, number | undefined][] = [
+      ['art/enemies-v1.webp', false, undefined],
+      [REGION_FILES[lead], false, lead],
+      ['art/bosses-v1.webp', true, undefined],
+      ...REGION_FILES.map((file, i): [string, boolean, number] => [file, false, i]).filter(
+        ([, , i]) => i !== lead,
+      ),
+    ];
+    void this.run(jobs);
   }
-  private load(url: string, boss: boolean, location?: number) {
-    const atlas = new Image();
-    atlas.decoding = 'async';
-    atlas.onload = () => {
-      const source = document.createElement('canvas');
-      source.width = atlas.naturalWidth;
-      source.height = atlas.naturalHeight;
-      const sourceContext = source.getContext('2d', {
-        willReadFrequently: true,
-      });
-      if (!sourceContext) return;
-      sourceContext.drawImage(atlas, 0, 0);
-      const pixels = sourceContext.getImageData(
-        0,
-        0,
-        source.width,
-        source.height,
-      );
-      // Atlas export can use a green matte instead of alpha. Key it once at
-      // original resolution, before making the small cached game sprites.
-      const data = pixels.data;
-      if (data[1] > 180 && data[0] < 80 && data[2] < 80 && data[3] > 0) {
-        for (let p = 0; p < data.length; p += 4) {
+  private async run(jobs: [string, boolean, number | undefined][]) {
+    for (const [file, boss, location] of jobs) {
+      await this.load(asset(file), boss, location);
+      await breathe(160);
+    }
+  }
+  private load(url: string, boss: boolean, location?: number): Promise<void> {
+    return new Promise((resolve) => {
+      const atlas = new Image();
+      atlas.decoding = 'async';
+      atlas.onload = () => {
+        this.cut(atlas, boss, location).then(resolve, resolve);
+      };
+      atlas.onerror = () => resolve();
+      atlas.src = url;
+    });
+  }
+  private async cut(atlas: HTMLImageElement, boss: boolean, location?: number) {
+    const source = document.createElement('canvas');
+    source.width = atlas.naturalWidth;
+    source.height = atlas.naturalHeight;
+    const sourceContext = source.getContext('2d', {
+      willReadFrequently: true,
+    });
+    if (!sourceContext) return;
+    sourceContext.drawImage(atlas, 0, 0);
+    const pixels = sourceContext.getImageData(
+      0,
+      0,
+      source.width,
+      source.height,
+    );
+    // Atlas export can use a green matte instead of alpha. Key it once at
+    // original resolution, before making the small cached game sprites.
+    const data = pixels.data;
+    if (data[1] > 180 && data[0] < 80 && data[2] < 80 && data[3] > 0) {
+      for (let from = 0; from < data.length; from += KEY_SLICE * 4) {
+        const to = Math.min(data.length, from + KEY_SLICE * 4);
+        for (let p = from; p < to; p += 4) {
           const other = Math.max(data[p], data[p + 2]);
           const excess = data[p + 1] - other;
           if (data[p + 1] > 110 && excess > 35) {
@@ -97,56 +130,57 @@ class EnemyAtlas {
             data[p + 1] = Math.min(data[p + 1], other + 20);
           }
         }
-        sourceContext.putImageData(pixels, 0, 0);
+        if (to < data.length) await breathe();
       }
-      const frames: Sprite[] = [];
-      const cellWidth = atlas.naturalWidth / 3,
-        cellHeight = atlas.naturalHeight / (location === undefined ? 2 : 3);
-      for (
-        let index = 0;
-        index < (location !== undefined ? 9 : boss ? 5 : 6);
-        index++
-      ) {
-        const size = boss ? 256 : location !== undefined ? 160 : 112;
-        const body = document.createElement('canvas');
-        body.width = body.height = size;
-        const context = body.getContext('2d');
-        if (!context) return;
-        context.imageSmoothingQuality = 'high';
-        context.drawImage(
-          source,
-          (index % 3) * cellWidth,
-          Math.floor(index / 3) * cellHeight,
-          cellWidth,
-          cellHeight,
-          0,
-          0,
-          size,
-          size,
-        );
-        const flash = document.createElement('canvas');
-        flash.width = flash.height = size;
-        const mask = flash.getContext('2d');
-        if (!mask) return;
-        mask.drawImage(body, 0, 0);
-        mask.globalCompositeOperation = 'source-in';
-        mask.fillStyle = '#fff2d7';
-        mask.fillRect(0, 0, size, size);
-        frames.push({ body, flash });
-      }
-      if (location !== undefined) this.regions[location] = frames;
-      else if (boss) this.bosses = frames;
-      else this.enemies = frames;
-    };
-    atlas.onerror = () => {};
-    atlas.src = url;
+      sourceContext.putImageData(pixels, 0, 0);
+    }
+    await breathe();
+    const frames: Sprite[] = [];
+    const cellWidth = atlas.naturalWidth / 3,
+      cellHeight = atlas.naturalHeight / (location === undefined ? 2 : 3);
+    for (
+      let index = 0;
+      index < (location !== undefined ? 9 : boss ? 5 : 6);
+      index++
+    ) {
+      const size = boss ? 256 : location !== undefined ? 160 : 112;
+      const body = document.createElement('canvas');
+      body.width = body.height = size;
+      const context = body.getContext('2d');
+      if (!context) return;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(
+        source,
+        (index % 3) * cellWidth,
+        Math.floor(index / 3) * cellHeight,
+        cellWidth,
+        cellHeight,
+        0,
+        0,
+        size,
+        size,
+      );
+      const flash = document.createElement('canvas');
+      flash.width = flash.height = size;
+      const mask = flash.getContext('2d');
+      if (!mask) return;
+      mask.drawImage(body, 0, 0);
+      mask.globalCompositeOperation = 'source-in';
+      mask.fillStyle = '#fff2d7';
+      mask.fillRect(0, 0, size, size);
+      frames.push({ body, flash });
+    }
+    if (location !== undefined) this.regions[location] = frames;
+    else if (boss) this.bosses = frames;
+    else this.enemies = frames;
   }
 }
 let atlas: EnemyAtlas | undefined;
-export function preloadEnemyArt() {
-  atlas ??= new EnemyAtlas();
+// `chapter` is the location the player is about to fight in; its art comes first.
+export function preloadEnemyArt(chapter = 0) {
+  atlas ??= new EnemyAtlas(chapter);
   // Floors and props share the warm-up the UI already triggers.
-  preloadArenaArt();
+  preloadArenaArt(chapter);
 }
 function silhouette(sprite: Sprite, color: string) {
   const canvas = document.createElement('canvas');

@@ -23,6 +23,7 @@ import {
   reviveStep,
   spreadFix,
 } from './coop';
+import type { Lockstep } from './net';
 import { specialEffects } from './specials';
 import {
   LOCATIONS,
@@ -497,6 +498,11 @@ export interface BattleOptions {
   autoPerks?: boolean;
   // The boss's line under its name on the intro card (story.ts bossQuote).
   introQuote?: string;
+  // Online co-op (net.ts): both devices run this fight in lockstep and the
+  // simulation takes its inputs from there instead of the keys and sticks.
+  sync?: Lockstep;
+  // The host's perk choice reached this end; the draft on screen is over.
+  onPerkTaken?: () => void;
 }
 // Off-screen culling test for one frame; `margin` is how far the drawing
 // reaches from (x, y), 60 world px unless given.
@@ -592,6 +598,9 @@ export class Battle {
   // How far the camera leans toward the partner: 0 on the house, 1 in the
   // middle between the two.
   allyFocus = 0;
+  // Online co-op: the lockstep this fight runs in, and the UI hook.
+  sync: Lockstep | null = null;
+  onPerkTaken?: () => void;
   // Button edges restart after start, a reconnect or unpausing: whatever
   // is down then (the A that picked the fight or pressed "resume") has to
   // be released before it acts in battle.
@@ -769,6 +778,8 @@ export class Battle {
     this.onLevelUp = options.onLevelUp;
     this.onBeat = options.onBeat;
     this.onPerkDraft = options.onPerkDraft;
+    this.sync = options.sync ?? null;
+    this.onPerkTaken = options.onPerkTaken;
     this.autoPerks = !!options.autoPerks;
     this.introQuote = options.introQuote ?? '';
     this.meta = meta;
@@ -943,6 +954,7 @@ export class Battle {
     this.drafting = null;
     this.pendingLevels = Math.max(0, this.pendingLevels - 1);
     this.run.perks = [...(this.run.perks ?? []), id];
+    this.onPerkTaken?.();
     this.refreshPerks();
     const before = this.stats.health;
     this.stats = statsFor(this.run, this.meta);
@@ -1017,8 +1029,12 @@ export class Battle {
     }
     const dt = Math.min(0.04, real) * this.timeScale();
     this.slowMo = Math.max(0, this.slowMo - real);
-    if (!this.ended) this.update(dt);
-    else if (this.pendingEnd) {
+    if (!this.ended) {
+      // Online the fixed steps come from the lockstep, in the same number at
+      // both ends; slow motion is real-time and would tear them apart.
+      if (this.sync) this.sync.pump(this, real);
+      else this.update(dt);
+    } else if (this.pendingEnd) {
       this.updateFx(dt);
       this.outro -= real;
       if (this.outro <= 0) this.flushEnd();
@@ -1120,12 +1136,12 @@ export class Battle {
         this.padHeld = now;
         if (!((dash || pulse) && this.skipIntro())) {
           if (start) this.onPause?.();
-          if (dash) this.dash();
-          if (pulse) this.pulse();
+          if (dash) this.localDash();
+          if (pulse) this.localPulse();
         }
       }
     }
-    if (!this.ally || !pads[1]) {
+    if (!this.ally || !pads[1] || this.sync) {
       this.pad2 = { x: 0, y: 0 };
       this.pad2Held = [];
       this.pad2Primed = false;
@@ -1151,6 +1167,63 @@ export class Battle {
   }
   get presenting() {
     return this.holdIntro && this.intro > 0;
+  }
+  // Two players on this very device (not a partner on another one).
+  get localDuo() {
+    return !!this.ally && !this.sync;
+  }
+  // The partner's device is gone: the fight goes on alone from here. It is no
+  // longer shared with anyone, so nothing has to stay repeatable.
+  dropPartner() {
+    this.sync = null;
+    this.ally = null;
+    this.allyFocus = 0;
+    this.stick2 = { x: 0, y: 0 };
+  }
+  // What the local player does with the keys, the stick and the pad.
+  localAim() {
+    const keys = keyVector(this.keys, SOLO_KEYS);
+    return {
+      x: this.stick.x + this.pad.x + keys.x,
+      y: this.stick.y + this.pad.y + keys.y,
+    };
+  }
+  // A press of the local player: in lockstep it travels with the next frame.
+  localDash() {
+    if (this.sync) this.sync.press('dash');
+    else this.dash();
+  }
+  localPulse() {
+    if (this.sync) this.sync.press('pulse');
+    else this.pulse();
+  }
+  // A short fingerprint of the fight for the two ends to compare.
+  stateHash() {
+    let h = 0x811c9dc5;
+    const mix = (n: number) => {
+      h = Math.imul(h ^ (Math.round(n * 100) | 0), 16777619);
+    };
+    mix(this.x);
+    mix(this.y);
+    mix(this.run.hp);
+    mix(this.run.coins);
+    mix(this.run.xp);
+    mix(this.run.kills);
+    mix(this.elapsed);
+    mix(this.enemies.length);
+    for (const e of this.enemies.slice(0, 40)) {
+      mix(e.x);
+      mix(e.y);
+      mix(e.hp);
+    }
+    mix(this.bullets.length);
+    mix(this.drops.length);
+    if (this.ally) {
+      mix(this.ally.x);
+      mix(this.ally.y);
+      mix(this.ally.hp);
+    }
+    return h >>> 0;
   }
   // A tap or key ends the presentation early (not in its first half second).
   // True while it is on, so the key press is not also a dash.
@@ -2124,9 +2197,10 @@ export class Battle {
       else if (a.downTime >= COOP.autoRise) this.reviveAlly(false);
       return;
     }
-    const move = keyVector(this.keys, P2_KEYS);
-    let dx = this.stick2.x + this.pad2.x + move.x;
-    let dy = this.stick2.y + this.pad2.y + move.y;
+    const net = this.sync?.cur;
+    const move = net ? { x: 0, y: 0 } : keyVector(this.keys, P2_KEYS);
+    let dx = net ? net[1].x : this.stick2.x + this.pad2.x + move.x;
+    let dy = net ? net[1].y : this.stick2.y + this.pad2.y + move.y;
     const length = Math.hypot(dx, dy);
     if (length > 0) {
       dx /= Math.max(1, length);
@@ -2160,7 +2234,8 @@ export class Battle {
     }
     // Both stay inside one picture: whoever walks away is pulled back, and
     // the house gives a little too.
-    const small = this.view.w > 100;
+    // The size of the screen is not a part of the simulation online.
+    const small = this.view.w > 100 && !this.sync;
     const fix = spreadFix(
       this,
       a,
@@ -3574,9 +3649,12 @@ export class Battle {
     if (this.updateProps(dt)) return;
     // Alone, WASD and the arrows both drive the house; with a partner the
     // arrows belong to them.
-    const move = keyVector(this.keys, this.ally ? P1_KEYS : SOLO_KEYS);
-    let dx = this.stick.x + this.pad.x + move.x;
-    let dy = this.stick.y + this.pad.y + move.y;
+    const net = this.sync?.cur;
+    const move = net
+      ? { x: 0, y: 0 }
+      : keyVector(this.keys, this.ally ? P1_KEYS : SOLO_KEYS);
+    let dx = net ? net[0].x : this.stick.x + this.pad.x + move.x;
+    let dy = net ? net[0].y : this.stick.y + this.pad.y + move.y;
     const length = Math.hypot(dx, dy);
     if (length > 0) {
       dx /= Math.max(1, length);

@@ -41,6 +41,8 @@ import {
 import { statsFor, type Meta, type Run } from '@/lib/game/model';
 import { heroAbility, type HeroAbility } from '@/lib/game/heroes';
 import { P2_CODES, P2_KEYS } from '@/lib/game/coop';
+import { Lockstep, STALL_WARN } from '@/lib/game/net';
+import type { NetSession } from '@/lib/game/session';
 import { CHARACTERS } from '@/lib/game/data';
 import {
   Battle,
@@ -79,6 +81,10 @@ export function Combat({
   onExit,
   onPauseChange,
   onSettings,
+  net,
+  startSid,
+  simMeta,
+  onNetLost,
 }: {
   run: Run;
   meta: Meta;
@@ -89,15 +95,27 @@ export function Combat({
   onExit: (r: Run) => void;
   onPauseChange: (paused: boolean) => void;
   onSettings: () => void;
+  // Online co-op: the room, the id of this fight (the guest gets it from the
+  // host's message, the host asks for one), the profile the host simulates
+  // with, and what to do when the fight cannot go on for the guest.
+  net?: NetSession;
+  startSid?: number;
+  simMeta?: Meta;
+  onNetLost?: () => void;
 }) {
   const ability = heroAbility(run.character),
     AbilityIcon = ABILITY_ICONS[ability.id],
     coop = !!run.coop,
+    online = !!net,
+    // Two players on this very device (not a partner on another one).
+    duo = coop && !online,
     partner = coop ? heroAbility(run.coop) : null,
     PartnerIcon = partner ? ABILITY_ICONS[partner.id] : null,
     partnerName = CHARACTERS.find((c) => c.id === run.coop)?.name ?? '';
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+  const onNetLostRef = useRef(onNetLost);
+  onNetLostRef.current = onNetLost;
   const onPauseRef = useRef(onPauseChange),
     holdRef = useRef(hold);
   useEffect(() => {
@@ -138,8 +156,41 @@ export function Combat({
       who: SpeakerId;
       text: string;
       key: number;
-    } | null>(null);
+    } | null>(null),
+    // Online: the id of this fight (null while the host waits for the guest
+    // to build it; 0 means it is played without a partner), and how it is.
+    [sid, setSid] = useState<number | null>(
+      net ? (net.role === 'guest' ? (startSid ?? 0) : null) : 0,
+    ),
+    [netNote, setNetNote] = useState<'' | 'wait' | 'lost' | 'drift'>('');
+  const alive = useRef(true),
+    opened = useRef(false);
   useEffect(() => {
+    // The host asks the guest to build the very same fight and waits for it.
+    alive.current = true;
+    if (net && net.role === 'host' && !opened.current) {
+      opened.current = true;
+      net.open(run, meta).then((id) => {
+        if (alive.current) setSid(id ?? 0);
+      });
+    }
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!net) return;
+    const timer = window.setInterval(() => {
+      const s = engine.current?.sync;
+      if (!s) return;
+      setNetNote(
+        s.desync ? 'drift' : s.closed ? 'lost' : s.stalled > STALL_WARN ? 'wait' : '',
+      );
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [net]);
+  useEffect(() => {
+    if (sid === null) return;
     // Radio barks: few, short, never during the perk draft.
     let lastBark = -1e9,
       barks = 0,
@@ -178,14 +229,28 @@ export function Combat({
         });
       }, 3600);
     }
+    // A fight with a partner on another device runs in lockstep; if the
+    // partner could not be reached the host plays it alone.
+    const linked = !!net && sid > 0 && !!net.link;
+    const sync = linked
+      ? new Lockstep(
+          net!.role === 'host' ? 0 : 1,
+          sid,
+          net!.link!,
+          () => engine.current?.localAim() ?? { x: 0, y: 0 },
+        )
+      : undefined;
+    const simRun = net && !linked && run.coop ? { ...run, coop: '' } : run;
     const b = new Battle(
       canvas.current,
-      run,
-      meta,
+      simRun,
+      simMeta ?? meta,
       audio,
       setHud,
       (r) => onDoneRef.current(r),
       {
+        sync,
+        onPerkTaken: () => setDraft(null),
         settings: meta.settings,
         introQuote:
           run.kind === 'boss' || run.kind === 'miniboss'
@@ -221,12 +286,38 @@ export function Combat({
     );
     const settle = () => settleBattle(b);
     engine.current = b;
+    if (import.meta.env.DEV) {
+      // For scripts/net-e2e.cjs: the fight and a fingerprint every 60 steps.
+      const w = window as unknown as {
+        __battle?: Battle;
+        __rec?: Record<number, number>;
+      };
+      w.__battle = b;
+      w.__rec = {};
+      const stepOnce = b.update.bind(b);
+      let n = 0;
+      b.update = (dt: number) => {
+        stepOnce(dt);
+        if (++n % 60 === 0) w.__rec![n] = b.stateHash();
+      };
+    }
+    if (sync && net) {
+      net.attach(sync);
+      sync.onDesync = () => setNetNote('drift');
+      sync.onClosed = () => setNetNote('lost');
+      sync.onOver = () => {
+        if (!b.ended) onNetLostRef.current?.();
+      };
+      // The guest says it listens, then both send their first frames.
+      if (net.role === 'guest') net.ready(sid);
+      sync.begin();
+    }
     b.start();
     const keys = (e: KeyboardEvent) => {
       // Sliders and switches in the settings dialog need the arrow keys.
       if (holdRef.current) return;
       // While a boss is being presented any of these keys only skips it.
-      const second = !!b.ally && P2_CODES.includes(e.code);
+      const second = b.localDuo && P2_CODES.includes(e.code);
       if (
         (['Space', 'KeyE', 'Enter'].includes(e.code) || second) &&
         b.skipIntro()
@@ -256,8 +347,8 @@ export function Combat({
         ].includes(e.code)
       ) {
         e.preventDefault();
-        if (e.code === 'Space') b.dash();
-        else if (e.code === 'KeyE') b.pulse();
+        if (e.code === 'Space') b.localDash();
+        else if (e.code === 'KeyE') b.localPulse();
         else b.keys.add(e.code);
       }
       if ((e.code === 'Escape' || e.code === 'KeyP') && !settle())
@@ -271,19 +362,23 @@ export function Combat({
     };
     document.addEventListener('osbb-back', back);
     const up = (e: KeyboardEvent) => b.keys.delete(e.code);
-    const blur = () => {
+    const blur = (hidden = false) => {
       b.keys.clear();
       b.stick = { x: 0, y: 0 };
       b.stick2 = { x: 0, y: 0 };
+      // With a partner online, clicking away must not stop their fight: only
+      // a hidden page does (it cannot draw anyway).
+      if (b.sync && !hidden) return;
       // A backgrounded app may be killed: a decided battle is saved now.
       if (!settle()) setPaused(true);
     };
     const visibility = () => {
-      if (document.hidden) blur();
+      if (document.hidden) blur(true);
     };
     window.addEventListener('keydown', keys);
     window.addEventListener('keyup', up);
-    window.addEventListener('blur', blur);
+    const onBlur = () => blur();
+    window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', visibility);
     return () => {
       window.clearTimeout(hideTimer);
@@ -292,13 +387,19 @@ export function Combat({
       stopWaiting?.();
       stopVoice();
       b.stop();
+      if (sync && net) {
+        // A fight left half way tells the other end; a finished one ends there
+        // by itself, a few steps later.
+        if (!b.ended) sync.finish();
+        net.detach(sync);
+      }
       window.removeEventListener('keydown', keys);
       window.removeEventListener('keyup', up);
-      window.removeEventListener('blur', blur);
+      window.removeEventListener('blur', onBlur);
       document.removeEventListener('visibilitychange', visibility);
       document.removeEventListener('osbb-back', back);
     };
-  }, []);
+  }, [sid]);
   useEffect(() => {
     onPauseRef.current(paused);
     if (engine.current) {
@@ -357,7 +458,12 @@ export function Combat({
   const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
   return (
     <section className="battle-screen">
-      {draft && !paused && !hold && (
+      {draft && !paused && !hold && net?.role === 'guest' && (
+        <div className="net-note" role="status">
+          Господар обирає покращення…
+        </div>
+      )}
+      {draft && !paused && !hold && net?.role !== 'guest' && (
         <PerkDraft
           run={engine.current?.run ?? run}
           offers={draft.offers}
@@ -365,16 +471,48 @@ export function Combat({
           onPick={(id) => {
             audio.play('ui');
             setDraft(null);
+            // Online both ends take the pick at the same moment.
+            engine.current?.sync?.choose(id);
             engine.current?.choosePerk(id);
           }}
         />
+      )}
+      {(sid === null || netNote) && (
+        <div className="net-note" role="status">
+          {sid === null ? (
+            <span>Очікуємо, поки напарник збудує бій…</span>
+          ) : netNote === 'wait' ? (
+            <span>Чекаємо напарника… Зв’язок повільний або він призупинив гру.</span>
+          ) : (
+            <>
+              <span>
+                {netNote === 'drift'
+                  ? 'Бій розійшовся між двома пристроями й зупинений.'
+                  : 'Напарник відключився.'}
+              </span>
+              <button
+                className="secondary"
+                onClick={() => {
+                  if (net?.role === 'host') {
+                    engine.current?.dropPartner();
+                    setNetNote('');
+                  } else onNetLost?.();
+                }}
+              >
+                {net?.role === 'host' ? 'Продовжити без напарника' : 'Вийти'}
+              </button>
+            </>
+          )}
+        </div>
       )}
       <canvas
         ref={canvas}
         className="battle-canvas"
         onPointerDown={() => engine.current?.skipIntro()}
         aria-label={
-          coop
+          online
+            ? `Бойова арена, гра по мережі. Рух WASD або стрілками, пробіл — ривок, E — вміння: ${ability.name}.`
+            : coop
             ? `Бойова арена, двоє гравців. Перший: рух WASD, пробіл — ривок, E — вміння: ${ability.name}. Другий: рух стрілками, скісна риска — ривок, крапка — вміння: ${partner?.name}.`
             : `Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`
         }
@@ -487,9 +625,13 @@ export function Combat({
       {hud.time < 7 && (
         <div className="battle-hint">
           {run.step === 0
-            ? coop
-              ? 'Двоє: перший веде будинок (WASD), другий — сусід зі стрілками. Якщо сусід упав — підійди будинком, щоб підняти.'
-              : 'Рухайся й збирай лут. Будинок стріляє сам.'
+            ? online
+              ? net?.role === 'host'
+                ? 'Онлайн: ти ведеш будинок, напарник — сусід з іншого пристрою. Якщо він упав — підійди будинком, щоб підняти.'
+                : 'Онлайн: ти — сусід, що прикриває двір. Якщо впав — нехай господар підійде будинком, щоб підняти.'
+              : coop
+                ? 'Двоє: перший веде будинок (WASD), другий — сусід зі стрілками. Якщо сусід упав — підійди будинком, щоб підняти.'
+                : 'Рухайся й збирай лут. Будинок стріляє сам.'
             : run.kind === 'boss'
               ? 'Стеж за червоними снарядами. Ривок захищає від шкоди.'
               : run.kind === 'miniboss'
@@ -497,7 +639,7 @@ export function Combat({
                 : 'Розбий загін: три хвилі й ватажок. Рухайся — стрільці цілять на випередження.'}
         </div>
       )}
-      <div className={`battle-controls${coop ? ' coop' : ''}`}>
+      <div className={`battle-controls${duo ? ' coop' : ''}`}>
         <div
           className="joystick"
           ref={joystick}
@@ -519,7 +661,7 @@ export function Combat({
           />
           <span>РУХ</span>
         </div>
-        {coop && (
+        {duo && (
           <div className="ability-row first">
             <button
               className="ability"
@@ -544,7 +686,7 @@ export function Combat({
             </button>
           </div>
         )}
-        {coop ? (
+        {duo ? (
           <div className="keyboard-hint coop-hint">
             <span>
               <i className="who">1</i>
@@ -569,7 +711,7 @@ export function Combat({
             <span>{ability.name.toLowerCase()}</span>
           </div>
         )}
-        {coop && partner && PartnerIcon ? (
+        {duo && partner && PartnerIcon ? (
           <>
             <div className="ability-row second">
               <button
@@ -628,7 +770,7 @@ export function Combat({
           <div className="ability-row">
             <button
               className="ability"
-              onClick={() => engine.current?.dash()}
+              onClick={() => engine.current?.localDash()}
               disabled={hud.dash > 0}
               aria-label="Ривок"
             >
@@ -638,7 +780,7 @@ export function Combat({
             </button>
             <button
               className="ability pulse"
-              onClick={() => engine.current?.pulse()}
+              onClick={() => engine.current?.localPulse()}
               disabled={hud.pulse > 0}
               aria-label={ability.name}
               title={ability.text}

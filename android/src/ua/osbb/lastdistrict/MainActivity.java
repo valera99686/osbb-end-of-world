@@ -17,9 +17,11 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Locale;
 
-/** Bundled offline game. No network permission, analytics, or JavaScript bridge. */
+/** Bundled game. The single-player game is offline; the network permission is only for online co-op (a direct WebRTC link between two players, found through the free PeerJS broker). No analytics, ads, or JavaScript bridge. */
 public final class MainActivity extends Activity {
   private static final String HOST = "appassets.androidplatform.net";
+  // The room broker of online co-op: the only other host the game talks to.
+  private static final String BROKER = "0.peerjs.com";
   private WebView game;
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
@@ -47,6 +49,7 @@ public final class MainActivity extends Activity {
         return !"https".equals(request.getUrl().getScheme()) || !HOST.equals(request.getUrl().getHost());
       }
       @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        if ("https".equals(request.getUrl().getScheme()) && BROKER.equals(request.getUrl().getHost())) return null;
         if (!"https".equals(request.getUrl().getScheme()) || !HOST.equals(request.getUrl().getHost())) return missing();
         String path = request.getUrl().getPath();
         if (path == null || path.equals("/")) path = "/index.html";

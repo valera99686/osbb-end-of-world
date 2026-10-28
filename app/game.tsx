@@ -109,6 +109,8 @@ import {
 } from './modes-panel';
 import { NoticeBoard } from './notice-board';
 import { CoopSelect } from './coop-select';
+import { GuestRoom, OnlinePanel, useNet } from './online';
+import { NetSession } from '@/lib/game/session';
 import { coopHero } from '@/lib/game/coop';
 import './features.css';
 import {
@@ -315,6 +317,7 @@ export default function Game() {
       | 'stats'
       | 'achievements'
       | 'case'
+      | 'guest'
     >('hub');
   const [character, setCharacter] = useState('mechanic'),
     [chapter, setChapter] = useState(0),
@@ -324,6 +327,16 @@ export default function Game() {
     [heat, setHeat] = useState(0),
     // Hero of the second player; '' when the next raid is played alone.
     [coopPick, setCoopPick] = useState(''),
+    // Online co-op: the room, the fight the host opened for a guest, how the
+    // last one ended, and whether the current raid was begun with a partner.
+    [net, setNet] = useState<NetSession | null>(null),
+    [guestFight, setGuestFight] = useState<{
+      sid: number;
+      run: Run;
+      meta: Meta;
+    } | null>(null),
+    [guestResult, setGuestResult] = useState<BattleResult | null>(null),
+    [onlineRun, setOnlineRun] = useState(false),
     [queued, setQueued] = useState<Launch | null>(null),
     [toasts, setToasts] = useState<Toast[]>([]),
     [updateHidden, setUpdateHidden] = useState(false),
@@ -346,6 +359,8 @@ export default function Game() {
     [sceneQueue, setSceneQueue] = useState<string[]>([]);
   const audio = useRef<AudioEngine | null>(null);
   if (!audio.current) audio.current = new AudioEngine();
+  const roomHandle = useRef<{ close(): void } | null>(null);
+  useNet(net);
   // The result modal opens at its title: the tall summary would otherwise
   // scroll down to its first button and hide how the run went.
   const resultTitle = useRef<HTMLHeadingElement>(null);
@@ -354,7 +369,9 @@ export default function Game() {
     navigator.userAgent.includes('OSBBAndroid');
   const install = useInstallPrompt(!isNative);
   const sw = useServiceWorker(!isNative && import.meta.env.PROD);
-  const inCombat = screen === 'play' && run?.page === 'combat';
+  const inCombat =
+    (screen === 'play' && run?.page === 'combat') ||
+    (screen === 'guest' && !!guestFight);
   const cutscene = ready && meta.tutorialDone && !!meta.sceneProgress;
   // Toasts wait for a free screen: in battle or under a dialog they would
   // expire unseen or cover the dialog's own buttons. Each one's timer starts
@@ -712,6 +729,106 @@ export default function Game() {
     }
   }
   const coopChoice = coopHero(meta.wins, coopPick);
+  // A guest is in the room and listening: the host's next raid is for two.
+  const livePartner = net?.role === 'host' && net.phase === 'connected';
+  const nameOf = (id: string) => CHARACTERS.find((c) => c.id === id)?.name ?? id;
+  const netPhase = net?.phase;
+  // The guest opens the fights the host starts, and a connected guest lives
+  // in the room screen; a lost room sends everyone back.
+  useEffect(() => {
+    if (!net) return;
+    if (net.role === 'guest') {
+      net.onStart = (m) => {
+        const r = m.run as Run | null;
+        if (!r || typeof r.seed !== 'number' || !Array.isArray(r.items)) return;
+        setGuestResult(null);
+        setGuestFight({ sid: m.sid, run: r, meta: m.meta as Meta });
+        setScreen('guest');
+      };
+      const early = net.takeStart();
+      if (early) net.onStart(early);
+    }
+    return () => {
+      net.onStart = null;
+    };
+  }, [net]);
+  useEffect(() => {
+    if (!net) return;
+    if (net.role === 'guest') {
+      if (net.phase === 'connected')
+        setScreen((s) => (s === 'hub' ? 'guest' : s));
+      else if (net.phase === 'closed') {
+        closeOnline();
+        setNotice('Зв’язок із кімнатою втрачено.');
+      }
+    } else if (net.phase !== 'connected' && onlineRun) {
+      setOnlineRun(false);
+      setRun((r) => (r && r.coop ? { ...r, coop: '' } : r));
+      setNotice('Напарник вийшов із кімнати: рейд триває без нього.');
+    }
+  }, [netPhase]);
+  // What the guest reads while the host is away from the fights.
+  useEffect(() => {
+    if (net?.role !== 'host' || net.phase !== 'connected') return;
+    net.sendStatus(
+      screen !== 'play' || !run
+        ? 'Господар у Притулку'
+        : run.page === 'map'
+          ? `Карта: ${LOCATIONS[run.chapter]?.name ?? ''}, крок ${run.step + 1}`
+          : run.page === 'shop'
+            ? 'Господар у магазині'
+            : run.page === 'event'
+              ? 'Господар на події'
+              : run.page === 'reward'
+                ? 'Господар вибирає нагороду'
+                : 'Господар у бою',
+    );
+  }, [netPhase, screen, run?.page, run?.step, run?.chapter]);
+  function closeOnline() {
+    roomHandle.current?.close();
+    roomHandle.current = null;
+    net?.close();
+    setNet(null);
+    setGuestFight(null);
+    setGuestResult(null);
+    setScreen((s) => (s === 'guest' ? 'hub' : s));
+  }
+  async function hostOnline() {
+    closeOnline();
+    const room = new NetSession('host', APP_VERSION, {
+      hero: character,
+      name: nameOf(character),
+    });
+    setNet(room);
+    try {
+      const { createRoom } = await import('./net-peer');
+      roomHandle.current = await createRoom({
+        code: (c) => room.setCode(c),
+        guest: (link) => room.adopt(link),
+        error: (why) => room.fail(why),
+      });
+    } catch {
+      room.fail('net:Не вдалося завантажити мережевий модуль. Перевір інтернет.');
+    }
+  }
+  async function joinOnline(code: string) {
+    closeOnline();
+    const room = new NetSession('guest', APP_VERSION, {
+      hero: character,
+      name: nameOf(character),
+    });
+    room.code = code;
+    setNet(room);
+    try {
+      const { joinRoom } = await import('./net-peer');
+      roomHandle.current = await joinRoom(code, {
+        link: (link) => room.adopt(link),
+        error: (why) => room.fail(why),
+      });
+    } catch {
+      room.fail('net:Не вдалося завантажити мережевий модуль. Перевір інтернет.');
+    }
+  }
   function pickCoop(hero: string) {
     setCoopPick(hero);
     try {
@@ -746,6 +863,11 @@ export default function Game() {
         coop: spec.mode === 'daily' ? '' : (spec.coop ?? coopChoice),
       },
     );
+    // The partner who joined the room is not held to this profile's unlocks.
+    const mate =
+      livePartner && spec.mode !== 'daily' ? (net?.partner?.hero ?? '') : '';
+    if (mate && CHARACTERS.some((c) => c.id === mate)) started.coop = mate;
+    setOnlineRun(!!started.coop && !!mate);
     setRun(started);
     const begun = startDaily(base, started);
     setMeta({
@@ -772,7 +894,12 @@ export default function Game() {
     setScreen('hub');
     setNotice('');
   }
-  function ended(b: BattleResult) {
+  function ended(result: BattleResult) {
+    // A partner who left in the middle of the fight is not carried on.
+    const b =
+      onlineRun && !livePartner && result.run.coop
+        ? { ...result, run: { ...result.run, coop: '' } }
+        : result;
     const gate = b.boss && b.run.step === b.run.nodes.length - 1;
     if (b.won && gate && !isFinalVictory(b.run)) {
       const next = advanceLocation(b.run, meta),
@@ -1049,13 +1176,13 @@ export default function Game() {
   );
   return (
     <main
-      className={`game-shell ${screen === 'play' && run?.page === 'combat' ? 'in-combat' : ''}`}
+      className={`game-shell ${inCombat ? 'in-combat' : ''}`}
     >
       <header className="topbar">
         <button
           className="brand"
           onClick={() => {
-            if (run?.page !== 'combat') back();
+            if (run?.page !== 'combat' && screen !== 'guest') back();
           }}
           aria-label="Головне меню"
         >
@@ -1069,7 +1196,9 @@ export default function Game() {
         <span className="micro top-location">
           {screen === 'hub'
             ? 'ПРИТУЛОК № 17'
-            : screen === 'workshop'
+            : screen === 'guest'
+              ? 'ОНЛАЙН-КІМНАТА'
+              : screen === 'workshop'
               ? 'МАЙСТЕРНЯ'
               : screen === 'codex'
                 ? 'КОДЕКС ЗНАХІДОК'
@@ -1189,10 +1318,19 @@ export default function Game() {
                   value={heatChoice}
                   onChange={pickHeat}
                 />
-                <CoopSelect
-                  wins={meta.wins}
-                  value={coopChoice}
-                  onChange={pickCoop}
+                {!livePartner && (
+                  <CoopSelect
+                    wins={meta.wins}
+                    value={coopChoice}
+                    onChange={pickCoop}
+                  />
+                )}
+                <OnlinePanel
+                  session={net}
+                  build={APP_VERSION}
+                  onHost={hostOnline}
+                  onJoin={joinOnline}
+                  onClose={closeOnline}
                 />
               </>
             )}
@@ -1338,10 +1476,15 @@ export default function Game() {
             >
               <Combat
                 key={`${run.seed}-${run.chapter}-${run.step}`}
-                run={run}
+                run={
+                  onlineRun && !livePartner && run.coop
+                    ? { ...run, coop: '' }
+                    : run
+                }
                 meta={meta}
                 audio={audio.current!}
                 hold={settingsOpen}
+                net={livePartner && run.coop && net ? net : undefined}
                 onDone={ended}
                 onExit={(r) => {
                   setRun(r);
@@ -1660,6 +1803,38 @@ export default function Game() {
             </div>
           )}
         </>
+      )}
+      {screen === 'guest' && net?.role === 'guest' && (
+        guestFight ? (
+          <Suspense
+            fallback={<section className="battle-screen" aria-busy="true" />}
+          >
+            <Combat
+              key={guestFight.sid}
+              run={guestFight.run}
+              meta={meta}
+              simMeta={guestFight.meta}
+              startSid={guestFight.sid}
+              net={net}
+              audio={audio.current!}
+              hold={settingsOpen}
+              onDone={(r) => {
+                setGuestResult(r);
+                setGuestFight(null);
+              }}
+              onExit={closeOnline}
+              onPauseChange={setCombatPaused}
+              onSettings={() => setSettingsOpen(true)}
+              onNetLost={() => setGuestFight(null)}
+            />
+          </Suspense>
+        ) : (
+          <GuestRoom
+            session={net}
+            result={guestResult}
+            onLeave={closeOnline}
+          />
+        )
       )}
       {screen === 'workshop' && (
         <Suspense fallback={null}>

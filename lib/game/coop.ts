@@ -16,10 +16,19 @@ export const COOP = {
   // The partner is a bit quicker than the heavy house, but not by much.
   speed: 1.08,
   regen: 0.5,
-  // Two sets of guns need a bigger yard: heat for enemies only, so that the
-  // ladder and the records of solo play are not touched.
-  enemyHealth: 1.5,
-  spawnRate: 1.3,
+  // The number of players a fight is made for. A fight with a partner has
+  // this many times the enemies (they come this much faster and in packs this
+  // much bigger) and this many leaders, each as tough as a lone player's one.
+  // Heat for enemies only: the ladder and the records of solo play are not
+  // touched.
+  players: 2,
+  enemyHealth: 1,
+  spawnRate: 2,
+  leaders: 2,
+  // Two leaders attack at once, and their patterns are made for one target:
+  // each one is a little weaker and swings a little less often.
+  leaderHealth: 0.8,
+  bossTime: 1.35,
   // Revive: the house stands next to the fallen one for this long. Alone the
   // partner gets up after `autoRise` seconds with a part of their health.
   reviveSeconds: 2.5,
@@ -35,12 +44,12 @@ export const COOP = {
   spreadY: 560,
   // Radius around the partner that draws enemy fire like the house does.
   hitRadius: 20,
-  // Leaders have this much more time to fall: they are 50% tougher, and the
+  // Leaders have this much more time to fall: there are two of them, and the
   // clock of a fight is made for one set of guns.
-  leaderTime: 1.1,
+  leaderTime: 1.25,
   // Two guns kill a third more enemies, so coins and crystals from the floor
   // count at this share: the economy and the levels keep the pace of solo play.
-  loot: 0.8,
+  loot: 0.5,
   // Online, a link and a person react late: every hit leaves this many more
   // seconds of safety, for both players (it is part of the shared simulation).
   netGrace: 0.15,
@@ -153,6 +162,7 @@ export function coopHeat(heat: HeatEffects): HeatEffects {
     ...heat,
     enemyHealth: heat.enemyHealth * COOP.enemyHealth,
     spawnRate: heat.spawnRate * COOP.spawnRate,
+    bossTime: heat.bossTime * COOP.bossTime,
   };
 }
 

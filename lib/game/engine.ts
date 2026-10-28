@@ -1957,7 +1957,8 @@ export class Battle {
             ? 7
             : leaderFight
               ? 19
-              : 55 + this.run.chapter * 10))
+              : 55 + this.run.chapter * 10) *
+            (this.ally ? COOP.players : 1))
     )
       return;
     // Leaders and early rooms never roll, so their combat rolls stay put.
@@ -1973,7 +1974,8 @@ export class Battle {
       (boss || mini
         ? 1
         : (1 + this.run.step * 0.025) * (this.run.kind === 'elite' ? 1.2 : 1)) *
-      this.heat.enemyHealth;
+      this.heat.enemyHealth *
+      (this.ally && (boss || mini) ? COOP.leaderHealth : 1);
     let speed = def.speed * this.heat.enemySpeed;
     if (affix === 'armored') hp *= 1.6;
     if (affix === 'swift') speed *= 1.45;
@@ -2445,11 +2447,20 @@ export class Battle {
           color: ENEMY_DEFS[e.type].color,
         });
       if (isLeader(e.type)) {
+        if (e.type === MINIBOSS_TYPE)
+          this.run.minibossKills = (this.run.minibossKills ?? 0) + 1;
+        // With two leaders the first one's fall is only a beat: the fight
+        // goes on until the last one is down.
+        if (
+          this.enemies.some((o) => o !== e && o.hp > 0 && isLeader(o.type))
+        ) {
+          this.leaderDown(e);
+          this.banner('БОС ЗБИТО', 'Лишився ще один', '#ffd166', 1.4);
+          return;
+        }
         // Counted before finish() so the result already carries it.
         if (!this.run.battleDamage)
           this.run.bossNoHit = (this.run.bossNoHit ?? 0) + 1;
-        if (e.type === MINIBOSS_TYPE)
-          this.run.minibossKills = (this.run.minibossKills ?? 0) + 1;
         for (const drop of this.drops)
           if (drop.kind === 'coin') this.run.coins += drop.value;
           else if (drop.kind === 'xp') this.run.xp += drop.value;
@@ -3787,7 +3798,17 @@ export class Battle {
     const leaderFight =
       this.run.kind === 'boss' || this.run.kind === 'miniboss';
     if (leaderFight && !this.bossSpawned) {
-      this.spawn(this.run.kind === 'miniboss' ? MINIBOSS_TYPE : 99);
+      const kind = this.run.kind === 'miniboss' ? MINIBOSS_TYPE : 99;
+      // With a partner there is a leader for each of the two, on opposite
+      // sides of the yard.
+      const first = this.spawn(kind);
+      if (first && this.ally)
+        for (let i = 1; i < COOP.leaders; i++)
+          this.spawn(kind, {
+            x: Math.max(50, Math.min(1550, 1600 - first.x)),
+            y: Math.max(50, Math.min(950, 1000 - first.y)),
+            force: true,
+          });
       this.bossSpawned = true;
     }
     if (!leaderFight) this.updateSquad();
@@ -4352,7 +4373,8 @@ export class Battle {
   }
   // The numbers of the screen's top (the guest of a mirror gets them too).
   hud(): Hud {
-    const boss = this.enemies.find((e) => isLeader(e.type));
+    const leaders = this.enemies.filter((e) => isLeader(e.type));
+    const boss = leaders[0];
     return {
       drafting: !!this.drafting,
       hp: this.run.hp,
@@ -4366,11 +4388,11 @@ export class Battle {
       duration: this.duration,
       dash: this.dashCd,
       pulse: this.pulseCd,
-      boss: Math.max(0, boss?.hp ?? 0),
-      bossMax: boss?.max ?? 0,
+      boss: leaders.reduce((sum, l) => sum + Math.max(0, l.hp), 0),
+      bossMax: leaders.reduce((sum, l) => sum + l.max, 0),
       enemies: this.enemies.length,
       bossAttack: this.bossAttack,
-      bossPhase: boss?.phase ?? 0,
+      bossPhase: leaders.reduce((top, l) => Math.max(top, l.phase), 0),
       ...(this.encounter
         ? {
             wave: this.wave + 1,

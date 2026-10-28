@@ -346,7 +346,7 @@ test('Pickups go to whoever is closer; kits heal the one who takes them', () => 
   b.drops.push({ x: 1190, y: 690, kind: 'coin', value: 7 });
   const coins = b.run.coins;
   step(b, 0.2);
-  assert.equal(b.run.coins, coins + 7, 'the coin goes into the shared till');
+  assert.equal(b.run.coins, coins + 5, 'the coin goes into the shared till, at the co-op loot share');
   assert.equal(b.run.hp, 50, 'the kit did not heal the distant house');
   assert.ok(b.ally.hp > 10, 'it healed the one who took it');
   // Crystals still level up the shared build.
@@ -483,4 +483,48 @@ test('The partner is drawn on their feet, flickering, and lying down, without a 
   calls.length = 0;
   solo.drawAlly(ctx);
   assert.equal(calls.length, 0);
+});
+
+test('With two guns the floor pays a share, carried over so nothing is lost, and alone it pays in full', () => {
+  const solo = fight('').b;
+  assert.equal(solo.loot(7, 'coin'), 7);
+  assert.equal(solo.loot(3, 'xp'), 3);
+  const { b } = fight('mechanic');
+  assert.equal(C.COOP.loot, 0.8);
+  let paid = 0;
+  for (let i = 0; i < 100; i++) paid += b.loot(1, 'coin');
+  assert.equal(paid, 80, 'a hundred coins pay eighty on average, whole ones only');
+  let xp = 0;
+  for (let i = 0; i < 50; i++) xp += b.loot(4, 'xp');
+  assert.equal(xp, 160);
+  assert.ok(Number.isInteger(b.loot(5, 'coin')));
+});
+
+test('What the guest of an online room earns: by fights and by the raid, never negative', () => {
+  const G = C.GUEST;
+  assert.equal(C.guestFightCores(true, false, 0), G.win);
+  assert.equal(C.guestFightCores(true, true, 0), G.win + G.leader);
+  assert.equal(C.guestFightCores(true, false, 15 * 10), G.win + G.cap, 'capped');
+  assert.equal(C.guestFightCores(false, false, 14), 0);
+  assert.equal(C.guestFightCores(false, false, 400), G.lostCap, 'a lost fight pays little');
+  assert.equal(C.guestFightCores(true, false, -5), G.win);
+  assert.equal(C.guestRunCores(10), 5);
+  assert.equal(C.guestRunCores(7), 4, 'rounded up');
+  assert.equal(C.guestRunCores(0), 0);
+  assert.equal(C.guestRunCores(-3), 0);
+});
+
+test('Online every hit leaves a moment more of safety; on one device it does not', () => {
+  const lag = { open: true, onMessage: null, onClose: null, send() {}, close() {} };
+  const run = M.makeRun(veteran(), 'mechanic', 0, 5, { coop: 'flora' });
+  const sync = new (require('../.test-build/net.js').Lockstep)(0, 1, lag, () => ({ x: 0, y: 0 }));
+  const online = new Battle(null, run, veteran(), silent, () => {}, () => {}, { sync });
+  online.hurt(5, 0.7, 0.1);
+  assert.ok(Math.abs(online.invincible - (0.7 + C.COOP.netGrace)) < 1e-9);
+  online.ally.invincible = 0;
+  online.hurtAlly(3, 0.45, 0.1);
+  assert.ok(Math.abs(online.ally.invincible - (0.45 + C.COOP.netGrace)) < 1e-9);
+  const local = fight('flora').b;
+  local.hurt(5, 0.7, 0.1);
+  assert.equal(local.invincible, 0.7);
 });

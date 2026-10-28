@@ -24,6 +24,7 @@ const modules = [
   'coop',
   'net',
   'session',
+  'mirror',
   'voice',
   'voice-manifest',
   'barks',

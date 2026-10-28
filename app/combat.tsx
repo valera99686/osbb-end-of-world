@@ -41,7 +41,8 @@ import {
 import { statsFor, type Meta, type Run } from '@/lib/game/model';
 import { heroAbility, type HeroAbility } from '@/lib/game/heroes';
 import { P2_CODES, P2_KEYS } from '@/lib/game/coop';
-import { Lockstep, STALL_WARN } from '@/lib/game/net';
+import { Lockstep, STALL_WARN, type ShareMode } from '@/lib/game/net';
+import { HostFeed, MirrorClient } from '@/lib/game/mirror';
 import type { NetSession } from '@/lib/game/session';
 import { CHARACTERS } from '@/lib/game/data';
 import {
@@ -83,6 +84,7 @@ export function Combat({
   onSettings,
   net,
   startSid,
+  startMode,
   simMeta,
   onNetLost,
 }: {
@@ -100,6 +102,8 @@ export function Combat({
   // with, and what to do when the fight cannot go on for the guest.
   net?: NetSession;
   startSid?: number;
+  // How the host shares this fight (the guest learns it from the host).
+  startMode?: ShareMode;
   simMeta?: Meta;
   onNetLost?: () => void;
 }) {
@@ -181,10 +185,18 @@ export function Combat({
   useEffect(() => {
     if (!net) return;
     const timer = window.setInterval(() => {
-      const s = engine.current?.sync;
+      const b = engine.current;
+      const s = b?.sync ?? b?.feed ?? b?.client;
       if (!s) return;
+      const stalled = 'stalled' in s ? s.stalled : 0;
       setNetNote(
-        s.desync ? 'drift' : s.closed ? 'lost' : s.stalled > STALL_WARN ? 'wait' : '',
+        'desync' in s && s.desync
+          ? 'drift'
+          : s.closed
+            ? 'lost'
+            : stalled > STALL_WARN
+              ? 'wait'
+              : '',
       );
     }, 500);
     return () => window.clearInterval(timer);
@@ -232,14 +244,22 @@ export function Combat({
     // A fight with a partner on another device runs in lockstep; if the
     // partner could not be reached the host plays it alone.
     const linked = !!net && sid > 0 && !!net.link;
-    const sync = linked
-      ? new Lockstep(
-          net!.role === 'host' ? 0 : 1,
-          sid,
-          net!.link!,
-          () => engine.current?.localAim() ?? { x: 0, y: 0 },
-        )
-      : undefined;
+    const mode: ShareMode =
+      net?.role === 'host' ? net.mode : (startMode ?? 'sync');
+    const aim = () => engine.current?.localAim() ?? { x: 0, y: 0 };
+    const sync =
+      linked && mode === 'sync'
+        ? new Lockstep(net!.role === 'host' ? 0 : 1, sid, net!.link!, aim)
+        : undefined;
+    // The mirror: the host alone simulates and streams; the guest only draws.
+    const feed =
+      linked && mode === 'host' && net!.role === 'host'
+        ? new HostFeed(sid, net!.link!)
+        : undefined;
+    const client =
+      linked && mode === 'host' && net!.role === 'guest'
+        ? new MirrorClient(sid, net!.link!, aim)
+        : undefined;
     const simRun = net && !linked && run.coop ? { ...run, coop: '' } : run;
     const b = new Battle(
       canvas.current,
@@ -247,9 +267,15 @@ export function Combat({
       simMeta ?? meta,
       audio,
       setHud,
-      (r) => onDoneRef.current(r),
+      (r) => {
+        // The guest of a mirror learns how the fight ended from the host.
+        feed?.finish(b, r);
+        onDoneRef.current(r);
+      },
       {
         sync,
+        feed,
+        client,
         onPerkTaken: () => setDraft(null),
         settings: meta.settings,
         introQuote:
@@ -301,16 +327,22 @@ export function Combat({
         if (++n % 60 === 0) w.__rec![n] = b.stateHash();
       };
     }
-    if (sync && net) {
-      net.attach(sync);
-      sync.onDesync = () => setNetNote('drift');
-      sync.onClosed = () => setNetNote('lost');
-      sync.onOver = () => {
-        if (!b.ended) onNetLostRef.current?.();
+    const link = sync ?? feed ?? client;
+    if (link && net) {
+      net.attach(link);
+      if (sync) sync.onDesync = () => setNetNote('drift');
+      link.onClosed = () => setNetNote('lost');
+      link.onOver = () => {
+        if (!b.ended && net.role === 'guest') onNetLostRef.current?.();
       };
+      if (client)
+        client.onEnd = (result) => {
+          // The host's fight is over: the guest shows how it ended.
+          window.setTimeout(() => onDoneRef.current(result as BattleResult), 900);
+        };
       // The guest says it listens, then both send their first frames.
       if (net.role === 'guest') net.ready(sid);
-      sync.begin();
+      sync?.begin();
     }
     b.start();
     const keys = (e: KeyboardEvent) => {
@@ -387,11 +419,14 @@ export function Combat({
       stopWaiting?.();
       stopVoice();
       b.stop();
-      if (sync && net) {
+      if (link && net) {
         // A fight left half way tells the other end; a finished one ends there
-        // by itself, a few steps later.
-        if (!b.ended) sync.finish();
-        net.detach(sync);
+        // by itself, a few steps later (or by the host's own message).
+        if (!b.ended) {
+          if (sync) sync.finish();
+          else feed?.leave();
+        }
+        net.detach(link);
       }
       window.removeEventListener('keydown', keys);
       window.removeEventListener('keyup', up);
@@ -458,7 +493,7 @@ export function Combat({
   const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
   return (
     <section className="battle-screen">
-      {draft && !paused && !hold && net?.role === 'guest' && (
+      {(draft || hud.drafting) && !paused && !hold && net?.role === 'guest' && (
         <div className="net-note" role="status">
           Господар обирає покращення…
         </div>

@@ -35,6 +35,15 @@ export const COOP = {
   spreadY: 560,
   // Radius around the partner that draws enemy fire like the house does.
   hitRadius: 20,
+  // Leaders have this much more time to fall: they are 50% tougher, and the
+  // clock of a fight is made for one set of guns.
+  leaderTime: 1.1,
+  // Two guns kill a third more enemies, so coins and crystals from the floor
+  // count at this share: the economy and the levels keep the pace of solo play.
+  loot: 0.8,
+  // Online, a link and a person react late: every hit leaves this many more
+  // seconds of safety, for both players (it is part of the shared simulation).
+  netGrace: 0.15,
 } as const;
 
 // Keyboard of the first player and of the second one. In solo play the arrows
@@ -90,6 +99,35 @@ export function keyVector(
     x: (on(layout.right) ? 1 : 0) - (on(layout.left) ? 1 : 0),
     y: (on(layout.down) ? 1 : 0) - (on(layout.up) ? 1 : 0),
   };
+}
+
+// What the guest of an online room earns for helping: cores for every fight
+// they played and a share of the cores the host's raid brings. The guest's own
+// profile pays them out, so playing as a neighbour is a way forward too.
+export const GUEST = {
+  // A fight won, a leader (miniboss or boss) won on top of it, and one more
+  // for every `per` kills, up to `cap`.
+  win: 1,
+  leader: 2,
+  per: 15,
+  cap: 3,
+  // A lost fight still pays one for every `per` kills, at most one.
+  lostCap: 1,
+  // The share of the host's cores at the end of the raid.
+  share: 0.5,
+} as const;
+export function guestFightCores(
+  won: boolean,
+  leader: boolean,
+  kills: number,
+): number {
+  const hits = Math.max(0, Math.floor(kills / GUEST.per));
+  return won
+    ? GUEST.win + (leader ? GUEST.leader : 0) + Math.min(GUEST.cap, hits)
+    : Math.min(GUEST.lostCap, hits);
+}
+export function guestRunCores(hostCores: number): number {
+  return Math.max(0, Math.ceil(hostCores * GUEST.share));
 }
 
 // The partner a run may bring: any head of ОСББ already opened by the profile

@@ -1106,3 +1106,31 @@
   font-size: calc(14px * var(--text-scale, 1));
   text-align: center;
 }
+
+.share-mode {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+.share-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #3f5a7a;
+  border-radius: 4px;
+  background: #0d141c;
+  color: #a9bccf;
+  text-align: left;
+}
+.share-option small {
+  font-size: calc(11px * var(--text-scale, 1));
+  line-height: 1.4;
+  color: #8ea2b6;
+}
+.share-option.active {
+  border-color: #6aa7e6;
+  background: #16273a;
+  color: #e5eef9;
+}

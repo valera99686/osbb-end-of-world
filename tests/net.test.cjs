@@ -397,3 +397,112 @@ test('A host that is not connected cannot open a fight', async () => {
   const guest = new S.NetSession('guest', 'a', hero('mechanic'));
   assert.equal(await guest.open({}, {}), null, 'only the host opens fights');
 });
+
+const MR = require('../.test-build/mirror.js');
+function mirrorPair(latency = 1) {
+  const wire = pipe(latency);
+  const host = new S.NetSession('host', 'a', hero('mechanic'));
+  const guest = new S.NetSession('guest', 'a', hero('nina'));
+  host.mode = 'host';
+  host.adopt(wire.a);
+  guest.adopt(wire.b);
+  for (let i = 0; i < 4; i++) wire.deliver();
+  const heard = { host: [], guest: [] };
+  const spy = (list) => ({ play: (kind) => list.push(kind), setLayer() {}, setPaused() {} });
+  const huds = [];
+  const ends = [];
+  const run = M.makeRun(meta, 'mechanic', 0, 9, { coop: 'nina' });
+  const feed = new MR.HostFeed(1, host.link);
+  // As in Combat: the end of the host's fight is told to the guest.
+  const hostBattle = new Battle(null, run, meta, spy(heard.host), () => {}, (r) => feed.finish(hostBattle, r), { feed });
+  const client = new MR.MirrorClient(1, guest.link, () => guestBattle.localAim());
+  const guestBattle = new Battle(null, JSON.parse(JSON.stringify(run)), meta, spy(heard.guest), (h) => huds.push(h), (r) => ends.push(r), { client });
+  host.attach(feed);
+  guest.attach(client);
+  hostBattle.start = () => { hostBattle.feed.battle = hostBattle; hostBattle.feed.attach(hostBattle); };
+  guestBattle.start = () => { client.battle = guestBattle; };
+  hostBattle.start();
+  guestBattle.start();
+  const turn = (seconds) => {
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      wire.deliver();
+      hostBattle.tick(1 / 60);
+      guestBattle.tick(1 / 60);
+    }
+  };
+  return { wire, host, guest, hostBattle, guestBattle, feed, client, heard, huds, ends, turn };
+}
+
+test('The mirror: the guest sees the host\'s fight, its numbers and its sounds, without simulating', () => {
+  const m = mirrorPair();
+  m.turn(12);
+  const h = m.hostBattle,
+    g = m.guestBattle;
+  assert.ok(h.run.kills > 0, 'a fight went on');
+  assert.equal(g.elapsed > 8, true, 'the guest follows the host\'s clock');
+  assert.ok(Math.abs(g.elapsed - h.elapsed) < 0.6);
+  assert.ok(Math.abs(g.run.kills - h.run.kills) <= 2);
+  assert.ok(Math.abs(g.enemies.length - h.enemies.length) <= 3, `${g.enemies.length} vs ${h.enemies.length}`);
+  assert.ok(g.enemies.length > 0);
+  for (const e of g.enemies) assert.ok(Number.isFinite(e.x) && Number.isFinite(e.walk) && e.max >= e.hp * 0, 'whole enemies');
+  assert.ok(Math.hypot(g.x - h.x, g.y - h.y) < 60);
+  assert.ok(g.ally && Math.hypot(g.ally.x - h.ally.x, g.ally.y - h.ally.y) < 60);
+  assert.equal(g.ally.hero, 'nina');
+  assert.ok(m.huds.length > 20 && m.huds.at(-1).hp > 0, 'the HUD comes from the host');
+  assert.ok(m.heard.guest.includes('shoot'), 'sounds of the host are played at the guest');
+  assert.ok(g.particles.length + g.rings.length + g.numbers.length > 0, 'effects are replayed');
+  // The guest never simulates: its own enemy list is only what was streamed.
+  assert.equal(g.spawnCount, 0);
+  // The host's audio engine is not left wrapped.
+  assert.equal(typeof h.audio.play, 'function');
+});
+
+test('The guest of a mirror steers the partner and presses its buttons from afar', () => {
+  const m = mirrorPair();
+  m.turn(1);
+  const h = m.hostBattle,
+    g = m.guestBattle;
+  const x0 = h.ally.x;
+  g.stick = { x: 1, y: 0 };
+  m.turn(1.5);
+  assert.ok(h.ally.x > x0 + 80, `the partner walked ${h.ally.x - x0}`);
+  assert.ok(g.ally.x > x0 + 60, 'and the guest sees it');
+  g.stick = { x: 0, y: 0 };
+  g.localDash();
+  m.turn(0.4);
+  assert.ok(h.ally.dashCd > 0, 'a press at the guest is a dash at the host');
+  g.localPulse();
+  m.turn(0.4);
+  assert.ok(h.ally.pulseCd > 0);
+  // The host's own keys do not drive the partner of a mirror.
+  const y0 = h.ally.y;
+  h.keys.add('ArrowDown');
+  m.turn(0.8);
+  assert.ok(Math.abs(h.ally.y - y0) < 40, 'only the guest steers');
+  h.keys.clear();
+  assert.ok(!h.localDuo && !g.localDuo);
+});
+
+test('When the host\'s fight ends the guest is told, with the result', () => {
+  const m = mirrorPair();
+  m.turn(1);
+  m.client.onEnd = (r) => m.ends.push(r);
+  m.hostBattle.run.hp = 1;
+  m.hostBattle.hurt(500, 0.1, 0.1);
+  m.turn(6);
+  assert.ok(m.hostBattle.ended);
+  assert.ok(m.ends.length >= 1, 'the result reached the guest');
+  assert.equal(m.ends[0].won, false);
+  assert.ok(m.ends[0].run.kills >= 0);
+});
+
+test('A partner that vanishes leaves the host fighting alone and the mirror is dropped', () => {
+  const m = mirrorPair();
+  m.turn(1);
+  m.hostBattle.dropPartner();
+  assert.equal(m.hostBattle.ally, null);
+  assert.equal(m.hostBattle.feed, null);
+  assert.equal(m.hostBattle.run.coop, '');
+  m.turn(1);
+  assert.ok(m.hostBattle.elapsed > 1.5, 'the fight goes on alone');
+});

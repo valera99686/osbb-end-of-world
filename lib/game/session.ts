@@ -3,7 +3,13 @@
 // the host's status lines between fights and the opening of each fight. It
 // owns the link, so no message is lost between screens: whatever arrives
 // before the fight it belongs to exists is held and handed over on attach.
-import { NET_PROTOCOL, type Link, type Lockstep, type Msg } from './net';
+import {
+  NET_PROTOCOL,
+  type FightLink,
+  type Link,
+  type Msg,
+  type ShareMode,
+} from './net';
 
 export type Phase = 'waiting' | 'joining' | 'connected' | 'refused' | 'closed';
 export interface Partner {
@@ -14,6 +20,7 @@ export interface StartMsg {
   sid: number;
   run: unknown;
   meta: unknown;
+  mode?: ShareMode;
 }
 // A fight that was not answered within this many ms did not start.
 export const START_TIMEOUT = 20000;
@@ -29,9 +36,14 @@ export class NetSession {
   // Guest only: what the host says it is doing between fights.
   status = '';
   link: Link | null = null;
-  fight: Lockstep | null = null;
+  fight: FightLink | null = null;
+  // Host: how the next fights are shared (see net.ts ShareMode).
+  mode: ShareMode = 'sync';
   // Guest only: called when the host opens a fight.
   onStart: ((m: StartMsg) => void) | null = null;
+  // Guest only: the host's raid is over and this is what it earned.
+  onGift: ((m: { cores: number; won: boolean; final: boolean }) => void) | null =
+    null;
   // Bumps on every change, for React's useSyncExternalStore.
   version = 0;
   // Host: the room still takes a guest after one has left.
@@ -132,6 +144,9 @@ export class NetSession {
         done?.(m.sid);
         return;
       }
+      case 'gift':
+        if (this.role === 'guest') this.onGift?.(m);
+        return;
       case 'bye':
         this.lost(this.link);
         return;
@@ -170,7 +185,7 @@ export class NetSession {
     if (this.role !== 'host' || this.phase !== 'connected' || !this.link)
       return Promise.resolve(null);
     const sid = ++this.sid;
-    this.link.send({ t: 'start', sid, run, meta });
+    this.link.send({ t: 'start', sid, run, meta, mode: this.mode });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.waiting.delete(sid);
@@ -188,17 +203,22 @@ export class NetSession {
     this.pendingStart = null;
     return m;
   }
+  // Host: the raid ended; the guest gets a share of what it earned.
+  sendGift(cores: number, won: boolean, final: boolean) {
+    if (this.role === 'host' && this.phase === 'connected')
+      this.link?.send({ t: 'gift', cores, won, final });
+  }
   // Guest: the fight is built and listening.
   ready(sid: number) {
     this.link?.send({ t: 'ready', sid });
   }
-  attach(fight: Lockstep) {
+  attach(fight: FightLink) {
     this.fight = fight;
     const held = this.held.filter((m) => 'sid' in m && m.sid === fight.sid);
     this.held = [];
     for (const m of held) fight.receive(m);
   }
-  detach(fight: Lockstep) {
+  detach(fight: FightLink) {
     if (this.fight === fight) this.fight = null;
     this.held = [];
   }

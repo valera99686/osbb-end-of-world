@@ -11,7 +11,16 @@ import type { Battle } from './engine';
 
 // Both ends must run the same build: the simulation is only repeatable inside
 // one version of the code, so a mismatch is refused at the door.
-export const NET_PROTOCOL = 1;
+export const NET_PROTOCOL = 2;
+// How a fight is shared: both ends simulate it and trade inputs ('sync'), or
+// the host alone simulates and streams it to the guest ('host').
+export type ShareMode = 'sync' | 'host';
+// Whatever a fight at one end is: the lockstep or the mirror feed/client.
+export interface FightLink {
+  readonly sid: number;
+  receive(msg: Msg): void;
+  handleClose(): void;
+}
 // The fixed step of the simulation, in seconds: both ends run 60 of them a
 // second of game time, whatever their screens do.
 export const STEP = 1 / 60;
@@ -40,8 +49,9 @@ export type Msg =
   | { t: 'refuse'; why: string }
   // Host to guest between fights: a line of what the host is doing.
   | { t: 'status'; text: string }
-  // A fight begins: the run and the profile the simulation is made from.
-  | { t: 'start'; sid: number; run: unknown; meta: unknown }
+  // A fight begins: the run and the profile the simulation is made from, and
+  // how it is shared: 'sync' (both simulate, net.ts) or 'host' (mirror.ts).
+  | { t: 'start'; sid: number; run: unknown; meta: unknown; mode?: ShareMode }
   | { t: 'ready'; sid: number }
   // Inputs: [step, x, y, flags] per player-step (flags: 1 dash, 2 pulse).
   | { t: 'in'; sid: number; f: number[][] }
@@ -50,6 +60,12 @@ export type Msg =
   | { t: 'hash'; sid: number; s: number; h: number }
   // The host left the fight (menu, defeat screen): the guest can leave too.
   | { t: 'over'; sid: number }
+  // Mirror mode: the host's snapshot, the guest's input, the host's result.
+  | { t: 'snap'; sid: number; s: unknown }
+  | { t: 'pin'; sid: number; x: number; y: number; f: number }
+  | { t: 'end'; sid: number; result: unknown }
+  // The host's raid is over: what it earned, for the guest's share of it.
+  | { t: 'gift'; cores: number; won: boolean; final: boolean }
   | { t: 'bye' };
 
 export interface Link {

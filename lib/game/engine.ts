@@ -24,6 +24,7 @@ import {
   spreadFix,
 } from './coop';
 import type { Lockstep } from './net';
+import type { HostFeed, MirrorClient } from './mirror';
 import { specialEffects } from './specials';
 import {
   LOCATIONS,
@@ -418,6 +419,8 @@ export interface Hud {
   waves?: number;
   left?: number;
   squad?: string;
+  // Online: the host is choosing a perk (the guest only waits).
+  drafting?: boolean;
   // Co-op only: the second player's health, revive progress and cooldowns.
   ally?: {
     hp: number;
@@ -503,6 +506,10 @@ export interface BattleOptions {
   sync?: Lockstep;
   // The host's perk choice reached this end; the draft on screen is over.
   onPerkTaken?: () => void;
+  // Online, the other way (mirror.ts): the host streams its fight to a guest
+  // who drives the partner, or the guest only draws what the host streams.
+  feed?: HostFeed;
+  client?: MirrorClient;
 }
 // Off-screen culling test for one frame; `margin` is how far the drawing
 // reaches from (x, y), 60 world px unless given.
@@ -600,6 +607,14 @@ export class Battle {
   allyFocus = 0;
   // Online co-op: the lockstep this fight runs in, and the UI hook.
   sync: Lockstep | null = null;
+  // The partner is a guest on another device whose input comes by the feed.
+  hostRemote = false;
+  feed: HostFeed | null = null;
+  // A fight that is only drawn from what the host sends (never simulated).
+  client: MirrorClient | null = null;
+  // Fractions of coins and crystals left by the co-op loot share.
+  coinCarry = 0;
+  xpCarry = 0;
   onPerkTaken?: () => void;
   // Button edges restart after start, a reconnect or unpausing: whatever
   // is down then (the A that picked the fight or pressed "resume") has to
@@ -779,6 +794,8 @@ export class Battle {
     this.onBeat = options.onBeat;
     this.onPerkDraft = options.onPerkDraft;
     this.sync = options.sync ?? null;
+    this.feed = options.feed ?? null;
+    this.client = options.client ?? null;
     this.onPerkTaken = options.onPerkTaken;
     this.autoPerks = !!options.autoPerks;
     this.introQuote = options.introQuote ?? '';
@@ -807,6 +824,8 @@ export class Battle {
     this.run.hp = Math.min(this.run.hp, this.stats.health);
     this.run.battleDamage = 0;
     this.heat = heatForRun(run);
+    if (run.coop && (run.kind === 'boss' || run.kind === 'miniboss'))
+      this.duration *= COOP.leaderTime;
     if (run.coop) {
       this.heat = coopHeat(this.heat);
       this.ally = this.makeAlly(run.coop);
@@ -983,6 +1002,11 @@ export class Battle {
       } catch {}
   }
   start() {
+    if (this.feed) {
+      this.feed.battle = this;
+      this.feed.attach(this);
+    }
+    if (this.client) this.client.battle = this;
     this.running = true;
     this.last = clock();
     if (this.intro > 0) this.audio.play('bossIntro');
@@ -1020,6 +1044,14 @@ export class Battle {
     this.ambient?.update(real, this.view);
     for (const b of this.banners) b.life -= real;
     this.banners = this.banners.filter((b) => b.life > 0);
+    // Online with a guest who only draws: the host streams its fight, and the
+    // guest's copy only glides what the host last said (nothing is simulated).
+    if (this.feed) this.feed.pump(this, real);
+    if (this.client) {
+      this.client.pump(this, real);
+      this.updateFx(real);
+      return;
+    }
     // The presentation of a boss freezes the fight for a few seconds.
     if (this.presenting) return;
     if (this.drafting) return;
@@ -1141,7 +1173,7 @@ export class Battle {
         }
       }
     }
-    if (!this.ally || !pads[1] || this.sync) {
+    if (!this.ally || !pads[1] || this.sync || this.hostRemote || this.client) {
       this.pad2 = { x: 0, y: 0 };
       this.pad2Held = [];
       this.pad2Primed = false;
@@ -1170,12 +1202,25 @@ export class Battle {
   }
   // Two players on this very device (not a partner on another one).
   get localDuo() {
-    return !!this.ally && !this.sync;
+    return !!this.ally && !this.sync && !this.hostRemote && !this.client;
+  }
+  // What a pickup is worth: whole with one player, COOP.loot of it with two,
+  // the odd fractions carried over so nothing is lost on average.
+  loot(value: number, kind: 'coin' | 'xp') {
+    if (!this.ally) return value;
+    const key = kind === 'coin' ? 'coinCarry' : 'xpCarry';
+    const total = value * COOP.loot + this[key];
+    const whole = Math.floor(total + 1e-9);
+    this[key] = total - whole;
+    return whole;
   }
   // The partner's device is gone: the fight goes on alone from here. It is no
   // longer shared with anyone, so nothing has to stay repeatable.
   dropPartner() {
     this.sync = null;
+    this.feed = null;
+    this.hostRemote = false;
+    this.run.coop = '';
     this.ally = null;
     this.allyFocus = 0;
     this.stick2 = { x: 0, y: 0 };
@@ -1191,10 +1236,12 @@ export class Battle {
   // A press of the local player: in lockstep it travels with the next frame.
   localDash() {
     if (this.sync) this.sync.press('dash');
+    else if (this.client) this.client.press('dash');
     else this.dash();
   }
   localPulse() {
     if (this.sync) this.sync.press('pulse');
+    else if (this.client) this.client.press('pulse');
     else this.pulse();
   }
   // A short fingerprint of the fight for the two ends to compare.
@@ -1440,7 +1487,7 @@ export class Battle {
     const a = this.ally;
     if (!a || a.down) return 0;
     a.hp -= amount;
-    a.invincible = invincible;
+    a.invincible = invincible + (this.sync ? COOP.netGrace : 0);
     this.addTrauma(trauma * 0.6);
     this.audio.play('hit', { volume: 0.7 });
     this.label(a.x, a.y - 50, '−' + Math.round(amount), '#ff8e82');
@@ -1736,7 +1783,7 @@ export class Battle {
   // Every source of player damage: numbers, flash, freeze and a buzz.
   hurt(amount: number, invincible: number, trauma: number) {
     const taken = this.receiveHit(amount);
-    this.invincible = invincible;
+    this.invincible = invincible + (this.sync ? COOP.netGrace : 0);
     this.addTrauma(taken ? trauma : trauma * 0.4);
     this.audio.play('hit');
     if (taken) {
@@ -2198,9 +2245,12 @@ export class Battle {
       return;
     }
     const net = this.sync?.cur;
-    const move = net ? { x: 0, y: 0 } : keyVector(this.keys, P2_KEYS);
-    let dx = net ? net[1].x : this.stick2.x + this.pad2.x + move.x;
-    let dy = net ? net[1].y : this.stick2.y + this.pad2.y + move.y;
+    // A partner on another device is driven by its own input alone.
+    const move =
+      net || this.hostRemote ? { x: 0, y: 0 } : keyVector(this.keys, P2_KEYS);
+    const pad = this.hostRemote ? { x: 0, y: 0 } : this.pad2;
+    let dx = net ? net[1].x : this.stick2.x + pad.x + move.x;
+    let dy = net ? net[1].y : this.stick2.y + pad.y + move.y;
     const length = Math.hypot(dx, dy);
     if (length > 0) {
       dx /= Math.max(1, length);
@@ -4172,7 +4222,7 @@ export class Battle {
       }
       if (dist < 32) {
         if (d.kind === 'coin') {
-          this.run.coins += d.value;
+          this.run.coins += this.loot(d.value, 'coin');
           this.audio.play('coin');
         }
         if (d.kind === 'heal') {
@@ -4196,7 +4246,7 @@ export class Battle {
           }
         }
         if (d.kind === 'xp') {
-          this.run.xp += d.value;
+          this.run.xp += this.loot(d.value, 'xp');
           // A stream of crystals climbs in pitch.
           this.pickupStreak =
             this.pickupGap > 0 ? Math.min(12, this.pickupStreak + 1) : 0;
@@ -4298,8 +4348,13 @@ export class Battle {
     }
   }
   pushHud() {
+    this.onHud(this.hud());
+  }
+  // The numbers of the screen's top (the guest of a mirror gets them too).
+  hud(): Hud {
     const boss = this.enemies.find((e) => isLeader(e.type));
-    this.onHud({
+    return {
+      drafting: !!this.drafting,
       hp: this.run.hp,
       max: this.stats.health,
       coins: this.run.coins,
@@ -4336,7 +4391,7 @@ export class Battle {
             },
           }
         : {}),
-    });
+    };
   }
   // Purely visual state in simulation time; also runs during the outro.
   updateFx(dt: number) {
@@ -5526,10 +5581,13 @@ export class Battle {
       c.strokeRect(3, 3, w - 6, h - 6);
       c.globalAlpha = 1;
     }
-    this.drawIncoming(c, w, h);
-    this.drawCourierMarker(c, w, h);
-    const squad = this.drawSquadTracker(c, w);
-    this.drawEventTracker(c, w, squad);
+    // A mirror has none of the simulation's inner state to draw these from.
+    if (!this.client) {
+      this.drawIncoming(c, w, h);
+      this.drawCourierMarker(c, w, h);
+    }
+    const squad = this.client ? 0 : this.drawSquadTracker(c, w);
+    if (!this.client) this.drawEventTracker(c, w, squad);
     this.drawCombo(c, w, squad);
     this.drawBanners(c, w, h);
     this.drawIntro(c, w, h);

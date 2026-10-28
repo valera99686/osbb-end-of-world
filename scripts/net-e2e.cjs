@@ -111,6 +111,8 @@ const click = (text, sel = 'button') =>
   await Promise.all([host.go(URL), guest.go(URL)]);
   console.log('pages loaded');
 
+  if (MODE === 'host')
+    await host.eval(click('Хост рахує', '.share-option'));
   await until('room button', () => host.eval(click('Створити кімнату')));
   const code = await until('room code', () =>
     host.eval(`document.querySelector('.room-code b')?.textContent`),
@@ -168,7 +170,24 @@ const click = (text, sel = 'button') =>
   console.log(JSON.stringify({ host: { ...a, rec: undefined }, guest: { ...b, rec: undefined }, checkpointsEqual: same, checkpointsDifferent: diff }, null, 1));
   console.log('host errors', host.errors.slice(0, 5));
   console.log('guest errors', guest.errors.slice(0, 5));
-  const ok = a && b && !a.desync && !b.desync && same >= 5 && diff === 0 && a.step > 300;
+  let ok = a && b && !a.desync && !b.desync && same >= 5 && diff === 0 && a.step > 300;
+  if (MODE === 'host') {
+    // The mirror: the guest only draws, so compare what it shows with the host.
+    const look = (page) =>
+      page.eval(`(()=>{const b=window.__battle; return {kind: b.client ? 'mirror' : b.feed ? 'feed' : 'other', kills:b.run.kills, enemies:b.enemies.length, elapsed:b.elapsed, ally:b.ally && {x:b.ally.x,y:b.ally.y}, stalled:(b.client||b.feed||{}).stalled ?? 0}})()`);
+    const [ha, ga] = [await look(host), await look(guest)];
+    console.log(JSON.stringify({ host: ha, guest: ga }));
+    ok =
+      ha.kind === 'feed' &&
+      ga.kind === 'mirror' &&
+      ga.elapsed > 8 &&
+      Math.abs(ha.elapsed - ga.elapsed) < 1.5 &&
+      Math.abs(ha.kills - ga.kills) <= 3 &&
+      ga.enemies > 0;
+    const shot = await guest.send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(os.tmpdir(), 'osbb-guest-mirror.png'), Buffer.from(shot.result.data, 'base64'));
+    console.log('guest screenshot', path.join(os.tmpdir(), 'osbb-guest-mirror.png'));
+  }
   console.log(ok ? 'E2E OK' : 'E2E FAILED');
   for (const p of procs) p.kill();
   process.exit(ok ? 0 : 1);

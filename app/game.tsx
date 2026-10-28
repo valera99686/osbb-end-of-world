@@ -111,7 +111,8 @@ import { NoticeBoard } from './notice-board';
 import { CoopSelect } from './coop-select';
 import { GuestRoom, OnlinePanel, useNet } from './online';
 import { NetSession } from '@/lib/game/session';
-import { coopHero } from '@/lib/game/coop';
+import type { ShareMode } from '@/lib/game/net';
+import { coopHero, guestFightCores, guestRunCores } from '@/lib/game/coop';
 import './features.css';
 import {
   Dialog,
@@ -334,8 +335,13 @@ export default function Game() {
       sid: number;
       run: Run;
       meta: Meta;
+      mode: ShareMode;
     } | null>(null),
+    // How the host's fights are shared with a guest (a hub choice).
+    [shareMode, setShareMode] = useState<ShareMode>('sync'),
     [guestResult, setGuestResult] = useState<BattleResult | null>(null),
+    // Cores the guest was paid for the last fight and for the host's raid.
+    [guestEarned, setGuestEarned] = useState({ fight: 0, raid: 0 }),
     [onlineRun, setOnlineRun] = useState(false),
     [queued, setQueued] = useState<Launch | null>(null),
     [toasts, setToasts] = useState<Toast[]>([]),
@@ -360,6 +366,8 @@ export default function Game() {
   const audio = useRef<AudioEngine | null>(null);
   if (!audio.current) audio.current = new AudioEngine();
   const roomHandle = useRef<{ close(): void } | null>(null);
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
   useNet(net);
   // The result modal opens at its title: the tall summary would otherwise
   // scroll down to its first button and hide how the run went.
@@ -742,14 +750,34 @@ export default function Game() {
         const r = m.run as Run | null;
         if (!r || typeof r.seed !== 'number' || !Array.isArray(r.items)) return;
         setGuestResult(null);
-        setGuestFight({ sid: m.sid, run: r, meta: m.meta as Meta });
+        setGuestEarned({ fight: 0, raid: 0 });
+        setGuestFight({
+          sid: m.sid,
+          run: r,
+          meta: m.meta as Meta,
+          mode: m.mode === 'host' ? 'host' : 'sync',
+        });
         setScreen('guest');
+      };
+      // The host's raid is over: the guest's profile gets its share.
+      net.onGift = (g) => {
+        const pay = guestRunCores(g.cores),
+          now = metaRef.current;
+        const next = {
+          ...now,
+          cores: now.cores + pay,
+          coopWins: (now.coopWins ?? 0) + (g.won && g.final ? 1 : 0),
+        };
+        setGuestEarned((e) => ({ ...e, raid: pay }));
+        setMeta(next);
+        grant(applyAchievements(next, null).unlocked);
       };
       const early = net.takeStart();
       if (early) net.onStart(early);
     }
     return () => {
       net.onStart = null;
+      net.onGift = null;
     };
   }, [net]);
   useEffect(() => {
@@ -799,6 +827,7 @@ export default function Game() {
       hero: character,
       name: nameOf(character),
     });
+    room.mode = shareMode;
     setNet(room);
     try {
       const { createRoom } = await import('./net-peer');
@@ -926,6 +955,8 @@ export default function Game() {
         dayBest = daily ? (meta.dailyBest?.[b.run.daily] ?? 0) : 0,
         score = runScore(b.run, final);
       const f = finishRun(meta, b.run, b.won);
+      // The partner in the room gets a share of the cores of this raid.
+      if (livePartner && b.run.coop) net?.sendGift(f.cores, b.won, final);
       // After a raid: the next story beat as a scene, else a short protocol.
       const after = raidEnd(f.meta, b.won, final);
       setSceneQueue([]);
@@ -1328,6 +1359,11 @@ export default function Game() {
                 <OnlinePanel
                   session={net}
                   build={APP_VERSION}
+                  mode={shareMode}
+                  onMode={(m) => {
+                    setShareMode(m);
+                    if (net?.role === 'host') net.mode = m;
+                  }}
                   onHost={hostOnline}
                   onJoin={joinOnline}
                   onClose={closeOnline}
@@ -1815,10 +1851,19 @@ export default function Game() {
               meta={meta}
               simMeta={guestFight.meta}
               startSid={guestFight.sid}
+              startMode={guestFight.mode}
               net={net}
               audio={audio.current!}
               hold={settingsOpen}
               onDone={(r) => {
+                // The fight pays by what this player did in it.
+                const pay = guestFightCores(
+                  r.won,
+                  r.boss,
+                  Math.max(0, r.run.kills - guestFight.run.kills),
+                );
+                setGuestEarned({ fight: pay, raid: 0 });
+                if (pay) setMeta((m) => ({ ...m, cores: m.cores + pay }));
                 setGuestResult(r);
                 setGuestFight(null);
               }}
@@ -1832,6 +1877,7 @@ export default function Game() {
           <GuestRoom
             session={net}
             result={guestResult}
+            earned={guestEarned}
             onLeave={closeOnline}
           />
         )
@@ -2354,7 +2400,7 @@ export default function Game() {
           </button>
         </DialogContent>
       </Dialog>
-      {ready && !meta.tutorialDone && (
+      {ready && !meta.tutorialDone && screen !== 'guest' && (
         <Suspense fallback={null}>
           <Tutorial
             step={meta.tutorialStep}

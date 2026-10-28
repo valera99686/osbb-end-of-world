@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Check, Copy, Globe, LogIn, LogOut, Users } from 'lucide-react';
 import { CHARACTERS } from '@/lib/game/data';
-import { normalizeCode, ROOM_LENGTH } from '@/lib/game/net';
+import { normalizeCode, ROOM_LENGTH, type ShareMode } from '@/lib/game/net';
 import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
 
@@ -30,12 +30,16 @@ const heroName = (id: string) =>
 export function OnlinePanel({
   session,
   build,
+  mode,
+  onMode,
   onHost,
   onJoin,
   onClose,
 }: {
   session: NetSession | null;
   build: string;
+  mode: ShareMode;
+  onMode: (mode: ShareMode) => void;
   onHost: () => void;
   onJoin: (code: string) => void;
   onClose: () => void;
@@ -102,6 +106,27 @@ export function OnlinePanel({
               </button>
             </form>
           )}
+          <div className="share-mode" role="radiogroup" aria-label="Як ділити бій">
+            {(
+              [
+                ['sync', 'Обидва рахують', 'Найточніше й найлегше для мережі. Потрібна однакова версія гри, слабкий пристрій гальмує обох.'],
+                ['host', 'Хост рахує', 'Господар рахує бій, гість керує й дивиться. Гість відчуває затримку зв’язку, зате розсинхрону немає.'],
+              ] as const
+            ).map(([id, name, text]) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={mode === id}
+                className={`share-option${mode === id ? ' active' : ''}`}
+                onClick={() => onMode(id)}
+                title={text}
+              >
+                <b>{name}</b>
+                <small>{text}</small>
+              </button>
+            ))}
+          </div>
           <p>
             Двоє на різних пристроях: ПК і ПК, ПК і телефон, телефон і телефон.
             Господар веде рейд, гість грає за сусіда в боях. Потрібні інтернет
@@ -161,10 +186,13 @@ export function OnlinePanel({
 export function GuestRoom({
   session,
   result,
+  earned,
   onLeave,
 }: {
   session: NetSession;
   result: BattleResult | null;
+  // Cores the last fight and raid paid this player.
+  earned: { fight: number; raid: number };
   onLeave: () => void;
 }) {
   useNet(session);
@@ -183,6 +211,15 @@ export function GuestRoom({
             <b>{result.won ? 'Бій виграно' : 'Бій програно'}</b>
             <span>Ворогів знищено: {result.run.kills}</span>
             <span>Монет у спільній скарбниці: {Math.floor(result.run.coins)}</span>
+            <span className="guest-cores">Ядра тобі за бій: +{earned.fight}</span>
+          </div>
+        )}
+        {earned.raid > 0 && (
+          <div className="guest-result">
+            <b>Рейд господаря завершено</b>
+            <span className="guest-cores">
+              Ядра тобі за рейд: +{earned.raid}
+            </span>
           </div>
         )}
         <p>

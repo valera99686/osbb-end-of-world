@@ -138,9 +138,23 @@ const click = (text, sel = 'button') =>
   }
   await until('the map', () => host.eval(`!!document.querySelector('button.tree-go')`));
   await host.eval(`document.querySelector('button.tree-go').click()`);
-  await until('host fight', () => host.eval(`!!window.__battle`), 40000);
-  await until('guest fight', () => guest.eval(`!!window.__battle`), 40000);
+  // A production build has no debugging hook: then only the screens are seen.
+  const PROD = !!process.env.PROD;
+  const inFight = PROD ? `!!document.querySelector('canvas.battle-canvas')` : `!!window.__battle`;
+  await until('host fight', () => host.eval(inFight), 40000);
+  await until('guest fight', () => guest.eval(inFight), 40000);
   console.log('both in the fight');
+  if (PROD) {
+    await sleep(9000);
+    const shown = (p) => p.eval(`({canvas: !!document.querySelector('canvas.battle-canvas'), partner: !!document.querySelector('.ally-bar'), time: document.querySelector('.battle-center strong')?.innerText})`);
+    const [a, b] = [await shown(host), await shown(guest)];
+    console.log(JSON.stringify({ host: a, guest: b }));
+    console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+    const good = a.canvas && b.canvas && a.partner && b.partner && !host.errors.length && !guest.errors.length;
+    console.log(good ? 'E2E OK' : 'E2E FAILED');
+    for (const p of procs) p.kill();
+    process.exit(good ? 0 : 1);
+  }
 
   // Random hands for a while.
   const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
@@ -187,6 +201,18 @@ const click = (text, sel = 'button') =>
     const shot = await guest.send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(os.tmpdir(), 'osbb-guest-mirror.png'), Buffer.from(shot.result.data, 'base64'));
     console.log('guest screenshot', path.join(os.tmpdir(), 'osbb-guest-mirror.png'));
+  }
+  if (MODE === 'host' && process.env.FINISH) {
+    // End the host's fight early: the guest gets the result and is paid cores.
+    await host.eval(`window.__battle.duration = window.__battle.elapsed + 2`);
+    // The host's own screen picks the perks the fight stops for.
+    const text = await until('the guest result card', async () => {
+      await host.eval(`document.querySelector('.perk-card')?.click()`);
+      return guest.eval(`document.querySelector('.guest-result')?.innerText`);
+    }, 90000);
+    const cores = await guest.eval(`document.querySelector('.guest-cores')?.innerText`);
+    console.log('guest result card:', JSON.stringify(text), '|', cores);
+    ok = ok && /Бій/.test(text) && /\+\d+/.test(cores || '');
   }
   console.log(ok ? 'E2E OK' : 'E2E FAILED');
   for (const p of procs) p.kill();

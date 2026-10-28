@@ -222,6 +222,8 @@ export function readSave(raw: string | null): {
       'totalElites',
       'bestCombo',
       'eliteWins',
+      'coopWins',
+      'coopRevives',
     ] as const)
       base[k] = Math.floor(finite(m[k], 0, k === 'wins' ? 8 : 1e8, 0));
     base.totalBosses = Math.max(base.totalBosses, base.wins * 3);
@@ -386,7 +388,7 @@ export function readSave(raw: string | null): {
         r.character,
         Math.floor(finite(r.chapter, 0, 2, 0)),
         r.seed,
-        { mode, heat: finite(r.heat, 0, heatCap(mode), 0), daily },
+        { mode, heat: finite(r.heat, 0, heatCap(mode), 0), daily, coop: r.coop },
       );
       run.loop = mode === 'endless' ? Math.floor(finite(r.loop, 0, 1e4, 0)) : 0;
       // A run saved before ranking existed counts as the ranked one.
@@ -413,6 +415,8 @@ export function readSave(raw: string | null): {
       run.battleDamage = finite(r.battleDamage, 0, 1e9, 0);
       // 0.11 fields; older runs had no draft, no pending reveals.
       run.eliteWins = Math.floor(finite(r.eliteWins, 0, 1e6, 0));
+      // 0.17 fields; the partner of a co-op run was already checked by makeRun.
+      run.revives = run.coop ? Math.floor(finite(r.revives, 0, 1e4, 0)) : 0;
       run.fresh = itemIds(r.fresh, base.unlocked);
       run.perks = Array.isArray(r.perks)
         ? r.perks

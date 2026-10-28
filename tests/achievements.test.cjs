@@ -40,6 +40,8 @@ function veteran() {
     clues: CLUES.map((c) => c.id),
     endings: ['a', 'b', 'c'],
     secrets: ['konami', 'night'],
+    coopWins: 2,
+    coopRevives: 9,
     blueprints: BLUEPRINTS.slice(0, 5).map((b) => b.id),
     research: Object.fromEntries(RESEARCH.map((r) => [r.id, 1])),
     dailyBest: Object.fromEntries(

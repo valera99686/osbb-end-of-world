@@ -64,6 +64,7 @@ import {
   type RunMode,
 } from './modes';
 import { newAchievements } from './achievements';
+import { coopHero } from './coop';
 import { perkStats } from './upgrades';
 import { EVOLUTION_BY_ID, WEAPONS, weaponFor, type WeaponId } from './weapons';
 export { readSave, saveData, exportSave, importSave } from './save';
@@ -120,6 +121,10 @@ export interface Meta {
   endings: ('a' | 'b' | 'c')[];
   // Hidden achievements found so far (see secrets.ts).
   secrets: string[];
+  // Local co-op (coop.ts): expeditions finished by two players and how many
+  // times a fallen partner was pulled back to their feet.
+  coopWins: number;
+  coopRevives: number;
 }
 // `Meta.sound` stays the master mute; these are the fine-grained options.
 export interface Settings {
@@ -270,11 +275,17 @@ export interface Run {
   perks: string[];
   // Elite battles won in this run.
   eliteWins: number;
+  // Hero of the second player in local co-op, '' when playing alone.
+  coop: string;
+  // Times the partner was helped back to their feet in this run.
+  revives: number;
 }
 export interface RunOptions {
   mode?: RunMode;
   heat?: number;
   daily?: string;
+  // The second player's hero (coop.ts); not for the daily run.
+  coop?: string;
 }
 export interface Stats extends Record<Stat, number> {
   synergies: string[];
@@ -951,6 +962,8 @@ export function initialMeta(): Meta {
     clues: [],
     endings: [],
     secrets: [],
+    coopWins: 0,
+    coopRevives: 0,
   };
 }
 export function seeded(seed: number) {
@@ -1081,6 +1094,8 @@ export function makeRun(
     rescue: '',
     perks: [],
     eliteWins: 0,
+    coop: mode === 'daily' ? '' : coopHero(meta.wins, opts.coop),
+    revives: 0,
   };
   // A small apartment has fewer slots: the hero's own item takes the second
   // one and the legs wait in the backpack with whatever else did not fit.
@@ -1912,6 +1927,8 @@ export function finishRun(
     clues: [...(meta.clues ?? [])],
     endings: [...(meta.endings ?? [])],
     secrets: [...(meta.secrets ?? [])],
+    coopWins: meta.coopWins ?? 0,
+    coopRevives: meta.coopRevives ?? 0,
   };
   const endless = run.mode === 'endless',
     final = won && run.chapter === 2 && !endless;
@@ -1926,6 +1943,7 @@ export function finishRun(
   n.totalRescues += rescues;
   n.eliteWins = (n.eliteWins ?? 0) + (run.eliteWins ?? 0);
   n.bestDepth = Math.max(previous, depth);
+  n.coopRevives = (n.coopRevives ?? 0) + (run.coop ? (run.revives ?? 0) : 0);
   n.kills += run.kills;
   n.dashes += run.dashes;
   n.best = Math.max(n.best, run.kills);
@@ -1938,6 +1956,7 @@ export function finishRun(
     n.wins = Math.min(8, n.wins + 1);
     n.winsByCharacter[run.character] =
       (n.winsByCharacter[run.character] ?? 0) + 1;
+    if (run.coop) n.coopWins = (n.coopWins ?? 0) + 1;
     n.bestHeat = Math.max(n.bestHeat ?? 0, run.heat ?? 0);
     n.heatUnlocked = Math.max(
       n.heatUnlocked ?? 0,

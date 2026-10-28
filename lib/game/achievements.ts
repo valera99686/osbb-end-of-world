@@ -25,7 +25,9 @@ type Counter =
   | 'playTime'
   | 'totalElites'
   | 'bestHeat'
-  | 'endlessBest';
+  | 'endlessBest'
+  | 'coopWins'
+  | 'coopRevives';
 const count = (meta: Meta, key: Counter) => {
   const value = meta[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -364,6 +366,20 @@ const DEFINITIONS: (Achievement & { check: Check })[] = [
       (['a', 'b', 'c'] as const).every((id) =>
         (meta.endings ?? []).includes(id),
       ),
+  },
+  {
+    id: 'duo',
+    title: 'Двоє в одному будинку',
+    text: 'Пройди експедицію вдвох: один веде будинок, другий прикриває двір.',
+    icon: 'Users',
+    check: lifetime('coopWins', 1),
+  },
+  {
+    id: 'pull_up',
+    title: 'Піднімайся, сусіде',
+    text: 'Підніми напарника на ноги в кооперативному рейді п’ять разів.',
+    icon: 'HeartHandshake',
+    check: lifetime('coopRevives', 5),
   },
   // Hidden ones: found by a code or by a habit, not by a goal.
   {

@@ -5,6 +5,7 @@ import {
   Flame,
   Infinity as InfinityIcon,
   Timer,
+  Users,
 } from 'lucide-react';
 import { CHARACTERS } from '@/lib/game/data';
 import {
@@ -24,6 +25,8 @@ export type Launch = {
   heat: number;
   seed?: number;
   daily?: string;
+  // Hero of the second player; the hub fills it in, the daily run ignores it.
+  coop?: string;
 };
 export const MODE_NAMES: Record<RunMode, string> = {
   campaign: 'кампанію',
@@ -213,9 +216,15 @@ export function HubModes({
   );
 }
 export function RunBadge({ run }: { run: Run }) {
-  if (run.mode === 'campaign' && !run.heat) return null;
+  if (run.mode === 'campaign' && !run.heat && !run.coop) return null;
   return (
     <span className="run-badge">
+      {run.coop && (
+        <span className="coop" title="Двоє гравців на одному пристрої">
+          <Users size={13} /> Вдвох ·{' '}
+          {CHARACTERS.find((c) => c.id === run.coop)?.name}
+        </span>
+      )}
       {run.mode === 'daily' && (
         <span>
           <CalendarDays size={13} /> Денний · {shortDate(run.daily)}

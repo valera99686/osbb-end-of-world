@@ -12,6 +12,17 @@ import {
   chainTargets,
   heroAbility,
 } from './heroes';
+import {
+  COOP,
+  P1_KEYS,
+  P2_KEYS,
+  SOLO_KEYS,
+  allyHealth,
+  coopHeat,
+  keyVector,
+  reviveStep,
+  spreadFix,
+} from './coop';
 import { specialEffects } from './specials';
 import {
   LOCATIONS,
@@ -406,6 +417,41 @@ export interface Hud {
   waves?: number;
   left?: number;
   squad?: string;
+  // Co-op only: the second player's health, revive progress and cooldowns.
+  ally?: {
+    hp: number;
+    max: number;
+    down: boolean;
+    revive: number;
+    dash: number;
+    pulse: number;
+  };
+}
+// The second player of a co-op fight (coop.ts): a neighbour on foot who has the
+// house's build, but their own body, dash and ability.
+export interface Ally {
+  hero: string;
+  x: number;
+  y: number;
+  // Smoothed velocity, px/s, for enemies that aim ahead and for the walk cycle.
+  vx: number;
+  vy: number;
+  hp: number;
+  max: number;
+  // Knocked out: the house has to stand close to get them up (revive 0..1).
+  down: boolean;
+  downTime: number;
+  revive: number;
+  dashCd: number;
+  pulseCd: number;
+  dashing: number;
+  invincible: number;
+  hasteTime: number;
+  facing: { x: number; y: number };
+  shotTimer: number;
+  muzzle: number;
+  aim: number;
+  walk: number;
 }
 export type BattleResult = { run: Run; won: boolean; boss: boolean };
 // How the last battle ended; tests and the balance audit read it.
@@ -537,6 +583,15 @@ export class Battle {
   stick = { x: 0, y: 0 };
   pad = { x: 0, y: 0 };
   padHeld: boolean[] = [];
+  // Co-op: the second player (null when playing alone) and their own input.
+  ally: Ally | null = null;
+  stick2 = { x: 0, y: 0 };
+  pad2 = { x: 0, y: 0 };
+  pad2Held: boolean[] = [];
+  pad2Primed = false;
+  // How far the camera leans toward the partner: 0 on the house, 1 in the
+  // middle between the two.
+  allyFocus = 0;
   // Button edges restart after start, a reconnect or unpausing: whatever
   // is down then (the A that picked the fight or pressed "resume") has to
   // be released before it acts in battle.
@@ -741,6 +796,10 @@ export class Battle {
     this.run.hp = Math.min(this.run.hp, this.stats.health);
     this.run.battleDamage = 0;
     this.heat = heatForRun(run);
+    if (run.coop) {
+      this.heat = coopHeat(this.heat);
+      this.ally = this.makeAlly(run.coop);
+    }
     if (run.kind !== 'boss' && run.kind !== 'miniboss') {
       const column = run.path?.[run.step] ?? 0;
       this.encounter = encounterFor(run, `${run.step}:${column}`);
@@ -1001,28 +1060,8 @@ export class Battle {
       navigator.vibrate(pattern);
     } catch {}
   }
-  pollGamepad() {
-    if (
-      typeof navigator === 'undefined' ||
-      typeof navigator.getGamepads !== 'function'
-    )
-      return;
-    let pad: Gamepad | null = null;
-    try {
-      for (const p of navigator.getGamepads())
-        if (p?.connected) {
-          pad = p;
-          break;
-        }
-    } catch {
-      return;
-    }
-    if (!pad) {
-      this.pad = { x: 0, y: 0 };
-      this.padHeld = [];
-      this.padPrimed = false;
-      return;
-    }
+  // One pad as a stick vector (with dead zone and D-pad) and the buttons down.
+  readPad(pad: Gamepad) {
     const buttons = pad.buttons;
     const held = (i: number) =>
       !!buttons[i] && (buttons[i].pressed || buttons[i].value > 0.5);
@@ -1038,28 +1077,77 @@ export class Battle {
     }
     x += (held(15) ? 1 : 0) - (held(14) ? 1 : 0);
     y += (held(13) ? 1 : 0) - (held(12) ? 1 : 0);
-    this.pad = {
-      x: Math.max(-1, Math.min(1, x)),
-      y: Math.max(-1, Math.min(1, y)),
+    return {
+      vec: {
+        x: Math.max(-1, Math.min(1, x)),
+        y: Math.max(-1, Math.min(1, y)),
+      },
+      now: buttons.map((_, i) => held(i)),
     };
-    const now = buttons.map((_, i) => held(i)),
-      resumed = this.padPaused && !this.paused;
+  }
+  // The first connected pad drives the house; in co-op the second one drives
+  // the partner. A single pad always belongs to the first player.
+  pollGamepad() {
+    if (
+      typeof navigator === 'undefined' ||
+      typeof navigator.getGamepads !== 'function'
+    )
+      return;
+    const pads: Gamepad[] = [];
+    try {
+      for (const p of navigator.getGamepads()) if (p?.connected) pads.push(p);
+    } catch {
+      return;
+    }
+    const resumed = this.padPaused && !this.paused;
     this.padPaused = this.paused;
-    if (!this.padPrimed || resumed) {
-      this.padHeld = now;
-      this.padPrimed = true;
+    if (!pads[0]) {
+      this.pad = { x: 0, y: 0 };
+      this.padHeld = [];
+      this.padPrimed = false;
+    } else {
+      const { vec, now } = this.readPad(pads[0]);
+      this.pad = vec;
+      if (!this.padPrimed || resumed) {
+        this.padHeld = now;
+        this.padPrimed = true;
+      } else {
+        const pressed = (...ids: number[]) =>
+          ids.some((i) => now[i] && !this.padHeld[i]);
+        const dash = pressed(0, 7),
+          pulse = pressed(1, 5),
+          start = pressed(9);
+        this.padHeld = now;
+        if (!((dash || pulse) && this.skipIntro())) {
+          if (start) this.onPause?.();
+          if (dash) this.dash();
+          if (pulse) this.pulse();
+        }
+      }
+    }
+    if (!this.ally || !pads[1]) {
+      this.pad2 = { x: 0, y: 0 };
+      this.pad2Held = [];
+      this.pad2Primed = false;
+      return;
+    }
+    const { vec, now } = this.readPad(pads[1]);
+    this.pad2 = vec;
+    if (!this.pad2Primed || resumed) {
+      this.pad2Held = now;
+      this.pad2Primed = true;
       return;
     }
     const pressed = (...ids: number[]) =>
-      ids.some((i) => now[i] && !this.padHeld[i]);
+      ids.some((i) => now[i] && !this.pad2Held[i]);
     const dash = pressed(0, 7),
       pulse = pressed(1, 5),
       start = pressed(9);
-    this.padHeld = now;
+    this.pad2Held = now;
     if ((dash || pulse) && this.skipIntro()) return;
     if (start) this.onPause?.();
-    if (dash) this.dash();
-    if (pulse) this.pulse();
+    if (dash) this.allyDash();
+    if (pulse) this.allyPulse();
   }
   get presenting() {
     return this.holdIntro && this.intro > 0;
@@ -1110,7 +1198,21 @@ export class Battle {
     this.pulseCd = 12 - 3 * this.pk('short_fuse');
     this.addTrauma(0.42);
     this.vibrate(25);
-    const hero = heroAbility(this.run.character);
+    const landed = this.castAbility(this.run.character);
+    if (landed && this.specials.pulseHeal) {
+      const healed = Math.min(
+        this.specials.pulseHeal,
+        this.stats.health - this.run.hp,
+      );
+      this.run.hp += healed;
+      if (healed > 0)
+        this.label(this.x, this.y - 65, '+' + Math.round(healed), '#8acdb6');
+    }
+  }
+  // The sound and the effect of a hero's ability from the current position of
+  // the house (the partner's casts borrow it, see allyPulse); true if it landed.
+  castAbility(character: string) {
+    const hero = heroAbility(character);
     this.audio.play('pulse', {
       pitch:
         (
@@ -1144,15 +1246,166 @@ export class Battle {
                     : hero.id === 'jam'
                       ? this.abilityJam()
                       : this.abilityQuake();
-    if (landed && this.specials.pulseHeal) {
-      const healed = Math.min(
-        this.specials.pulseHeal,
-        this.stats.health - this.run.hp,
-      );
-      this.run.hp += healed;
-      if (healed > 0)
-        this.label(this.x, this.y - 65, '+' + Math.round(healed), '#8acdb6');
+    // Healing flowers and the vaccine reach both players.
+    const a = this.ally;
+    if (a && !a.down && (hero.id === 'bloom' || hero.id === 'ward'))
+      this.healAlly(a.max * (hero.id === 'bloom' ? BLOOM.heal : WARD.heal));
+    return landed;
+  }
+  // ---- Co-op: the second player (coop.ts) ----
+  makeAlly(hero: string): Ally {
+    const max = allyHealth(this.stats.health);
+    return {
+      hero,
+      x: this.x + 90,
+      y: this.y + 40,
+      vx: 0,
+      vy: 0,
+      hp: max,
+      max,
+      down: false,
+      downTime: 0,
+      revive: 0,
+      dashCd: 0,
+      pulseCd: 0,
+      dashing: 0,
+      invincible: 1,
+      hasteTime: 0,
+      facing: { x: 1, y: 0 },
+      shotTimer: 0.4,
+      muzzle: 0,
+      aim: 0,
+      walk: 0,
+    };
+  }
+  // Who an enemy goes for: the house, unless the partner is clearly closer.
+  goalOf(e: Enemy): { x: number; y: number; vx: number; vy: number } {
+    const a = this.ally;
+    if (!a || a.down) return this;
+    const house = Math.hypot(this.x - e.x, this.y - e.y),
+      near = Math.hypot(a.x - e.x, a.y - e.y);
+    return near < house * 0.85 ? a : this;
+  }
+  healAlly(amount: number) {
+    const a = this.ally;
+    if (!a || a.down) return 0;
+    const healed = Math.max(0, Math.min(amount, a.max - a.hp));
+    a.hp += healed;
+    if (healed >= 1)
+      this.label(a.x, a.y - 55, '+' + Math.round(healed), '#8acdb6');
+    return healed;
+  }
+  allyDash() {
+    const a = this.ally;
+    if (
+      !a ||
+      a.down ||
+      a.dashCd > 0 ||
+      this.paused ||
+      this.ended ||
+      this.drafting ||
+      this.presenting
+    )
+      return;
+    a.dashCd = this.specials.dashCooldown;
+    a.dashing = 0.22;
+    a.invincible = Math.max(a.invincible, 0.55);
+    this.audio.play('dash', { volume: 0.7 });
+    this.burst(a.x, a.y, '#f0c466', 12);
+    this.ring(a.x, a.y - 8, 56, '#f0c466', 0.25, 3);
+    this.vibrate(12);
+  }
+  // The partner's E: the ability of their own hero, cast from where they
+  // stand. It is the house's code with the house moved for the moment; what
+  // belongs to one body (the dash reset and the speed of Express) goes back.
+  allyPulse() {
+    const a = this.ally;
+    if (
+      !a ||
+      a.down ||
+      a.pulseCd > 0 ||
+      this.paused ||
+      this.ended ||
+      this.drafting ||
+      this.presenting
+    )
+      return;
+    a.pulseCd = 12 - 3 * this.pk('short_fuse');
+    this.addTrauma(0.42);
+    this.vibrate(25);
+    const hero = heroAbility(a.hero);
+    const home = {
+      x: this.x,
+      y: this.y,
+      dashCd: this.dashCd,
+      haste: this.hasteTime,
+      invincible: this.invincible,
+      ring: this.pulseRing,
+    };
+    this.x = a.x;
+    this.y = a.y;
+    try {
+      this.castAbility(a.hero);
+    } finally {
+      this.x = home.x;
+      this.y = home.y;
+      this.dashCd = home.dashCd;
+      this.hasteTime = home.haste;
+      this.invincible = home.invincible;
+      if (hero.id === 'quake') {
+        this.pulseRing = home.ring;
+        this.ring(a.x, a.y, QUAKE.radius, hero.color, 0.45, 5);
+      }
+      if (hero.id === 'express') {
+        a.dashCd = 0;
+        a.hasteTime = EXPRESS.seconds;
+        a.invincible = Math.max(a.invincible, EXPRESS.guard);
+      }
     }
+  }
+  hurtAlly(amount: number, invincible: number, trauma: number) {
+    const a = this.ally;
+    if (!a || a.down) return 0;
+    a.hp -= amount;
+    a.invincible = invincible;
+    this.addTrauma(trauma * 0.6);
+    this.audio.play('hit', { volume: 0.7 });
+    this.label(a.x, a.y - 50, '−' + Math.round(amount), '#ff8e82');
+    this.vibrate(14);
+    if (a.hp <= 0) this.downAlly();
+    return amount;
+  }
+  downAlly() {
+    const a = this.ally;
+    if (!a) return;
+    a.hp = 0;
+    a.down = true;
+    a.downTime = 0;
+    a.revive = 0;
+    a.dashing = 0;
+    this.burst(a.x, a.y, '#ff8e82', 22);
+    this.ring(a.x, a.y, 90, '#ff8e82', 0.5, 4);
+    this.freeze(0.08);
+    this.banner(
+      'НАПАРНИК ПАДАЄ',
+      'Підійди будинком до нього, щоб підняти',
+      '#ff8e82',
+      1.8,
+    );
+  }
+  reviveAlly(helped: boolean) {
+    const a = this.ally;
+    if (!a || !a.down) return;
+    a.down = false;
+    a.hp = Math.max(1, a.max * (helped ? COOP.reviveHp : COOP.riseHp));
+    a.revive = 0;
+    a.downTime = 0;
+    a.invincible = COOP.riseGuard;
+    if (helped) this.run.revives = (this.run.revives ?? 0) + 1;
+    this.burst(a.x, a.y, '#8acdb6', 24);
+    this.ring(a.x, a.y, 110, '#8acdb6', 0.5, 5);
+    this.label(a.x, a.y - 60, helped ? 'ПІДНЯТО' : 'ВСТАЄ', '#8acdb6');
+    this.audio.play('heal');
   }
   // Explosive props near a point take the ability's damage too.
   abilityProps(near: (x: number, y: number) => boolean, damage: number) {
@@ -1837,6 +2090,107 @@ export class Battle {
   threat(damage: number) {
     return damage * this.heat.enemyDamage;
   }
+  // What an enemy's touch costs after armour, for the house or the partner.
+  contactHit(e: Enemy) {
+    return Math.max(
+      2,
+      this.threat(
+        e.type === MINIBOSS_TYPE
+          ? minibossFor(this.run.chapter, this.minibossVariant).contactDamage
+          : e.type === 99
+            ? 12 + this.run.chapter * 4
+            : ENEMY_DEFS[e.type].contactDamage * (e.chief ? 1.5 : 1),
+      ) - this.stats.armor,
+    );
+  }
+  // The partner each frame: timers, the walk, the tether, the revive and the
+  // plain gun. Without a partner this is never called with anything to do.
+  updateAlly(dt: number) {
+    const a = this.ally;
+    if (!a) return;
+    a.dashCd = Math.max(0, a.dashCd - dt);
+    a.pulseCd = Math.max(0, a.pulseCd - dt);
+    a.hasteTime = Math.max(0, a.hasteTime - dt);
+    a.invincible -= dt;
+    a.dashing -= dt;
+    a.muzzle = Math.max(0, a.muzzle - dt);
+    this.allyFocus += ((a.down ? 0 : 1) - this.allyFocus) * Math.min(1, dt * 3);
+    if (a.down) {
+      a.vx = a.vy = 0;
+      a.downTime += dt;
+      const near = Math.hypot(a.x - this.x, a.y - this.y) < COOP.reviveRadius;
+      a.revive = reviveStep(a.revive, near, dt);
+      if (a.revive >= 1) this.reviveAlly(true);
+      else if (a.downTime >= COOP.autoRise) this.reviveAlly(false);
+      return;
+    }
+    const move = keyVector(this.keys, P2_KEYS);
+    let dx = this.stick2.x + this.pad2.x + move.x;
+    let dy = this.stick2.y + this.pad2.y + move.y;
+    const length = Math.hypot(dx, dy);
+    if (length > 0) {
+      dx /= Math.max(1, length);
+      dy /= Math.max(1, length);
+      const unit = Math.hypot(dx, dy);
+      a.facing = { x: dx / unit, y: dy / unit };
+    }
+    if (a.dashing > 0) {
+      dx = a.facing.x * 3.8;
+      dy = a.facing.y * 3.8;
+    }
+    const slow =
+      a.dashing > 0
+        ? 1
+        : this.hazards.reduce(
+            (speed, hazard) =>
+              hazard.slow && hazardContains(hazard, a.x, a.y)
+                ? Math.min(speed, hazard.slow)
+                : speed,
+            1,
+          );
+    const speed =
+      this.stats.speed * COOP.speed * slow * (a.hasteTime > 0 ? EXPRESS.haste : 1);
+    const fromX = a.x,
+      fromY = a.y;
+    a.x = Math.max(55, Math.min(1545, a.x + dx * speed * dt));
+    a.y = Math.max(55, Math.min(945, a.y + dy * speed * dt));
+    if (this.pushOutOfSolids(a, 18)) {
+      a.x = Math.max(55, Math.min(1545, a.x));
+      a.y = Math.max(55, Math.min(945, a.y));
+    }
+    // Both stay inside one picture: whoever walks away is pulled back, and
+    // the house gives a little too.
+    const small = this.view.w > 100;
+    const fix = spreadFix(
+      this,
+      a,
+      small ? Math.max(260, Math.min(COOP.spreadX, this.view.w - 120)) : COOP.spreadX,
+      small ? Math.max(200, Math.min(COOP.spreadY, this.view.h - 140)) : COOP.spreadY,
+    );
+    if (fix.ax || fix.ay) {
+      this.x = Math.max(55, Math.min(1545, this.x + fix.ax));
+      this.y = Math.max(55, Math.min(945, this.y + fix.ay));
+      a.x = Math.max(55, Math.min(1545, a.x + fix.bx));
+      a.y = Math.max(55, Math.min(945, a.y + fix.by));
+    }
+    const k = Math.min(1, dt * 10);
+    a.vx += ((a.x - fromX) / Math.max(dt, 1e-3) - a.vx) * k;
+    a.vy += ((a.y - fromY) / Math.max(dt, 1e-3) - a.vy) * k;
+    a.walk += Math.hypot(a.vx, a.vy) * dt * 0.05;
+    a.hp = Math.min(a.max, a.hp + this.stats.regen * COOP.regen * dt);
+    a.shotTimer -= dt;
+    if (a.shotTimer <= 0) {
+      const target = this.nearest(a.x, a.y, this.stats.range * COOP.range);
+      if (target) {
+        a.aim = Math.atan2(target.y - a.y, target.x - a.x);
+        a.muzzle = 0.09;
+        this.shoot(a.x, a.y - 10, target, true, undefined, COOP.damage / 0.45);
+        this.audio.play('shoot', { volume: 0.5, pitch: 1.25 });
+        a.shotTimer =
+          COOP.fireGap / (this.stats.rate * (this.overloaded() ? 2 : 1));
+      } else if (length > 0) a.aim = Math.atan2(a.facing.y, a.facing.x);
+    }
+  }
   damage(
     e: Enemy,
     amount: number,
@@ -2233,11 +2587,14 @@ export class Battle {
         e.x = e.targetX ?? e.x;
         e.y = e.targetY ?? e.y;
         this.burst(e.x, e.y, def.color, 8);
-        shot(
-          Math.atan2(this.y - e.y, this.x - e.x),
-          def.projectileSpeed,
-          def.damage,
-        );
+        {
+          const goal = this.goalOf(e);
+          shot(
+            Math.atan2(goal.y - e.y, goal.x - e.x),
+            def.projectileSpeed,
+            def.damage,
+          );
+        }
         break;
       case 'cross':
         for (const a of [0, Math.PI / 2])
@@ -2316,7 +2673,8 @@ export class Battle {
   // now, or for leading enemies, where it will be when the shot or zone
   // arrives on its current course.
   aimAt(e: Enemy, def: CampaignEnemyDefinition, windup: number) {
-    if (!e.leads) return { x: this.x, y: this.y };
+    const goal = this.goalOf(e);
+    if (!e.leads) return { x: goal.x, y: goal.y };
     const zone = ZONE_MARK[def.behavior] !== undefined,
       fixed =
         zone ||
@@ -2338,18 +2696,18 @@ export class Battle {
               : 0) +
         (def.behavior === 'snipe' ? 0.35 : 0);
     let t = delay,
-      x = this.x,
-      y = this.y;
+      x = goal.x,
+      y = goal.y;
     for (let i = 0; i < 2; i++) {
-      let dx = this.vx * t,
-        dy = this.vy * t;
+      let dx = goal.vx * t,
+        dy = goal.vy * t;
       const len = Math.hypot(dx, dy);
       if (len > LEAD_MAX) {
         dx *= LEAD_MAX / len;
         dy *= LEAD_MAX / len;
       }
-      x = Math.max(55, Math.min(1545, this.x + dx));
-      y = Math.max(55, Math.min(945, this.y + dy));
+      x = Math.max(55, Math.min(1545, goal.x + dx));
+      y = Math.max(55, Math.min(945, goal.y + dy));
       if (fixed || speed <= 0) break;
       t = delay + Math.hypot(x - e.x, y - e.y) / speed;
     }
@@ -2757,6 +3115,7 @@ export class Battle {
     e: Enemy,
     drone = false,
     replay?: { damage: number; crit: boolean; shots: number },
+    power = 1,
   ) {
     const a = Math.atan2(e.y - y, e.x - x);
     const shots = replay?.shots ?? (drone ? 1 : this.stats.shots);
@@ -2768,7 +3127,7 @@ export class Battle {
       this.stats.damage *
       (1 + Math.min(0.6, (this.run.level - 1) * 0.04)) *
       (crit ? 1.8 : 1) *
-      (drone ? 0.45 : 1);
+      (drone ? 0.45 * power : 1);
     if (
       !drone &&
       !replay &&
@@ -3213,16 +3572,11 @@ export class Battle {
       if (this.comboTimer <= 0) this.combo = 0;
     }
     if (this.updateProps(dt)) return;
-    let dx =
-      this.stick.x +
-      this.pad.x +
-      (this.keys.has('KeyD') || this.keys.has('ArrowRight') ? 1 : 0) -
-      (this.keys.has('KeyA') || this.keys.has('ArrowLeft') ? 1 : 0);
-    let dy =
-      this.stick.y +
-      this.pad.y +
-      (this.keys.has('KeyS') || this.keys.has('ArrowDown') ? 1 : 0) -
-      (this.keys.has('KeyW') || this.keys.has('ArrowUp') ? 1 : 0);
+    // Alone, WASD and the arrows both drive the house; with a partner the
+    // arrows belong to them.
+    const move = keyVector(this.keys, this.ally ? P1_KEYS : SOLO_KEYS);
+    let dx = this.stick.x + this.pad.x + move.x;
+    let dy = this.stick.y + this.pad.y + move.y;
     const length = Math.hypot(dx, dy);
     if (length > 0) {
       dx /= Math.max(1, length);
@@ -3260,6 +3614,7 @@ export class Battle {
       this.y = Math.max(55, Math.min(945, this.y));
     }
     this.trackVelocity(fromX, fromY, dt);
+    this.updateAlly(dt);
     this.run.hp = Math.min(
       this.stats.health,
       this.run.hp + this.stats.regen * dt,
@@ -3384,9 +3739,10 @@ export class Battle {
             Math.hypot(ally.x - e.x, ally.y - e.y) < MEDIC_RANGE
           )
             ally.hp = Math.min(ally.max, ally.hp + ally.max * MEDIC_HEAL * dt);
-      const dist = Math.hypot(this.x - e.x, this.y - e.y) || 1;
-      const ex = (this.x - e.x) / dist,
-        ey = (this.y - e.y) / dist;
+      const goal = this.goalOf(e);
+      const dist = Math.hypot(goal.x - e.x, goal.y - e.y) || 1;
+      const ex = (goal.x - e.x) / dist,
+        ey = (goal.y - e.y) / dist;
       if (Math.abs(ex) > 0.08) e.facing = ex < 0 ? -1 : 1;
       const leader = isLeader(e.type);
       const def = leader ? null : ENEMY_DEFS[e.type];
@@ -3433,16 +3789,16 @@ export class Battle {
             dist <= def.range))
       ) {
         e.lockedAim = e.aim;
-        e.targetX = this.x;
-        e.targetY = this.y;
+        e.targetX = goal.x;
+        e.targetY = goal.y;
         if (def?.behavior === 'blink') {
           e.targetX = Math.max(
             55,
-            Math.min(1545, this.x + Math.cos(e.aim + Math.PI / 2) * 145),
+            Math.min(1545, goal.x + Math.cos(e.aim + Math.PI / 2) * 145),
           );
           e.targetY = Math.max(
             55,
-            Math.min(945, this.y + Math.sin(e.aim + Math.PI / 2) * 145),
+            Math.min(945, goal.y + Math.sin(e.aim + Math.PI / 2) * 145),
           );
         }
         e.windup = leader ? 0.9 : def!.windup;
@@ -3457,8 +3813,8 @@ export class Battle {
                   e.pattern++,
                   e.x,
                   e.y,
-                  this.x,
-                  this.y,
+                  goal.x,
+                  goal.y,
                   this.minibossVariant,
                 )
               : campaignBossPattern(
@@ -3468,10 +3824,10 @@ export class Battle {
                   e.pattern++,
                   e.x,
                   e.y,
-                  this.x,
-                  this.y,
-                  this.vx,
-                  this.vy,
+                  goal.x,
+                  goal.y,
+                  goal.vx,
+                  goal.vy,
                 );
           this.bossAttack = e.pendingBoss.name;
         }
@@ -3537,24 +3893,32 @@ export class Battle {
           ),
         );
       }
-      if (dist < e.r + 24 && this.invincible <= 0) {
+      const houseDist =
+        goal === this ? dist : Math.hypot(this.x - e.x, this.y - e.y) || 1;
+      if (houseDist < e.r + 24 && this.invincible <= 0) {
         e.attack = 0.18;
-        const hit = Math.max(
-          2,
-          this.threat(
-            e.type === MINIBOSS_TYPE
-              ? minibossFor(this.run.chapter, this.minibossVariant)
-                  .contactDamage
-              : e.type === 99
-                ? 12 + this.run.chapter * 4
-                : ENEMY_DEFS[e.type].contactDamage * (e.chief ? 1.5 : 1),
-          ) - this.stats.armor,
-        );
+        const hit = this.contactHit(e);
         this.hurt(hit, 0.7, 0.4);
         if (this.stats.thorns) this.damage(e, this.stats.thorns);
         if (!leader) {
-          e.x -= ex * 32;
-          e.y -= ey * 32;
+          e.x -= ((this.x - e.x) / houseDist) * 32;
+          e.y -= ((this.y - e.y) / houseDist) * 32;
+        }
+      }
+      const partner = this.ally;
+      if (partner && !partner.down && partner.invincible <= 0) {
+        const partnerDist =
+          goal === partner
+            ? dist
+            : Math.hypot(partner.x - e.x, partner.y - e.y) || 1;
+        if (partnerDist < e.r + COOP.hitRadius + 4) {
+          e.attack = 0.18;
+          this.hurtAlly(this.contactHit(e), 0.7, 0.4);
+          if (this.stats.thorns) this.damage(e, this.stats.thorns);
+          if (!leader) {
+            e.x -= ((partner.x - e.x) / partnerDist) * 32;
+            e.y -= ((partner.y - e.y) / partnerDist) * 32;
+          }
         }
       }
       this.orbitHit(e, dt);
@@ -3565,6 +3929,21 @@ export class Battle {
       if (!armed && hazard.age >= 0) this.hazardFired(hazard);
       if (this.invincible <= 0 && hazardContains(hazard, this.x, this.y)) {
         const taken = this.hurt(
+          Math.max(2, this.threat(hazard.damage) - this.stats.armor),
+          0.7,
+          0.38,
+        );
+        if (taken)
+          this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
+      }
+      const partner = this.ally;
+      if (
+        partner &&
+        !partner.down &&
+        partner.invincible <= 0 &&
+        hazardContains(hazard, partner.x, partner.y)
+      ) {
+        const taken = this.hurtAlly(
           Math.max(2, this.threat(hazard.damage) - this.stats.armor),
           0.7,
           0.38,
@@ -3602,6 +3981,21 @@ export class Battle {
           this.invincible <= 0
         ) {
           this.hurt(
+            Math.max(2, this.threat(b.damage) - this.stats.armor),
+            0.45,
+            0.3,
+          );
+          b.life = 0;
+        }
+        const partner = this.ally;
+        if (
+          b.life > 0 &&
+          partner &&
+          !partner.down &&
+          partner.invincible <= 0 &&
+          Math.hypot(b.x - partner.x, b.y - partner.y) < COOP.hitRadius + 7
+        ) {
+          this.hurtAlly(
             Math.max(2, this.threat(b.damage) - this.stats.armor),
             0.45,
             0.3,
@@ -3679,7 +4073,14 @@ export class Battle {
     }
     for (const d of this.drops) {
       d.t = (d.t ?? 0) + dt;
-      const dist = Math.hypot(d.x - this.x, d.y - this.y);
+      // Whoever is closer collects: the house, or the partner on their feet.
+      const partner = this.ally && !this.ally.down ? this.ally : null;
+      const toHouse = Math.hypot(d.x - this.x, d.y - this.y),
+        toPartner = partner
+          ? Math.hypot(d.x - partner.x, d.y - partner.y)
+          : Infinity;
+      const taker = toPartner < toHouse ? partner! : this;
+      const dist = Math.min(toHouse, toPartner);
       // Crystals fly home from anywhere; coins and kits need the magnet.
       const homing = d.kind === 'xp' && d.t > XP_HOMING;
       if (homing || dist < this.stats.magnet) {
@@ -3688,8 +4089,8 @@ export class Battle {
             ? Math.min(1400, 260 + (d.t - XP_HOMING) * 1100)
             : Math.max(90, 500 - dist)) * dt;
         const step = Math.min(dist, speed);
-        d.x += ((this.x - d.x) / Math.max(1, dist)) * step;
-        d.y += ((this.y - d.y) / Math.max(1, dist)) * step;
+        d.x += ((taker.x - d.x) / Math.max(1, dist)) * step;
+        d.y += ((taker.y - d.y) / Math.max(1, dist)) * step;
       }
       if (dist < 32) {
         if (d.kind === 'coin') {
@@ -3697,19 +4098,24 @@ export class Battle {
           this.audio.play('coin');
         }
         if (d.kind === 'heal') {
-          const healed = Math.max(
-            0,
-            Math.min(d.value, this.stats.health - this.run.hp),
-          );
-          this.run.hp = Math.min(this.stats.health, this.run.hp + d.value);
-          this.audio.play('heal');
-          if (healed >= 1)
-            this.label(
-              this.x,
-              this.y - 62,
-              '+' + Math.round(healed),
-              '#8acdb6',
+          if (taker === this) {
+            const healed = Math.max(
+              0,
+              Math.min(d.value, this.stats.health - this.run.hp),
             );
+            this.run.hp = Math.min(this.stats.health, this.run.hp + d.value);
+            this.audio.play('heal');
+            if (healed >= 1)
+              this.label(
+                this.x,
+                this.y - 62,
+                '+' + Math.round(healed),
+                '#8acdb6',
+              );
+          } else {
+            this.healAlly(d.value);
+            this.audio.play('heal');
+          }
         }
         if (d.kind === 'xp') {
           this.run.xp += d.value;
@@ -3838,6 +4244,18 @@ export class Battle {
             waves: this.plan.length,
             left: this.squadLeft(),
             squad: this.encounter.name,
+          }
+        : {}),
+      ...(this.ally
+        ? {
+            ally: {
+              hp: this.ally.hp,
+              max: this.ally.max,
+              down: this.ally.down,
+              revive: this.ally.revive,
+              dash: this.ally.dashCd,
+              pulse: this.ally.pulseCd,
+            },
           }
         : {}),
     });
@@ -4152,6 +4570,116 @@ export class Battle {
     this.drawTurret(c);
     c.restore();
   }
+  // The partner: a neighbour in a coat of their hero's colour with a plain gun,
+  // a plate with the player number and a small health bar. When down, they
+  // lie in the yard and a ring shows how far the revive has come.
+  drawAlly(c: CanvasRenderingContext2D) {
+    const a = this.ally;
+    if (!a) return;
+    const color = heroAbility(a.hero).color,
+      TAU = Math.PI * 2,
+      speed = Math.min(1, Math.hypot(a.vx, a.vy) / 120);
+    c.save();
+    c.translate(a.x, a.y);
+    c.fillStyle = '#0006';
+    c.beginPath();
+    c.ellipse(0, 16, a.down ? 22 : 15, 6, 0, 0, TAU);
+    c.fill();
+    if (a.down) {
+      c.fillStyle = '#26343c';
+      c.beginPath();
+      c.ellipse(0, 4, 20, 9, 0, 0, TAU);
+      c.fill();
+      c.globalAlpha = 0.7;
+      c.fillStyle = color;
+      c.fillRect(-14, -3, 20, 11);
+      c.globalAlpha = 1;
+      c.fillStyle = '#e0c29c';
+      c.beginPath();
+      c.arc(14, 2, 6, 0, TAU);
+      c.fill();
+      // Where the house has to stand, and how much of the revive is done.
+      c.strokeStyle = 'rgba(138,205,182,0.28)';
+      c.lineWidth = 2;
+      c.setLineDash([6, 8]);
+      c.beginPath();
+      c.arc(0, 0, COOP.reviveRadius, 0, TAU);
+      c.stroke();
+      c.setLineDash([]);
+      c.strokeStyle = '#8acdb6';
+      c.lineWidth = 5;
+      c.beginPath();
+      c.arc(0, 0, 30, -Math.PI / 2, -Math.PI / 2 + TAU * a.revive);
+      c.stroke();
+      c.fillStyle = '#8acdb6';
+      c.font = `700 11px ${FONT}`;
+      c.textAlign = 'center';
+      c.fillText('ПІДНІМИ', 0, -42);
+    } else {
+      const step = a.walk * 6,
+        swing = Math.sin(step) * 5 * (0.3 + speed);
+      if (a.invincible > 0 && Math.floor(this.elapsed * 16) % 2)
+        c.globalAlpha = 0.55;
+      c.strokeStyle = '#17232a';
+      c.lineWidth = 4;
+      c.lineCap = 'round';
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.moveTo(side * 4, 0);
+        c.lineTo(side * 4 + swing * side, 13);
+        c.stroke();
+      }
+      c.lineCap = 'butt';
+      c.fillStyle = color;
+      c.fillRect(-9, -20, 18, 22);
+      c.fillStyle = '#00000033';
+      c.fillRect(-9, -4, 18, 3);
+      c.strokeStyle = '#0b1217';
+      c.lineWidth = 1.5;
+      c.strokeRect(-9, -20, 18, 22);
+      c.fillStyle = '#e0c29c';
+      c.beginPath();
+      c.arc(0, -27, 7, 0, TAU);
+      c.fill();
+      c.fillStyle = '#3a2f2a';
+      c.beginPath();
+      c.arc(0, -29, 7.5, Math.PI, TAU);
+      c.fill();
+      c.save();
+      c.translate(0, -12);
+      c.rotate(a.aim);
+      c.fillStyle = '#2b3940';
+      c.fillRect(4, -2.5, 17, 5);
+      c.fillStyle = '#51636c';
+      c.fillRect(4, -2.5, 6, 5);
+      if (a.muzzle > 0) {
+        c.fillStyle = '#ffe3a0';
+        c.beginPath();
+        c.arc(24, 0, 4, 0, TAU);
+        c.fill();
+      }
+      c.restore();
+      c.globalAlpha = 1;
+      // Health bar and the number of the player.
+      const share = Math.max(0, Math.min(1, a.hp / a.max));
+      c.fillStyle = '#0b1217cc';
+      c.fillRect(-18, -50, 36, 6);
+      c.fillStyle = share < 0.35 ? '#e69080' : color;
+      c.fillRect(-17, -49, 34 * share, 4);
+    }
+    c.fillStyle = a.down ? '#8acdb6' : color;
+    c.beginPath();
+    c.arc(a.down ? 0 : -26, a.down ? -58 : -48, 8, 0, TAU);
+    c.fill();
+    c.fillStyle = '#0b1217';
+    c.font = `800 11px ${FONT}`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('2', a.down ? 0 : -26, a.down ? -57.5 : -47.5);
+    c.restore();
+    c.textAlign = 'start';
+    c.textBaseline = 'alphabetic';
+  }
   glowAt(
     c: CanvasRenderingContext2D,
     color: string,
@@ -4185,13 +4713,17 @@ export class Battle {
     c.fillStyle = '#0b171e';
     c.fillRect(0, 0, w, h);
     const zoom = Math.max(0.55, Math.min(1.08, Math.min(w / 850, h / 570)));
+    // With a partner the camera sits between the two of them.
+    const lean = this.ally ? this.allyFocus * 0.5 : 0,
+      focusX = this.ally ? this.x + (this.ally.x - this.x) * lean : this.x,
+      focusY = this.ally ? this.y + (this.ally.y - this.y) * lean : this.y;
     const cameraX = Math.max(
       w / 2 / zoom - 25,
-      Math.min(1625 - w / 2 / zoom, this.x),
+      Math.min(1625 - w / 2 / zoom, focusX),
     );
     const cameraY = Math.max(
       h / 2 / zoom - 25,
-      Math.min(1025 - h / 2 / zoom, this.y),
+      Math.min(1025 - h / 2 / zoom, focusY),
     );
     // Trauma only decays in tick(), so a paused frame holds still.
     const shake = this.paused
@@ -4256,6 +4788,13 @@ export class Battle {
       visible,
     );
     drawArenaLight(c, this.x, this.y - 10, '#ffd79a');
+    if (this.ally && !this.ally.down)
+      drawArenaLight(
+        c,
+        this.ally.x,
+        this.ally.y - 6,
+        heroAbility(this.ally.hero).color,
+      );
     this.ambient?.draw(c);
     drawProps(
       c,
@@ -4304,18 +4843,29 @@ export class Battle {
       c.fill();
     }
     const actors = [
-      ...this.enemies.map((enemy) => ({ y: enemy.y, enemy, dying: 0 })),
+      ...this.enemies.map((enemy) => ({
+        y: enemy.y,
+        enemy,
+        dying: 0,
+        partner: false,
+      })),
       ...this.defeated.map((enemy) => ({
         y: enemy.y,
         enemy,
         dying: 1 - enemy.life / 0.48,
+        partner: false,
       })),
-      { y: this.y, enemy: null, dying: 0 },
+      { y: this.y, enemy: null, dying: 0, partner: false },
+      ...(this.ally
+        ? [{ y: this.ally.y, enemy: null, dying: 0, partner: true }]
+        : []),
     ].sort((a, b) => a.y - b.y);
     const wrecked = this.ended && this.run.hp <= 0;
     for (const actor of actors) {
       const e = actor.enemy;
-      if (!e) {
+      if (!e && actor.partner) {
+        if (!wrecked) this.drawAlly(c);
+      } else if (!e) {
         if (!wrecked) this.drawHouse(c, this.x, this.y);
         else if (this.outro > 0) {
           c.globalAlpha = Math.min(1, this.outro / OUTRO.lose);

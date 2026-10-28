@@ -4,6 +4,7 @@ import { minibossFor } from '@/lib/game/minibosses';
 import { minibossVariant } from '@/lib/game/model';
 import { useState, useEffect, useRef } from 'react';
 import {
+  type LucideIcon,
   ChefHat,
   Coins,
   Crosshair,
@@ -38,7 +39,9 @@ import {
   type SpeakerId,
 } from '@/lib/game/story';
 import { statsFor, type Meta, type Run } from '@/lib/game/model';
-import { heroAbility } from '@/lib/game/heroes';
+import { heroAbility, type HeroAbility } from '@/lib/game/heroes';
+import { P2_CODES, P2_KEYS } from '@/lib/game/coop';
+import { CHARACTERS } from '@/lib/game/data';
 import {
   Battle,
   AudioEngine,
@@ -50,6 +53,22 @@ import { PerkDraft } from './perk-draft';
 import type { PerkId } from '@/lib/game/upgrades';
 
 import { Currency, Meter } from './hud-parts';
+
+const ABILITY_ICONS: Record<HeroAbility['id'], LucideIcon> = {
+  quake: Hammer,
+  discharge: Zap,
+  bloom: Sprout,
+  audit: Coins,
+  scald: ChefHat,
+  volley: Crosshair,
+  ward: ShieldPlus,
+  express: Wind,
+  jam: Radio,
+};
+const SECOND_HINT: Record<'dash' | 'pulse', string> = {
+  dash: '/',
+  pulse: '.',
+};
 
 export function Combat({
   run,
@@ -72,17 +91,11 @@ export function Combat({
   onSettings: () => void;
 }) {
   const ability = heroAbility(run.character),
-    AbilityIcon = {
-      quake: Hammer,
-      discharge: Zap,
-      bloom: Sprout,
-      audit: Coins,
-      scald: ChefHat,
-      volley: Crosshair,
-      ward: ShieldPlus,
-      express: Wind,
-      jam: Radio,
-    }[ability.id];
+    AbilityIcon = ABILITY_ICONS[ability.id],
+    coop = !!run.coop,
+    partner = coop ? heroAbility(run.coop) : null,
+    PartnerIcon = partner ? ABILITY_ICONS[partner.id] : null,
+    partnerName = CHARACTERS.find((c) => c.id === run.coop)?.name ?? '';
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const onPauseRef = useRef(onPauseChange),
@@ -94,7 +107,9 @@ export function Combat({
   const canvas = useRef<HTMLCanvasElement>(null),
     engine = useRef<Battle | null>(null),
     joystick = useRef<HTMLDivElement>(null),
-    pointer = useRef<number | null>(null);
+    pointer = useRef<number | null>(null),
+    joystick2 = useRef<HTMLDivElement>(null),
+    pointer2 = useRef<number | null>(null);
   const [hud, setHud] = useState<Hud>({
     hp: run.hp,
     max: statsFor(run, meta).health,
@@ -115,6 +130,7 @@ export function Combat({
   });
   const [paused, setPaused] = useState(false),
     [stick, setStick] = useState({ x: 0, y: 0 }),
+    [stick2, setStick2] = useState({ x: 0, y: 0 }),
     [draft, setDraft] = useState<{ offers: PerkId[]; level: number } | null>(
       null,
     ),
@@ -210,11 +226,22 @@ export function Combat({
       // Sliders and switches in the settings dialog need the arrow keys.
       if (holdRef.current) return;
       // While a boss is being presented any of these keys only skips it.
-      if (['Space', 'KeyE', 'Enter'].includes(e.code) && b.skipIntro()) {
+      const second = !!b.ally && P2_CODES.includes(e.code);
+      if (
+        (['Space', 'KeyE', 'Enter'].includes(e.code) || second) &&
+        b.skipIntro()
+      ) {
         e.preventDefault();
         return;
       }
-      if (
+      if (second) {
+        // The second player's keys: the arrows move the partner, the others act.
+        e.preventDefault();
+        if ((P2_KEYS.dash as readonly string[]).includes(e.code)) b.allyDash();
+        else if ((P2_KEYS.pulse as readonly string[]).includes(e.code))
+          b.allyPulse();
+        else b.keys.add(e.code);
+      } else if (
         [
           'KeyW',
           'KeyA',
@@ -247,6 +274,7 @@ export function Combat({
     const blur = () => {
       b.keys.clear();
       b.stick = { x: 0, y: 0 };
+      b.stick2 = { x: 0, y: 0 };
       // A backgrounded app may be killed: a decided battle is saved now.
       if (!settle()) setPaused(true);
     };
@@ -278,8 +306,11 @@ export function Combat({
       if (paused || hold) {
         engine.current.keys.clear();
         engine.current.stick = { x: 0, y: 0 };
+        engine.current.stick2 = { x: 0, y: 0 };
         setStick({ x: 0, y: 0 });
+        setStick2({ x: 0, y: 0 });
         pointer.current = null;
+        pointer2.current = null;
       }
     }
   }, [paused, hold]);
@@ -305,6 +336,24 @@ export function Combat({
     setStick({ x: 0, y: 0 });
     if (engine.current) engine.current.stick = { x: 0, y: 0 };
   }
+  function point2(e: React.PointerEvent) {
+    if (pointer2.current !== e.pointerId) return;
+    const r = joystick2.current!.getBoundingClientRect();
+    let x = (e.clientX - r.left - r.width / 2) / 40,
+      y = (e.clientY - r.top - r.height / 2) / 40;
+    const length = Math.hypot(x, y);
+    if (length > 1) {
+      x /= length;
+      y /= length;
+    }
+    setStick2({ x: x * 32, y: y * 32 });
+    if (engine.current) engine.current.stick2 = { x, y };
+  }
+  function release2() {
+    pointer2.current = null;
+    setStick2({ x: 0, y: 0 });
+    if (engine.current) engine.current.stick2 = { x: 0, y: 0 };
+  }
   const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
   return (
     <section className="battle-screen">
@@ -324,7 +373,11 @@ export function Combat({
         ref={canvas}
         className="battle-canvas"
         onPointerDown={() => engine.current?.skipIntro()}
-        aria-label={`Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`}
+        aria-label={
+          coop
+            ? `Бойова арена, двоє гравців. Перший: рух WASD, пробіл — ривок, E — вміння: ${ability.name}. Другий: рух стрілками, скісна риска — ривок, крапка — вміння: ${partner?.name}.`
+            : `Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`
+        }
       />
       {bark && !draft && (
         <RadioStrip
@@ -348,6 +401,29 @@ export function Combat({
             label="Міцність будинку"
             color="#b8ceaa"
           />
+          {hud.ally && (
+            <div className={`ally-bar${hud.ally.down ? ' down' : ''}`}>
+              <div>
+                <i style={{ background: partner?.color }}>2</i>
+                <span>{partnerName}</span>
+                <b>
+                  {hud.ally.down
+                    ? `${Math.round(hud.ally.revive * 100)}%`
+                    : Math.ceil(hud.ally.hp)}
+                </b>
+              </div>
+              <Meter
+                value={hud.ally.down ? hud.ally.revive : hud.ally.hp}
+                max={hud.ally.down ? 1 : hud.ally.max}
+                label={
+                  hud.ally.down
+                    ? 'Підйом напарника'
+                    : `Здоров’я: ${partnerName}`
+                }
+                color={hud.ally.down ? '#8acdb6' : partner?.color}
+              />
+            </div>
+          )}
         </div>
         <div className="battle-center">
           <span className="micro">
@@ -411,7 +487,9 @@ export function Combat({
       {hud.time < 7 && (
         <div className="battle-hint">
           {run.step === 0
-            ? 'Рухайся й збирай лут. Будинок стріляє сам.'
+            ? coop
+              ? 'Двоє: перший веде будинок (WASD), другий — сусід зі стрілками. Якщо сусід упав — підійди будинком, щоб підняти.'
+              : 'Рухайся й збирай лут. Будинок стріляє сам.'
             : run.kind === 'boss'
               ? 'Стеж за червоними снарядами. Ривок захищає від шкоди.'
               : run.kind === 'miniboss'
@@ -419,7 +497,7 @@ export function Combat({
                 : 'Розбий загін: три хвилі й ватажок. Рухайся — стрільці цілять на випередження.'}
         </div>
       )}
-      <div className="battle-controls">
+      <div className={`battle-controls${coop ? ' coop' : ''}`}>
         <div
           className="joystick"
           ref={joystick}
@@ -441,37 +519,136 @@ export function Combat({
           />
           <span>РУХ</span>
         </div>
-        <div className="keyboard-hint">
-          <kbd>W A S D</kbd>
-          <span>рух</span>
-          <kbd>SPACE</kbd>
-          <span>ривок</span>
-          <kbd>E</kbd>
-          <span>{ability.name.toLowerCase()}</span>
-        </div>
-        <div className="ability-row">
-          <button
-            className="ability"
-            onClick={() => engine.current?.dash()}
-            disabled={hud.dash > 0}
-            aria-label="Ривок"
-          >
-            <Footprints size={24} />
-            <b>{hud.dash > 0 ? hud.dash.toFixed(1) : 'РИВОК'}</b>
-            <small>Пробіл</small>
-          </button>
-          <button
-            className="ability pulse"
-            onClick={() => engine.current?.pulse()}
-            disabled={hud.pulse > 0}
-            aria-label={ability.name}
-            title={ability.text}
-          >
-            <AbilityIcon size={24} />
-            <b>{hud.pulse > 0 ? hud.pulse.toFixed(1) : ability.button}</b>
-            <small>E</small>
-          </button>
-        </div>
+        {coop && (
+          <div className="ability-row first">
+            <button
+              className="ability"
+              onClick={() => engine.current?.dash()}
+              disabled={hud.dash > 0}
+              aria-label="Ривок першого гравця"
+            >
+              <Footprints size={24} />
+              <b>{hud.dash > 0 ? hud.dash.toFixed(1) : 'РИВОК'}</b>
+              <small>Пробіл</small>
+            </button>
+            <button
+              className="ability pulse"
+              onClick={() => engine.current?.pulse()}
+              disabled={hud.pulse > 0}
+              aria-label={`Перший: ${ability.name}`}
+              title={ability.text}
+            >
+              <AbilityIcon size={24} />
+              <b>{hud.pulse > 0 ? hud.pulse.toFixed(1) : ability.button}</b>
+              <small>E</small>
+            </button>
+          </div>
+        )}
+        {coop ? (
+          <div className="keyboard-hint coop-hint">
+            <span>
+              <i className="who">1</i>
+              <kbd>W A S D</kbd>
+              <kbd>SPACE</kbd>
+              <kbd>E</kbd>
+            </span>
+            <span>
+              <i className="who two">2</i>
+              <kbd>← ↑ ↓ →</kbd>
+              <kbd>{SECOND_HINT.dash}</kbd>
+              <kbd>{SECOND_HINT.pulse}</kbd>
+            </span>
+          </div>
+        ) : (
+          <div className="keyboard-hint">
+            <kbd>W A S D</kbd>
+            <span>рух</span>
+            <kbd>SPACE</kbd>
+            <span>ривок</span>
+            <kbd>E</kbd>
+            <span>{ability.name.toLowerCase()}</span>
+          </div>
+        )}
+        {coop && partner && PartnerIcon ? (
+          <>
+            <div className="ability-row second">
+              <button
+                className="ability pulse"
+                onClick={() => engine.current?.allyPulse()}
+                disabled={!!hud.ally && (hud.ally.pulse > 0 || hud.ally.down)}
+                aria-label={`Другий: ${partner.name}`}
+                title={partner.text}
+              >
+                <PartnerIcon size={24} />
+                <b>
+                  {hud.ally && hud.ally.pulse > 0
+                    ? hud.ally.pulse.toFixed(1)
+                    : partner.button}
+                </b>
+                <small>.</small>
+              </button>
+              <button
+                className="ability"
+                onClick={() => engine.current?.allyDash()}
+                disabled={!!hud.ally && (hud.ally.dash > 0 || hud.ally.down)}
+                aria-label="Ривок другого гравця"
+              >
+                <Footprints size={24} />
+                <b>
+                  {hud.ally && hud.ally.dash > 0
+                    ? hud.ally.dash.toFixed(1)
+                    : 'РИВОК'}
+                </b>
+                <small>/</small>
+              </button>
+            </div>
+            <div
+              className="joystick second"
+              ref={joystick2}
+              onPointerDown={(e) => {
+                if (pointer2.current !== null) return;
+                pointer2.current = e.pointerId;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                point2(e);
+              }}
+              onPointerMove={point2}
+              onPointerUp={release2}
+              onPointerCancel={release2}
+              onLostPointerCapture={release2}
+            >
+              <div className="stick-cross" />
+              <div
+                className="stick-knob"
+                style={{ transform: `translate(${stick2.x}px,${stick2.y}px)` }}
+              />
+              <span>РУХ 2</span>
+            </div>
+          </>
+        ) : (
+          <div className="ability-row">
+            <button
+              className="ability"
+              onClick={() => engine.current?.dash()}
+              disabled={hud.dash > 0}
+              aria-label="Ривок"
+            >
+              <Footprints size={24} />
+              <b>{hud.dash > 0 ? hud.dash.toFixed(1) : 'РИВОК'}</b>
+              <small>Пробіл</small>
+            </button>
+            <button
+              className="ability pulse"
+              onClick={() => engine.current?.pulse()}
+              disabled={hud.pulse > 0}
+              aria-label={ability.name}
+              title={ability.text}
+            >
+              <AbilityIcon size={24} />
+              <b>{hud.pulse > 0 ? hud.pulse.toFixed(1) : ability.button}</b>
+              <small>E</small>
+            </button>
+          </div>
+        )}
       </div>
       <Dialog open={paused && !hold} onOpenChange={setPaused}>
         <DialogContent className="game-modal">

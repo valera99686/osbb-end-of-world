@@ -108,6 +108,8 @@ import {
   type Launch,
 } from './modes-panel';
 import { NoticeBoard } from './notice-board';
+import { CoopSelect } from './coop-select';
+import { coopHero } from '@/lib/game/coop';
 import './features.css';
 import {
   Dialog,
@@ -320,6 +322,8 @@ export default function Game() {
     [settingsOpen, setSettingsOpen] = useState(false),
     [combatPaused, setCombatPaused] = useState(false),
     [heat, setHeat] = useState(0),
+    // Hero of the second player; '' when the next raid is played alone.
+    [coopPick, setCoopPick] = useState(''),
     [queued, setQueued] = useState<Launch | null>(null),
     [toasts, setToasts] = useState<Toast[]>([]),
     [updateHidden, setUpdateHidden] = useState(false),
@@ -440,6 +444,7 @@ export default function Game() {
       setChapter(0);
       const stored = Number(localStorage.getItem('osbb.heat'));
       if (Number.isFinite(stored)) setHeat(Math.max(0, Math.floor(stored)));
+      setCoopPick(coopHero(loaded.wins, localStorage.getItem('osbb.coop')));
       if (s.error) setNotice('Збереження пошкоджено. Створено новий профіль.');
       else if (s.refund)
         setNotice(
@@ -706,6 +711,15 @@ export default function Game() {
       // Only a convenience: the choice resets to 0 next time.
     }
   }
+  const coopChoice = coopHero(meta.wins, coopPick);
+  function pickCoop(hero: string) {
+    setCoopPick(hero);
+    try {
+      localStorage.setItem('osbb.coop', hero);
+    } catch {
+      // Only a convenience: the second player is off again next time.
+    }
+  }
   function start() {
     if (!ready) return;
     audio.current!.unlock();
@@ -728,6 +742,8 @@ export default function Game() {
         mode: spec.mode,
         heat: spec.heat,
         daily: spec.daily,
+        // The daily run stays a single-player ranking.
+        coop: spec.mode === 'daily' ? '' : (spec.coop ?? coopChoice),
       },
     );
     setRun(started);
@@ -1167,11 +1183,18 @@ export default function Game() {
             {run ? (
               <RunBadge run={run} />
             ) : (
-              <HeatSelect
-                max={heatChoices(meta.heatUnlocked)}
-                value={heatChoice}
-                onChange={pickHeat}
-              />
+              <>
+                <HeatSelect
+                  max={heatChoices(meta.heatUnlocked)}
+                  value={heatChoice}
+                  onChange={pickHeat}
+                />
+                <CoopSelect
+                  wins={meta.wins}
+                  value={coopChoice}
+                  onChange={pickCoop}
+                />
+              </>
             )}
             <button
               className="primary start-button"
@@ -2009,6 +2032,13 @@ export default function Game() {
             <p>
               <b>01 / Керуй будинком.</b> WASD або стрілки. На телефоні —
               джойстик ліворуч. Стрільба автоматична.
+            </p>
+            <p>
+              <b>Вдвох.</b> У Притулку можна ввімкнути другого гравця на тому ж
+              пристрої. Перший веде будинок (WASD, пробіл, E), другий — сусід
+              зі стрілками (/ — ривок, . — вміння свого героя) або з другим
+              геймпадом чи джойстиком на екрані. Якщо сусід упав, підведи
+              будинок до нього й постій 2,5 с. Ворогів у такому рейді більше.
             </p>
             <p>
               <b>02 / Уникай шкоди.</b> Пробіл — ривок із коротким захистом. E —

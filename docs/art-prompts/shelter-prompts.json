@@ -1,0 +1,22 @@
+{
+  "model": "GPT Image 2 (mage.space), 2K, 16:9",
+  "used_in": "public/art/shelter-*.webp (resized to 1920 px, WebP q82)",
+  "negative": "photorealistic, photo, text, letters, watermark, logo, modern cars, cartoon, anime, bright cheerful colors",
+  "images": [
+    {
+      "file": "public/art/shelter-fallen.webp",
+      "source": "docs/art-source/shelter-fallen.jpg",
+      "prompt": "Stylized detailed digital illustration with a slightly pixel-painted texture, video game key art, deep saturated midnight-blue night palette with warm yellow glowing windows. A six-story weathered concrete apartment block with balconies full of potted plants, hanging laundry and rugs, a blue-and-yellow Ukrainian flag, a sunflower painted on the wall, rooftop antennas, satellite dishes and two small cannons on its sides, standing on four heavy rusty mechanical legs with gears and pistons painted in faded yellow and blue patches. The house has just lost a battle and collapsed: two legs have buckled, the whole building tilts sideways and sinks into black rubble, thin smoke rises from its chimneys, but warm yellow windows are still lit. A pale full moon behind clouds, fog over a ruined city skyline in the distance, a few small neighbour silhouettes with lanterns walking towards the house. Mood of defeat but warmth and stubborn hope. The lower third of the frame is dark and calm. No text, no logos."
+    },
+    {
+      "file": "public/art/shelter-hall.webp",
+      "source": "docs/art-source/shelter-hall.jpg",
+      "prompt": "Stylized detailed digital illustration with a slightly pixel-painted texture, video game key art, deep saturated midnight-blue palette with warm yellow lamp light. Interior of the common room of a post-apocalyptic Ukrainian apartment block that walks on mechanical legs: a long worn wooden table with scattered paper meeting protocols, tin mugs and a dented kettle under one hanging yellow lamp, patterned carpets hung on the concrete walls, potted plants on the windowsill, a sunflower painted on the wall, rusty pipes, a window showing a blue moonlit night with a ruined city skyline. A few tired neighbours sit slumped around the table with heads down after a lost battle: an old woman in a headscarf, a broad man in a work jacket, a young woman with a bandaged arm, a cat sleeping on a chair. Mood of defeat but warmth and stubborn hope. The lower third of the frame is dark and calm. No readable text, no logos."
+    },
+    {
+      "file": "public/art/shelter-rising.webp",
+      "source": "docs/art-source/shelter-rising.jpg",
+      "prompt": "Stylized detailed digital illustration with a slightly pixel-painted texture, video game key art, deep saturated midnight-blue to violet pre-dawn palette with warm orange work lights and a thin pale sunrise line. A six-story weathered concrete apartment block with balconies full of potted plants, hanging laundry and rugs, a blue-and-yellow Ukrainian flag, a sunflower painted on the wall, rooftop antennas and small cannons, standing tilted on four heavy rusty mechanical legs painted in faded yellow and blue patches with gears and pistons. Neighbours are hauling it back onto its feet after a lost battle: car jacks, chains and thick ropes under one broken leg, wooden scaffolding, a welder with orange sparks, a woman carrying a tool box, a man pulling a rope, warm yellow windows lit in the building. Fog and black rubble around, a ruined city skyline in the distance. Mood of grim determination and a fresh start after defeat. The lower third of the frame is dark and calm. No text, no logos."
+    }
+  ]
+}

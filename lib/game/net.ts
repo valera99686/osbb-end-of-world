@@ -11,7 +11,7 @@ import type { Battle } from './engine';
 
 // Both ends must run the same build: the simulation is only repeatable inside
 // one version of the code, so a mismatch is refused at the door.
-export const NET_PROTOCOL = 2;
+export const NET_PROTOCOL = 3;
 // How a fight is shared: both ends simulate it and trade inputs ('sync'), or
 // the host alone simulates and streams it to the guest ('host').
 export type ShareMode = 'sync' | 'host';
@@ -49,6 +49,19 @@ export type Msg =
   | { t: 'refuse'; why: string }
   // Host to guest between fights: a line of what the host is doing.
   | { t: 'status'; text: string }
+  // The map is open and the next stop is a vote: the host's run for the guest
+  // to look at, then the votes as they stand (coop.ts Ballot), and the guest's
+  // own pick of a column of the step.
+  | { t: 'map'; run: unknown } // run null: the vote is over
+  | {
+      t: 'ballot';
+      step: number;
+      options: number[];
+      host: number | null;
+      guest: number | null;
+      done?: { col: number; coin: boolean };
+    }
+  | { t: 'vote'; step: number; col: number }
   // A fight begins: the run and the profile the simulation is made from, and
   // how it is shared: 'sync' (both simulate, net.ts) or 'host' (mirror.ts).
   | { t: 'start'; sid: number; run: unknown; meta: unknown; mode?: ShareMode }

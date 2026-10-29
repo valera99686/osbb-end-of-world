@@ -10,6 +10,7 @@ import {
   type Msg,
   type ShareMode,
 } from './net';
+import { castVote, newBallot, readBallot, type Ballot } from './coop';
 
 export type Phase = 'waiting' | 'joining' | 'connected' | 'refused' | 'closed';
 export interface Partner {
@@ -46,6 +47,12 @@ export class NetSession {
     null;
   // Bumps on every change, for React's useSyncExternalStore.
   version = 0;
+  // The vote for the next stop of the raid, as both ends see it, and (guest)
+  // the host's run to draw the map from. Nothing here while no map is open.
+  ballot: Ballot | null = null;
+  map: unknown = null;
+  // Host: the guest has voted.
+  onVoted: (() => void) | null = null;
   // Host: the room still takes a guest after one has left.
   roomOpen = true;
   private pendingStart: StartMsg | null = null;
@@ -133,8 +140,41 @@ export class NetSession {
         this.status = m.text;
         this.change();
         return;
+      case 'map':
+        // Guest: the host's run, to draw the map the vote is about; null
+        // when the vote is over.
+        if (this.role !== 'guest') return;
+        if (m.run === null) {
+          this.map = null;
+          this.ballot = null;
+        } else if (m.run && typeof m.run === 'object') this.map = m.run;
+        else return;
+        this.change();
+        return;
+      case 'ballot': {
+        if (this.role !== 'guest') return;
+        const b = readBallot(m);
+        if (!b) return;
+        this.ballot = b;
+        this.change();
+        return;
+      }
+      case 'vote': {
+        // Host: the guest picks; only a column of the open step counts.
+        if (this.role !== 'host' || !this.ballot || m.step !== this.ballot.step)
+          return;
+        const next = castVote(this.ballot, 'guest', m.col);
+        if (next === this.ballot) return;
+        this.ballot = next;
+        this.broadcast();
+        this.change();
+        this.onVoted?.();
+        return;
+      }
       case 'start':
         if (this.role !== 'guest') return;
+        this.ballot = null;
+        this.map = null;
         if (this.onStart) this.onStart(m);
         else this.pendingStart = m;
         return;
@@ -161,6 +201,8 @@ export class NetSession {
   private lost(link: Link | null) {
     if (link && this.link && link !== this.link) return;
     this.link = null;
+    this.ballot = null;
+    this.map = null;
     for (const done of this.waiting.values()) done(null);
     this.waiting.clear();
     this.fight?.handleClose();
@@ -175,6 +217,54 @@ export class NetSession {
     if (this.role !== 'host' || this.phase !== 'connected') return;
     this.link?.send({ t: 'status', text });
   }
+  private broadcast() {
+    if (this.role === 'host' && this.phase === 'connected' && this.ballot)
+      this.link?.send({ t: 'ballot', ...this.ballot });
+  }
+  // Host: the map is open and the next stop is a vote; the guest gets the map
+  // to look at and an empty ballot.
+  openVote(run: unknown, step: number, options: readonly number[]) {
+    if (this.role !== 'host' || this.phase !== 'connected') return;
+    this.ballot = newBallot(step, options);
+    this.link?.send({ t: 'map', run });
+    this.broadcast();
+    this.change();
+  }
+  // Host: the host's own pick.
+  voteHost(col: number) {
+    if (this.role !== 'host' || !this.ballot) return;
+    const next = castVote(this.ballot, 'host', col);
+    if (next === this.ballot) return;
+    this.ballot = next;
+    this.broadcast();
+    this.change();
+  }
+  // Guest: the guest's pick, told to the host.
+  voteGuest(col: number) {
+    if (this.role !== 'guest' || this.phase !== 'connected' || !this.ballot)
+      return;
+    const next = castVote(this.ballot, 'guest', col);
+    if (next === this.ballot) return;
+    this.ballot = next;
+    this.link?.send({ t: 'vote', step: next.step, col });
+    this.change();
+  }
+  // Host: the vote is decided; both ends see where the raid goes.
+  settle(done: { col: number; coin: boolean }) {
+    if (this.role !== 'host' || !this.ballot || this.ballot.done) return;
+    this.ballot = { ...this.ballot, done };
+    this.broadcast();
+    this.change();
+  }
+  // Host: the vote is over (the fight or the room is next).
+  closeVote() {
+    if (!this.ballot && !this.map) return;
+    this.ballot = null;
+    this.map = null;
+    if (this.role === 'host' && this.phase === 'connected')
+      this.link?.send({ t: 'map', run: null });
+    this.change();
+  }
   // Host: opens a fight at the guest's end; resolves with its id once the
   // guest has built it, or null if the guest left or did not answer.
   open(
@@ -185,6 +275,8 @@ export class NetSession {
     if (this.role !== 'host' || this.phase !== 'connected' || !this.link)
       return Promise.resolve(null);
     const sid = ++this.sid;
+    this.ballot = null;
+    this.map = null;
     this.link.send({ t: 'start', sid, run, meta, mode: this.mode });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {

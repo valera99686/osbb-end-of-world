@@ -112,7 +112,13 @@ import { CoopSelect } from './coop-select';
 import { GuestRoom, OnlinePanel, useNet } from './online';
 import { NetSession } from '@/lib/game/session';
 import type { ShareMode } from '@/lib/game/net';
-import { coopHero, guestFightCores, guestRunCores } from '@/lib/game/coop';
+import {
+  ballotResult,
+  coopHero,
+  guestFightCores,
+  guestRunCores,
+  VOTE,
+} from '@/lib/game/coop';
 import './features.css';
 import {
   Dialog,
@@ -160,6 +166,7 @@ import {
   statsFor,
   priceFor,
   enterNode,
+  availableColumns,
   nextNode,
   equip,
   packItem,
@@ -812,6 +819,53 @@ export default function Game() {
                 : 'Господар у бою',
     );
   }, [netPhase, screen, run?.page, run?.step, run?.chapter]);
+  // Online, where the raid goes next is a vote of both players on one map
+  // (coop.ts): a fork is voted on, a single way or a fight to continue is not.
+  const ballot = net?.role === 'host' ? net.ballot : null;
+  const voting =
+    livePartner &&
+    screen === 'play' &&
+    run?.page === 'map' &&
+    run.path.length <= run.step &&
+    availableColumns(run).length > 1;
+  const voteKey = voting && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
+  const [guestSilent, setGuestSilent] = useState(false);
+  useEffect(() => {
+    if (net?.role !== 'host') return;
+    if (voteKey && run) {
+      setGuestSilent(false);
+      net.openVote(run, run.step, availableColumns(run));
+    } else net.closeVote();
+  }, [voteKey, netPhase]);
+  // A guest who does not answer does not hold the host up for ever.
+  useEffect(() => {
+    if (!voting || !ballot || ballot.done) return;
+    if (ballot.host === null || ballot.guest !== null) return;
+    const timer = setTimeout(() => setGuestSilent(true), VOTE.silent * 1000);
+    return () => clearTimeout(timer);
+  }, [voting, ballot?.step, ballot?.host, ballot?.guest]);
+  // Both have picked (or the guest is silent): the verdict goes to both ends.
+  useEffect(() => {
+    if (net?.role !== 'host' || !run || !ballot || ballot.done) return;
+    const verdict = ballotResult(ballot, run.seed, guestSilent);
+    if (verdict && ballot.step === run.step) net.settle(verdict);
+  }, [ballot?.step, ballot?.host, ballot?.guest, guestSilent]);
+  // A moment to see the verdict, then the raid goes there.
+  useEffect(() => {
+    const done = ballot?.done,
+      step = ballot?.step;
+    if (!done || step === undefined) return;
+    const timer = setTimeout(
+      () =>
+        setRun((r) =>
+          r && r.page === 'map' && r.step === step
+            ? enterNode(r, metaRef.current, `${step}:${done.col}`)
+            : r,
+        ),
+      done.coin ? 1800 : 900,
+    );
+    return () => clearTimeout(timer);
+  }, [ballot?.done?.col, ballot?.done?.coin, ballot?.step]);
   function closeOnline() {
     roomHandle.current?.close();
     roomHandle.current = null;
@@ -1617,6 +1671,20 @@ export default function Game() {
                           setNotice('');
                           setRun(enterNode(run, meta, id));
                         }}
+                        vote={
+                          voting && net
+                            ? {
+                                mine: ballot?.host ?? null,
+                                partner: ballot?.guest ?? null,
+                                partnerName: net.partner?.name || 'Напарник',
+                                done: ballot?.done,
+                                onVote: (col) => {
+                                  audio.current!.unlock();
+                                  net.voteHost(col);
+                                },
+                              }
+                            : undefined
+                        }
                       />
                     </Suspense>
                     <div className="map-note">

@@ -139,6 +139,79 @@ export function guestRunCores(hostCores: number): number {
   return Math.max(0, Math.ceil(hostCores * GUEST.share));
 }
 
+// Online, where the raid goes next is decided by both players: each one picks
+// a node of the same map. The same pick goes there; different picks are settled
+// by a coin, the same on both ends (it comes from the run's seed). A guest who
+// stays silent does not hold the host up for ever.
+export const VOTE = {
+  // Seconds the host's pick waits for a silent guest.
+  silent: 20,
+} as const;
+export interface Ballot {
+  // The step of the map and the columns that can be picked on it.
+  step: number;
+  options: number[];
+  host: number | null;
+  guest: number | null;
+  // The verdict, once there is one.
+  done?: { col: number; coin: boolean };
+}
+export function newBallot(step: number, options: readonly number[]): Ballot {
+  return { step, options: [...options], host: null, guest: null };
+}
+// A pick counts only for a column of the step, and only until the verdict.
+export function castVote(
+  b: Ballot,
+  who: 'host' | 'guest',
+  col: unknown,
+): Ballot {
+  if (
+    b.done ||
+    typeof col !== 'number' ||
+    !Number.isInteger(col) ||
+    !b.options.includes(col)
+  )
+    return b;
+  return { ...b, [who]: col };
+}
+// The column the vote picks, and whether a coin settled a disagreement; null
+// while somebody has still to choose. The host's own pick is always needed.
+export function ballotResult(
+  b: Ballot,
+  seed: number,
+  silent = false,
+): { col: number; coin: boolean } | null {
+  if (b.done) return b.done;
+  if (b.host === null) return null;
+  if (b.guest === null) return silent ? { col: b.host, coin: false } : null;
+  if (b.host === b.guest) return { col: b.host, coin: false };
+  const flip = (Math.imul((seed >>> 0) + b.step * 7919, 2654435761) >>> 16) & 1;
+  return { col: flip ? b.guest : b.host, coin: true };
+}
+// A ballot that came over the wire, or null if it is not one.
+export function readBallot(m: unknown): Ballot | null {
+  if (!m || typeof m !== 'object') return null;
+  const v = m as Record<string, unknown>;
+  const ints = (x: unknown): x is number =>
+    typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < 64;
+  const pick = (x: unknown) => (x === null ? null : ints(x) ? x : undefined);
+  if (!ints(v.step) || !Array.isArray(v.options) || !v.options.every(ints))
+    return null;
+  const host = pick(v.host),
+    guest = pick(v.guest);
+  if (host === undefined || guest === undefined) return null;
+  const b: Ballot = {
+    step: v.step,
+    options: v.options.slice(0, 16),
+    host,
+    guest,
+  };
+  const d = v.done as Record<string, unknown> | undefined;
+  if (d && typeof d === 'object' && ints(d.col))
+    b.done = { col: d.col, coin: d.coin === true };
+  return b;
+}
+
 // The partner a run may bring: any head of ОСББ already opened by the profile
 // (the same hero as the first player is allowed). '' means "alone".
 export function coopHero(

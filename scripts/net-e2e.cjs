@@ -3,6 +3,7 @@
 // fight with random keys and compare fingerprints of the simulation.
 //   npm run dev            (in another terminal)
 //   node scripts/net-e2e.cjs [seconds] [mode]
+//   FINISH=1 VOTE=1 node scripts/net-e2e.cjs 8 host   (the map vote after a fight)
 // Needs Chrome at the usual path and an internet connection (the broker).
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -103,6 +104,69 @@ async function until(what, fn, ms = 30000) {
 }
 const click = (text, sel = 'button') =>
   `(()=>{const b=[...document.querySelectorAll(${JSON.stringify(sel)})].find(b=>${JSON.stringify(text)}.test?0:new RegExp(${JSON.stringify(text)}).test(b.innerText)); if(!b) return false; b.click(); return true})()`;
+
+// After the won fight (MODE host, FINISH, VOTE=1): both players pick a
+// different node of the shared map, the coin decides, and both end up in the
+// same next fight.
+async function vote(host, guest) {
+  // The fight is won: the loot is sold to get to the next fork of the map.
+  await until('the host vote button', async () => {
+    await host.eval(click('Пропустити', '[role=dialog] button'));
+    await host.eval(`document.querySelector('.perk-card')?.click()`);
+    await host.eval(click('Продати знахідки'));
+    return host.eval(`/Голосую сюди/.test(document.querySelector('button.tree-go')?.innerText ?? '')`);
+  }, 60000);
+  await until('the same map at the guest', () =>
+    guest.eval(`!!document.querySelector('.guest-room.voting button.tree-go')`),
+  );
+  const forks = [
+    await host.eval(`document.querySelectorAll('.tree-node.available').length`),
+    await guest.eval(`document.querySelectorAll('.guest-room .tree-node.available').length`),
+  ];
+  console.log('forks at the host and at the guest', forks);
+  // The guest picks the second node; the host sees the chip.
+  await guest.eval(`document.querySelectorAll('.guest-room .tree-node.available')[1].click()`);
+  await guest.eval(click('Голосую сюди', '.guest-room button.tree-go'));
+  await until('the host sees the guest\'s pick', () =>
+    host.eval(`document.querySelectorAll('.tree-node .tree-votes .partner').length === 1`),
+  );
+  console.log('host note:', await host.eval(`document.querySelector('.tree-vote-note')?.innerText`));
+  // Both screens while one has voted (for looking at).
+  for (const [name, page] of [['host', host], ['guest', guest]]) {
+    await page.eval(`document.querySelector('.tree-detail')?.scrollIntoView({block: 'end'})`);
+    await sleep(400);
+    const shot = await page.send('Page.captureScreenshot', { format: 'png' });
+    const file = path.join(os.tmpdir(), `osbb-vote-${name}.png`);
+    fs.writeFileSync(file, Buffer.from(shot.result.data, 'base64'));
+    console.log('screenshot', file);
+  }
+  // The host picks the first: the picks differ.
+  await host.eval(`document.querySelectorAll('.tree-node.available')[0].click()`);
+  await host.eval(click('Голосую сюди', 'button.tree-go'));
+  const note = await until('the verdict on the guest\'s screen', () =>
+    guest.eval(`(document.querySelector('.tree-vote-note')?.innerText ?? '').match(/монетка вирішила|збіглися. Вирушаємо/)?.[0]`),
+  5000);
+  console.log('guest note:', note);
+  // The verdict takes the raid to the node the coin picked: a fight, a shop, an
+  // event... The map is gone at the host and the vote is gone at the guest.
+  await until('the host left the map', () => host.eval(`!document.querySelector('.route-tree')`), 15000);
+  await until('the guest vote is over', () => guest.eval(`!document.querySelector('.guest-room.voting')`), 15000);
+  console.log(
+    'the host went to:',
+    await host.eval(`document.querySelector('canvas.battle-canvas') ? 'a fight' : document.querySelector('h2')?.innerText`),
+    '| the guest sees:',
+    await guest.eval(`document.querySelector('canvas.battle-canvas') ? 'a fight' : document.querySelector('.guest-status')?.innerText`),
+  );
+  console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+  const ok =
+    forks[0] === forks[1] &&
+    forks[0] > 1 &&
+    /монетка/.test(note) &&
+    !host.errors.length &&
+    !guest.errors.length;
+  console.log(ok ? 'E2E OK' : 'E2E FAILED');
+  process.exitCode = ok ? 0 : 1;
+}
 
 (async () => {
   const [wa, wb] = [await launch(9331), await launch(9332)];
@@ -213,6 +277,10 @@ const click = (text, sel = 'button') =>
     const cores = await guest.eval(`document.querySelector('.guest-cores')?.innerText`);
     console.log('guest result card:', JSON.stringify(text), '|', cores);
     ok = ok && /Бій/.test(text) && /\+\d+/.test(cores || '');
+    if (process.env.VOTE) {
+      await vote(host, guest);
+      ok = ok && process.exitCode !== 1;
+    }
   }
   console.log(ok ? 'E2E OK' : 'E2E FAILED');
   for (const p of procs) p.kill();

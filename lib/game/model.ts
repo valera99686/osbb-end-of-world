@@ -1461,6 +1461,51 @@ export function availableColumns(run: Run): readonly number[] {
   if (run.path.length !== run.step) return [];
   return routeTargets(run.step - 1, run.path[run.step - 1], run.nodes, run);
 }
+const NODE_KINDS = new Set<string>([
+  'battle',
+  'elite',
+  'miniboss',
+  'shop',
+  'event',
+  'rest',
+  'boss',
+  'mystery',
+  'chest',
+]);
+// The host's run as it reaches the guest to draw the map of a vote from: null
+// unless it has everything the map reads and every node is a known kind.
+export function readMapRun(x: unknown): Run | null {
+  if (!x || typeof x !== 'object') return null;
+  const r = x as Run;
+  const whole = (v: unknown, max: number): v is number =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max;
+  if (
+    !whole(r.seed, 2 ** 53) ||
+    !whole(r.chapter, 2) ||
+    !whole(r.step, 40) ||
+    !whole(r.historyStart, 40) ||
+    !whole(r.routeVersion, 20)
+  )
+    return null;
+  if (
+    !Array.isArray(r.nodes) ||
+    r.nodes.length < 2 ||
+    r.nodes.length > 40 ||
+    r.step >= r.nodes.length ||
+    !r.nodes.every(
+      (row) =>
+        Array.isArray(row) &&
+        row.length > 0 &&
+        row.length <= 12 &&
+        row.every((k) => NODE_KINDS.has(k)),
+    )
+  )
+    return null;
+  if (!Array.isArray(r.path) || !r.path.every((c) => whole(c, 11))) return null;
+  if (!r.revealed || typeof r.revealed !== 'object') return null;
+  if (!Array.isArray(r.bossVariants)) return null;
+  return r;
+}
 export function reachableColumns(run: Run): number[][] {
   const reachable = run.nodes.map(() => [] as number[]);
   reachable[run.step] = [...availableColumns(run)];

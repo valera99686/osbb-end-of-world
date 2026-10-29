@@ -234,6 +234,31 @@ test('Every backdrop in the story exists, and each ending has its own picture', 
   }
 });
 
+test('Shelter talks have a backdrop: a defeat shows the fallen house, the hall and the rising house; a win the sunrise', () => {
+  const fs = require('node:fs');
+  const C = require('../.test-build/cutscenes.js');
+  // Three pictures, each with a file.
+  const defeat = [C.SHELTER_ART.fallen, C.SHELTER_ART.hall, C.SHELTER_ART.rising];
+  assert.equal(new Set(defeat).size, 3);
+  for (const art of defeat) {
+    const file = C.SCENE_IMAGE_BY_ART[art];
+    assert.ok(file && fs.existsSync('public' + file), `shelter picture ${art}`);
+    // None of them clashes with the cutscene sheet, the origins or the endings.
+    assert.ok(art > 15);
+  }
+  // A protocol after a defeat cycles through them by its number.
+  const picked = [0, 1, 2, 3, 4, 5].map((n) => C.shelterBackdrop(`hub-protocol-${n}`));
+  assert.deepEqual(new Set(picked), new Set(defeat));
+  assert.deepEqual(picked.slice(0, 3), picked.slice(3));
+  // A win has the sunrise; any other talk the house at night.
+  assert.equal(C.shelterBackdrop('hub-victory-4'), 5);
+  assert.equal(C.shelterBackdrop('hub-boris-ledger'), 2);
+  assert.equal(C.shelterBackdrop(''), 2);
+  // The first fall tells its three lines over the three pictures.
+  const first = S.HUB_SCENES.find((s) => s.id === 'hub-first-death');
+  assert.deepEqual(first.lines.map((l) => l.art), defeat);
+});
+
 test('Each ending changes the Shelter: its own beat once, and its own protocols', () => {
   const seenAll = S.HUB_SCENES.map((x) => x.id).filter((id) => !/^hub-after-/.test(id));
   const base = { ...M.initialMeta(), deaths: 1, runs: 30, totalRescues: 9, totalBosses: 5, scenesSeen: seenAll };

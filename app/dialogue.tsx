@@ -13,7 +13,11 @@ import {
   type Scene,
   type SpeakerId,
 } from '@/lib/game/story';
-import { STORY_YEAR, SCENE_IMAGE_BY_ART } from '@/lib/game/cutscenes';
+import {
+  STORY_YEAR,
+  SCENE_IMAGE_BY_ART,
+  shelterBackdrop,
+} from '@/lib/game/cutscenes';
 import type { Meta } from '@/lib/game/model';
 import { voiceKeyFor } from '@/lib/game/voice';
 import { Portrait } from './residents';
@@ -168,8 +172,10 @@ export function DialoguePlayer({
       aria-modal="true"
       aria-label={scene.title}
     >
-      <div className={`dlg-stage ${art === undefined ? 'dlg-shelter' : ''}`}>
-        {art !== undefined && <SceneArt art={art ?? CITY_ART} />}
+      <div className="dlg-stage dlg-shelter">
+        <SceneArt
+          art={art === undefined ? shelterBackdrop(scene.id) : (art ?? CITY_ART)}
+        />
         <div className="dlg-haze" />
       </div>
       <header className="dlg-top">

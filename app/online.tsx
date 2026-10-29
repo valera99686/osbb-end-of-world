@@ -1,9 +1,20 @@
-import { useState, useSyncExternalStore, type FormEvent } from 'react';
+import {
+  lazy,
+  Suspense,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from 'react';
 import { Check, Copy, Globe, LogIn, LogOut, Users } from 'lucide-react';
 import { CHARACTERS } from '@/lib/game/data';
+import { readMapRun } from '@/lib/game/model';
 import { normalizeCode, ROOM_LENGTH, type ShareMode } from '@/lib/game/net';
 import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
+
+const RouteTree = lazy(() =>
+  import('./route-tree').then((m) => ({ default: m.RouteTree })),
+);
 
 const none = () => () => {};
 // Re-renders the component whenever the room changes.
@@ -196,16 +207,36 @@ export function GuestRoom({
   onLeave: () => void;
 }) {
   useNet(session);
+  // The same map as the host's, when the next stop is a vote of both.
+  const map = readMapRun(session.map),
+    ballot = session.ballot;
+  const voting = !!map && !!ballot && ballot.step === map.step;
   return (
-    <section className="guest-room">
+    <section className={`guest-room ${voting ? 'voting' : ''}`}>
       <div className="guest-card">
         <span className="micro">
           <Globe size={14} /> КІМНАТА {session.code}
         </span>
-        <h2>Господар веде рейд</h2>
+        <h2>{voting ? 'Куди йти — вирішуєте вдвох' : 'Господар веде рейд'}</h2>
         <p className="guest-status">
           {session.status || 'Чекаємо, поки господар дійде до бою.'}
         </p>
+        {voting && map && ballot && (
+          <Suspense fallback={null}>
+            <RouteTree
+              key={`${map.seed}-${map.chapter}-${map.step}`}
+              run={map}
+              onEnter={() => {}}
+              vote={{
+                mine: ballot.guest,
+                partner: ballot.host,
+                partnerName: 'Господар',
+                done: ballot.done,
+                onVote: (col) => session.voteGuest(col),
+              }}
+            />
+          </Suspense>
+        )}
         {result && (
           <div className="guest-result">
             <b>{result.won ? 'Бій виграно' : 'Бій програно'}</b>

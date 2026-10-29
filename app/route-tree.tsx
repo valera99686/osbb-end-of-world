@@ -124,12 +124,39 @@ function point(row: number, col: number, count: number, run: Run) {
   return { x: columns[col], y: TOP + row * ROW_HEIGHT };
 }
 
+// Online, the next stop is picked by both players: the columns each of them
+// has picked on this step, and what a pick does (a vote, not a departure).
+export interface RouteVote {
+  mine: number | null;
+  partner: number | null;
+  partnerName: string;
+  done?: { col: number; coin: boolean };
+  onVote: (col: number) => void;
+}
+function voteNote(vote: RouteVote) {
+  if (vote.done)
+    return vote.done.coin
+      ? 'Голоси розійшлись: монетка вирішила. Вирушаємо!'
+      : 'Голоси збіглися. Вирушаємо!';
+  if (vote.mine === null)
+    return vote.partner === null
+      ? 'Куди йти — вирішуєте вдвох. Обери вузол і проголосуй.'
+      : `${vote.partnerName} уже обрав. Проголосуй і ти.`;
+  if (vote.partner === null)
+    return `Твій голос віддано. Чекаємо вибір: ${vote.partnerName}.`;
+  return vote.mine === vote.partner
+    ? 'Голоси збіглися.'
+    : 'Голоси розійшлись: вирішить монетка.';
+}
+
 export function RouteTree({
   run,
   onEnter,
+  vote,
 }: {
   run: Run;
   onEnter: (id: string) => void;
+  vote?: RouteVote;
 }) {
   const available = availableColumns(run);
   const reachable = reachableColumns(run);
@@ -331,6 +358,17 @@ export function RouteTree({
                     </span>
                     <b>{node.short}</b>
                     <small>{statusText}</small>
+                    {vote && step === run.step && (
+                      <span className="tree-votes" aria-hidden="true">
+                        {vote.mine === col && <i className="mine">Я</i>}
+                        {vote.partner === col && (
+                          <i className="partner" title={vote.partnerName}>
+                            {vote.partnerName.slice(0, 1).toUpperCase()}
+                          </i>
+                        )}
+                        {vote.done?.col === col && <i className="verdict">✓</i>}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -365,17 +403,28 @@ export function RouteTree({
         <button
           type="button"
           className="tree-go"
-          disabled={!canEnter}
-          onClick={() => onEnter(selection)}
+          disabled={!canEnter || !!vote?.done}
+          onClick={() =>
+            vote ? vote.onVote(selectedCol) : onEnter(selection)
+          }
         >
-          {canEnter
-            ? checkpoint
-              ? 'Продовжити'
-              : 'Рушити сюди'
-            : 'Недоступно'}
+          {!canEnter
+            ? 'Недоступно'
+            : vote
+              ? vote.mine === selectedCol
+                ? 'Мій голос тут'
+                : 'Голосую сюди'
+              : checkpoint
+                ? 'Продовжити'
+                : 'Рушити сюди'}
           <ArrowRight size={17} />
         </button>
       </div>
+      {vote && (
+        <p className="tree-vote-note" role="status" aria-live="polite">
+          {voteNote(vote)}
+        </p>
+      )}
       <p className="tree-guidance">
         {run.routeVersion >= 6
           ? 'Обирай з’єднані клітинки. «?» відкриває випадкову кімнату, скриня дає один предмет. На 10-му кроці — бос.'

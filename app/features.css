@@ -1068,6 +1068,54 @@
   margin: 0;
   color: #e5eef9;
 }
+/* The shared map of a vote needs the width of the host's own map. */
+.guest-room.voting {
+  place-items: start center;
+}
+.guest-room.voting .guest-card {
+  width: min(100%, 1040px);
+  max-width: none;
+}
+/* Who has picked which node: small chips on the node, a note under the map. */
+.tree-votes {
+  position: absolute;
+  top: -8px;
+  right: -10px;
+  display: flex;
+  gap: 2px;
+  pointer-events: none;
+}
+.tree-votes i {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  color: #07121a;
+  border: 1px solid #07121a;
+}
+.tree-votes .mine {
+  background: var(--amber, #f2b35a);
+}
+.tree-votes .partner {
+  background: #7fd0f0;
+}
+.tree-votes .verdict {
+  background: #8fe0a8;
+}
+.tree-vote-note {
+  margin: 0;
+  padding: 10px 16px;
+  text-align: center;
+  font-weight: 650;
+  color: #ffe3b5;
+  background: #3a2a1466;
+  border-top: 1px solid #5a3d1f66;
+}
 .guest-card p {
   margin: 0;
   line-height: 1.6;

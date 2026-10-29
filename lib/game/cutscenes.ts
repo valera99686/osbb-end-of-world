@@ -27,7 +27,23 @@ export const ORIGIN_ART = {
 // One illustration per ending (story.ts): the first sunrise, the residents'
 // meeting and the night all intercoms rang.
 export const ENDING_ART = { a: 13, b: 14, c: 15 } as const;
+// The Shelter after a defeat: the fallen house, the meeting hall with the
+// protocols, the neighbours raising the house again.
+export const SHELTER_ART = { fallen: 16, hall: 17, rising: 18 } as const;
+const SHELTER_DEFEAT = [SHELTER_ART.fallen, SHELTER_ART.hall, SHELTER_ART.rising];
+// The backdrop of a Shelter scene that gives no art of its own: the protocol
+// after a defeat takes one of the three pictures above by its number, the one
+// after a win the sunrise on the hill (the last picture of the cutscene sheet),
+// every other talk the house on its legs at night.
+export function shelterBackdrop(sceneId: string): number {
+  const m = /^hub-(protocol|victory)-(\d+)$/.exec(sceneId);
+  if (!m) return 2;
+  return m[1] === 'victory' ? 5 : SHELTER_DEFEAT[Number(m[2]) % 3];
+}
 export const SCENE_IMAGE_BY_ART: Record<number, string> = {
+  [SHELTER_ART.fallen]: asset('art/shelter-fallen.webp'),
+  [SHELTER_ART.hall]: asset('art/shelter-hall.webp'),
+  [SHELTER_ART.rising]: asset('art/shelter-rising.webp'),
   [ORIGIN_ART.service]: asset('art/origins-city-service-v1.webp'),
   [ORIGIN_ART.failure]: asset('art/origins-network-failure-v1.webp'),
   [ORIGIN_ART.scrap]: asset('art/origins-scrap-attack-v1.webp'),

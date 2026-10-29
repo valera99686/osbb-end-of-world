@@ -506,3 +506,142 @@ test('A partner that vanishes leaves the host fighting alone and the mirror is d
   m.turn(1);
   assert.ok(m.hostBattle.elapsed > 1.5, 'the fight goes on alone');
 });
+
+const VC = require('../.test-build/coop.js');
+
+test('A ballot: the same pick goes there, different picks go to a coin, a silent guest does not hold the host', () => {
+  let b = VC.newBallot(3, [0, 2]);
+  assert.equal(VC.ballotResult(b, 5), null, 'nobody has picked');
+  // Only valid columns count, and only for a person.
+  assert.equal(VC.castVote(b, 'host', 1), b);
+  assert.equal(VC.castVote(b, 'host', 'x'), b);
+  assert.equal(VC.castVote(b, 'host', 0.5), b);
+  assert.equal(VC.castVote(b, 'guest', null), b);
+  b = VC.castVote(b, 'guest', 2);
+  assert.equal(VC.ballotResult(b, 5), null, 'the host\'s own pick is always needed');
+  assert.equal(VC.ballotResult(b, 5, true), null);
+  const same = VC.castVote(b, 'host', 2);
+  assert.deepEqual(VC.ballotResult(same, 5), { col: 2, coin: false });
+  // A silent guest: the host goes after a wait, never before.
+  const alone = VC.castVote(VC.newBallot(3, [0, 2]), 'host', 0);
+  assert.equal(VC.ballotResult(alone, 5), null);
+  assert.deepEqual(VC.ballotResult(alone, 5, true), { col: 0, coin: false });
+  // A disagreement goes to a coin; the coin is the same each time it is asked,
+  // lands on either pick, and picks one of the two.
+  const split = VC.castVote(b, 'host', 0);
+  const picks = new Set();
+  for (let seed = 0; seed < 64; seed++) {
+    const r = VC.ballotResult(split, seed);
+    assert.equal(r.coin, true);
+    assert.ok(r.col === 0 || r.col === 2);
+    assert.deepEqual(VC.ballotResult(split, seed), r);
+    picks.add(r.col);
+  }
+  assert.deepEqual([...picks].sort(), [0, 2], 'both picks can win');
+  // A settled ballot stays settled and takes no more votes.
+  const done = { ...split, done: { col: 2, coin: true } };
+  assert.deepEqual(VC.ballotResult(done, 1), { col: 2, coin: true });
+  assert.equal(VC.castVote(done, 'host', 0), done);
+});
+
+test('A ballot that comes over the wire is checked for shape', () => {
+  const good = { step: 2, options: [0, 1], host: 1, guest: null };
+  assert.deepEqual(VC.readBallot(good), good);
+  assert.deepEqual(VC.readBallot({ ...good, done: { col: 1, coin: true } }).done, { col: 1, coin: true });
+  for (const bad of [
+    null,
+    'x',
+    {},
+    { ...good, step: -1 },
+    { ...good, step: 1.5 },
+    { ...good, options: 'ab' },
+    { ...good, options: [0, 'a'] },
+    { ...good, host: 'a' },
+    { ...good, guest: 99999 },
+  ])
+    assert.equal(VC.readBallot(bad), null, JSON.stringify(bad));
+  // A verdict that is not a column is dropped, the rest stands.
+  assert.equal(VC.readBallot({ ...good, done: { col: 'x' } }).done, undefined);
+  assert.equal(VC.readBallot({ ...good, options: Array.from({ length: 40 }, (_, i) => i % 5) }).options.length, 16);
+});
+
+test('The two ends vote on the map: the guest sees the map, picks travel, the verdict reaches both', () => {
+  const { wire, host, guest } = rooms();
+  const run = JSON.parse(JSON.stringify(M.makeRun(meta, 'mechanic', 0, 9, { coop: 'nina' })));
+  let heard = 0;
+  host.onVoted = () => heard++;
+  host.openVote(run, 4, [0, 1, 2]);
+  wire.deliver();
+  assert.equal(guest.map.seed, run.seed, 'the guest has the host\'s run to draw the map from');
+  assert.deepEqual(guest.ballot, { step: 4, options: [0, 1, 2], host: null, guest: null });
+  // The guest picks; the host hears it and both see it.
+  guest.voteGuest(1);
+  assert.equal(guest.ballot.guest, 1, 'at once on the guest\'s screen');
+  wire.deliver();
+  assert.equal(host.ballot.guest, 1);
+  assert.equal(heard, 1);
+  // A column that is not on the step, or a vote for another step, changes nothing.
+  guest.voteGuest(9);
+  host.link.onMessage({ t: 'vote', step: 5, col: 0 });
+  host.link.onMessage({ t: 'vote', step: 4, col: -1 });
+  assert.equal(host.ballot.guest, 1);
+  assert.equal(heard, 1);
+  // The host picks the other one: a coin decides, and both are told.
+  host.voteHost(2);
+  wire.deliver();
+  assert.equal(guest.ballot.host, 2);
+  const verdict = VC.ballotResult(host.ballot, run.seed);
+  assert.ok(verdict.coin);
+  host.settle(verdict);
+  wire.deliver();
+  assert.deepEqual(guest.ballot.done, verdict);
+  // A fight opening clears the vote at both ends.
+  host.open(run, meta, 5);
+  wire.deliver();
+  assert.equal(host.ballot, null);
+  assert.equal(guest.ballot, null);
+  assert.equal(guest.map, null);
+});
+
+test('A guest cannot vote when no vote is open, and a lost link clears the vote', () => {
+  const { wire, host, guest } = rooms();
+  guest.voteGuest(0);
+  wire.deliver();
+  assert.equal(host.ballot, null);
+  // Messages of the wrong role are ignored.
+  host.link.onMessage({ t: 'ballot', step: 1, options: [0], host: null, guest: null });
+  host.link.onMessage({ t: 'map', run: { seed: 1 } });
+  assert.equal(host.map, null);
+  host.openVote({ seed: 3 }, 1, [0, 1]);
+  wire.deliver();
+  assert.ok(guest.ballot);
+  wire.cut();
+  assert.equal(host.ballot, null);
+  assert.equal(guest.ballot, null);
+  assert.equal(guest.map, null);
+});
+
+test('The map that reaches the guest is checked before it is drawn', () => {
+  const run = JSON.parse(JSON.stringify(M.makeRun(meta, 'mechanic', 0, 9)));
+  assert.equal(M.readMapRun(run).seed, run.seed, 'the host\'s own run is fine');
+  const bad = (change) => {
+    const r = JSON.parse(JSON.stringify(run));
+    change(r);
+    return M.readMapRun(r);
+  };
+  assert.equal(M.readMapRun(null), null);
+  assert.equal(M.readMapRun('x'), null);
+  assert.equal(M.readMapRun({}), null);
+  assert.equal(bad((r) => (r.nodes[1][0] = 'dragon')), null, 'an unknown kind of node');
+  assert.equal(bad((r) => (r.nodes = [])), null);
+  assert.equal(bad((r) => (r.nodes[0] = 'battle')), null);
+  assert.equal(bad((r) => (r.nodes[0] = [])), null);
+  assert.equal(bad((r) => (r.step = 99)), null);
+  assert.equal(bad((r) => (r.step = -1)), null);
+  assert.equal(bad((r) => (r.chapter = 7)), null);
+  assert.equal(bad((r) => (r.seed = 'a')), null);
+  assert.equal(bad((r) => (r.path = ['a'])), null);
+  assert.equal(bad((r) => (r.revealed = null)), null);
+  assert.equal(bad((r) => (r.bossVariants = {})), null);
+  assert.equal(bad((r) => delete r.historyStart), null);
+});

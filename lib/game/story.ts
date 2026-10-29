@@ -1,5 +1,5 @@
 import type { Meta, Run } from './model';
-import { ENDING_ART, ORIGIN_ART } from './cutscenes';
+import { ENDING_ART, ORIGIN_ART, SHELTER_ART } from './cutscenes';
 import { OFFER_LINES } from './barks';
 import { HEAD_VOICES, voiceId, voiceKeyFor, type VoiceKey } from './voice';
 
@@ -676,12 +676,16 @@ const HUB_BEATS: HubBeat[] = [
         L(
           'galyna',
           'Протокол № {runs}. Слухали: будинок упав. Ухвалили: встати.',
+          { art: SHELTER_ART.fallen },
         ),
         L(
           'galyna',
           'Не дивуйся, голово. Притулок стоїть поза полем. Тут пам’ятають усе. Навіть те, чого ви вже не пам’ятаєте.',
+          { art: SHELTER_ART.hall },
         ),
-        L('intercom', 'Ласкаво просимо додому. Знову.'),
+        L('intercom', 'Ласкаво просимо додому. Знову.', {
+          art: SHELTER_ART.rising,
+        }),
       ],
       undefined,
       undefined,

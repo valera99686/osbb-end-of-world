@@ -36,6 +36,8 @@ const modules = [
   'save',
   'profile',
   'arena',
+  'pace',
+  'sprites',
   'enemy-art',
   'audio',
   'engine',
@@ -62,6 +64,8 @@ const tests = [
   'tests/humor.test.cjs',
   'tests/coop.test.cjs',
   'tests/net.test.cjs',
+  'tests/pace.test.cjs',
+  'tests/sprites.test.cjs',
 ];
 // Both lists are explicit; a module or test left out fails here, not later.
 const missing = [

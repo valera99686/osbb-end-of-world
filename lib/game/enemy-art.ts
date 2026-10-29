@@ -2,6 +2,7 @@ import { asset } from './assets';
 import { ENEMY_DEFS, campaignBoss } from './encounters';
 import { MINIBOSS_TYPE, minibossFor } from './minibosses';
 import { preloadArenaArt } from './arena';
+import { fast } from './sprites';
 import type { Enemy } from './engine';
 
 export const ENEMY_PALETTES = [
@@ -281,7 +282,13 @@ export function drawEnemyGhost(
   c.translate(x, y - enemy.r * 0.13);
   if (sprite) {
     c.scale(enemy.facing, 1);
-    c.drawImage(tinted(sprite, color), -size / 2, -size * 0.62, size, size);
+    c.drawImage(
+      fast(tinted(sprite, color)),
+      -size / 2,
+      -size * 0.62,
+      size,
+      size,
+    );
   } else ellipse(c, 0, 0, enemy.r * 0.8, enemy.r, color);
   c.restore();
 }
@@ -534,7 +541,7 @@ export function drawEnemy(
           ((rim.width - sprite.body.width) / 2) * (size / sprite.body.width);
       c.globalAlpha = 0.55 + 0.45 * lit;
       c.drawImage(
-        rim,
+        fast(rim),
         -size / 2 - pad,
         -size * 0.62 - pad,
         size + pad * 2,
@@ -550,13 +557,13 @@ export function drawEnemy(
     }
   }
   if (sprite) {
-    c.drawImage(sprite.body, -size / 2, -size * 0.62, size, size);
+    c.drawImage(fast(sprite.body), -size / 2, -size * 0.62, size, size);
     if (enemy.hit > 0 && !dying) {
       c.globalAlpha = Math.min(0.85, enemy.hit / 0.12);
-      c.drawImage(sprite.flash, -size / 2, -size * 0.62, size, size);
+      c.drawImage(fast(sprite.flash), -size / 2, -size * 0.62, size, size);
     } else if (dying > 0 && dying < 0.3) {
       c.globalAlpha = (1 - dying) * (1 - dying / 0.3) * 0.9;
-      c.drawImage(sprite.flash, -size / 2, -size * 0.62, size, size);
+      c.drawImage(fast(sprite.flash), -size / 2, -size * 0.62, size, size);
     }
   } else fallback(c, enemy, enemy.hit > 0 ? '#fff1d5' : color, phase);
   c.restore();

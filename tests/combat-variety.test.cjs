@@ -448,27 +448,59 @@ test('Orbit blades cut the event courier too', () => {
   assert.ok(courier.hp > 0);
 });
 
-test('Some props are solid: a few per arena, never explosive or flat, and the layout does not change', () => {
-  let withSolid = 0,
-    arenas = 0;
+test('Everything that stands is solid; only explosive props and flat ones can be walked over; the layout does not change', () => {
+  let arenas = 0;
   for (let seed = 1; seed <= 60; seed++)
     for (let chapter = 0; chapter < 3; chapter++) {
       const props = Arena.generateProps(seed, chapter);
-      const solids = props.filter((p) => p.solid);
-      assert.ok(solids.length <= 5, 'at most five');
-      for (const p of solids) assert.ok(!p.explosive && !p.flat);
-      for (const p of props.filter((p) => p.explosive || p.flat)) assert.equal(p.solid, false);
+      for (const p of props) {
+        const stands = !p.explosive && !p.flat;
+        assert.equal(p.solid, stands, `cell ${p.cell} of location ${chapter}`);
+        assert.equal(Arena.solidCircles(p, chapter).length > 0, stands);
+      }
       arenas++;
-      if (solids.length) withSolid++;
+      // The same seed gives the same props, so the same footprints.
+      assert.deepEqual(props, Arena.generateProps(seed, chapter));
       // The footprint stays inside the playfield and out of the house's clear zone.
-      for (const p of solids) {
-        const c = Arena.solidCircle(p);
-        assert.ok(c.r > 15 && c.r < 40, 'a sensible footprint');
-        assert.ok(c.x - c.r > 0 && c.x + c.r < 1600 && c.y - c.r > 0 && c.y + c.r < 1000);
+      for (const p of props.filter((p) => p.solid)) {
         assert.ok(Math.hypot((p.x - 800) / 340, (p.y - 500) / 240) >= 1, 'clear of the house');
+        for (const c of Arena.solidCircles(p, chapter)) {
+          assert.ok(c.r >= 7 && c.r <= 25, 'a sensible footprint: ' + c.r);
+          assert.ok(c.x - c.r > 0 && c.x + c.r < 1600 && c.y - c.r > 0 && c.y + c.r < 1000);
+        }
       }
     }
-  assert.ok(withSolid / arenas > 0.8, 'most arenas have cover: ' + withSolid + '/' + arenas);
+  assert.equal(arenas, 180);
+});
+
+test('A footprint lies along the foot of the picture and is as wide as the thing looks', () => {
+  // A dumpster of the first location: wide, so a row of circles.
+  const dumpster = { x: 400, y: 600, cell: 4, size: 100, flip: false };
+  const row = Arena.solidCircles(dumpster, 0);
+  assert.ok(row.length >= 3, 'wide things get several circles');
+  const left = Math.min(...row.map((c) => c.x - c.r)),
+    right = Math.max(...row.map((c) => c.x + c.r));
+  // The picture is 100 wide centred on 400; the foot covers most of it.
+  assert.ok(left >= 350 && left <= 365, 'left ' + left);
+  assert.ok(right >= 435 && right <= 450, 'right ' + right);
+  // The picture's centre is 0.36 above the ground point, its base 0.08 below
+  // it; the circles end at the base, not below it.
+  for (const c of row) {
+    assert.equal(c.y, row[0].y);
+    assert.ok(c.y + c.r <= 600 + 0.08 * 100 + 1e-6, 'not under the picture');
+    assert.ok(c.y + c.r >= 600 - 0.02 * 100, 'reaches the base');
+  }
+  // Mirrored, the same prop is the mirror image of itself.
+  const flipped = Arena.solidCircles({ ...dumpster, flip: true }, 0);
+  const mirror = (xs) => xs.map((x) => +(800 - x).toFixed(6)).sort((a, b) => a - b);
+  assert.deepEqual(
+    mirror(row.map((c) => c.x)),
+    flipped.map((c) => +c.x.toFixed(6)).sort((a, b) => a - b),
+  );
+  // A narrow thing (the lamp) is one circle; flat and explosive ones have none.
+  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 7, size: 100, flip: false }, 0).length, 2);
+  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 0, size: 60, flip: false }, 0).length, 0);
+  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 8, size: 100, flip: false }, 0).length, 0);
 });
 
 test('The house cannot walk through a solid prop and keeps sliding along it', () => {

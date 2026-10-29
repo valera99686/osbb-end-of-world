@@ -20,6 +20,7 @@ import {
   Zap,
   Footprints,
   Skull,
+  LogOut,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import './features.css';
@@ -82,6 +83,7 @@ export function Combat({
   onExit,
   onPauseChange,
   onSettings,
+  onAbandon,
   net,
   startSid,
   startMode,
@@ -97,6 +99,8 @@ export function Combat({
   onExit: (r: Run) => void;
   onPauseChange: (paused: boolean) => void;
   onSettings: () => void;
+  // Ends the whole raid from the pause menu (asks first); a guest has no raid.
+  onAbandon?: () => void;
   // Online co-op: the room, the id of this fight (the guest gets it from the
   // host's message, the host asks for one), the profile the host simulates
   // with, and what to do when the fight cannot go on for the guest.
@@ -850,6 +854,11 @@ export function Combat({
           >
             <Home size={18} /> Зберегти й до меню
           </button>
+          {onAbandon && (
+            <button className="secondary" onClick={onAbandon}>
+              <LogOut size={18} /> Завершити рейд
+            </button>
+          )}
         </DialogContent>
       </Dialog>
     </section>

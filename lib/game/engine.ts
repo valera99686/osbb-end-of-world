@@ -23,6 +23,8 @@ import {
   reviveStep,
   spreadFix,
 } from './coop';
+import { pacer } from './pace';
+import { fast } from './sprites';
 import type { Lockstep } from './net';
 import type { HostFeed, MirrorClient } from './mirror';
 import { specialEffects } from './specials';
@@ -99,7 +101,7 @@ import {
   generateProps,
   preloadArenaArt,
   propTarget,
-  solidCircle,
+  solidCircles,
   type ArenaProp,
   type ArenaView,
 } from './arena';
@@ -849,7 +851,9 @@ export class Battle {
       run.chapter,
     );
     this.explosives = this.props.filter((p) => p.explosive);
-    this.solids = this.props.filter((p) => p.solid).map(solidCircle);
+    this.solids = this.props
+      .filter((p) => p.solid)
+      .flatMap((p) => solidCircles(p, run.chapter));
     if (canvas) {
       preloadArenaArt(run.chapter);
       this.ambient = new ArenaAmbient(run.chapter, run.seed + run.step);
@@ -1009,8 +1013,10 @@ export class Battle {
     if (this.client) this.client.battle = this;
     this.running = true;
     this.last = clock();
+    pacer.begin();
     if (this.intro > 0) this.audio.play('bossIntro');
     const loop = (t: number) => {
+      pacer.frame(t - this.last);
       const real = Math.max(0, Math.min(0.1, (t - this.last) / 1000));
       this.last = t;
       this.pollGamepad();
@@ -4715,7 +4721,8 @@ export class Battle {
       this.facade = { key, canvas };
     }
     c.translate(0, bob);
-    if (this.facade.canvas) c.drawImage(this.facade.canvas, -38, -76, 76, 104);
+    if (this.facade.canvas)
+      c.drawImage(fast(this.facade.canvas), -38, -76, 76, 104);
     else {
       c.save();
       c.translate(-38, -60);
@@ -4846,7 +4853,7 @@ export class Battle {
     const sprite = glow(color, radius);
     if (!sprite || alpha <= 0) return;
     c.globalAlpha = Math.min(1, alpha);
-    c.drawImage(sprite, x - radius, y - radius);
+    c.drawImage(fast(sprite), x - radius, y - radius, radius * 2, radius * 2);
     c.globalAlpha = 1;
   }
   draw() {
@@ -4854,7 +4861,7 @@ export class Battle {
       canvas = this.canvas;
     if (!c || !canvas) return;
     const rect = canvas.getBoundingClientRect(),
-      dpr = Math.min(2, window.devicePixelRatio || 1);
+      dpr = pacer.ratio(window.devicePixelRatio, rect.width, rect.height);
     if (
       canvas.width !== Math.round(rect.width * dpr) ||
       canvas.height !== Math.round(rect.height * dpr)
@@ -5570,7 +5577,7 @@ export class Battle {
   drawOverlay(c: CanvasRenderingContext2D, w: number, h: number) {
     const reduced = this.settings.reducedFlashes;
     const edges = this.edgeLayers(w, h);
-    if (edges) c.drawImage(edges.dark, 0, 0, w, h);
+    if (edges) c.drawImage(fast(edges.dark), 0, 0, w, h);
     let red = this.hurtFlash * (reduced ? 0.35 : 0.8);
     if (
       !this.ended &&
@@ -5582,7 +5589,7 @@ export class Battle {
     }
     if (edges && red > 0.01) {
       c.globalAlpha = Math.min(1, red);
-      c.drawImage(edges.red, 0, 0, w, h);
+      c.drawImage(fast(edges.red), 0, 0, w, h);
       c.globalAlpha = 1;
     }
     if (this.flash > 0) {

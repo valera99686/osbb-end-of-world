@@ -1,4 +1,5 @@
 import { asset } from './assets';
+import { fast } from './sprites';
 // Living arenas: tiled floor art, seeded decor, explosive props and ambient
 // motes. Every image is optional: a failed load keeps the procedural floor,
 // and explosive props fall back to simple drawn shapes, so the mechanic
@@ -22,14 +23,53 @@ const PROP_SIZES = [
 ];
 // Puddles, spills and glass lie flat: drawn first and never shadowed.
 const FLAT = [[8], [7], [8]];
-// Cells that are heavy enough to stop the house and walking enemies and to
-// swallow hostile bullets: concrete, dumpsters, rubble, crates, racks.
-const SOLID = [
-  [2, 4, 5, 6],
-  [1, 4, 6],
-  [1, 4, 5],
+// The ground each standing prop takes up, measured on the art: [left, right,
+// foot, depth] as fractions of its picture (from the top left). It is the base
+// of what is drawn, so the house and walking enemies are stopped by the foot
+// and hostile bullets die on it, never by the air above or the grass below.
+// Null cells are not solid: the explosive prop (it blows up) and the puddles
+// and glass that lie flat.
+type Foot = readonly [number, number, number, number] | null;
+const FOOT: readonly (readonly Foot[])[] = [
+  // Rust: barrel, tyres, slab, cart, dumpster, bricks, crate, lamp, puddle.
+  [
+    null,
+    [0.16, 0.9, 0.93, 0.3],
+    [0.18, 0.88, 0.92, 0.3],
+    [0.16, 0.9, 0.9, 0.32],
+    [0.12, 0.88, 0.92, 0.34],
+    [0.1, 0.92, 0.88, 0.34],
+    [0.13, 0.87, 0.85, 0.36],
+    [0.08, 0.46, 0.85, 0.3],
+    null,
+  ],
+  // Green: canister, cabbage crate, roots, robot arm, crates, sunflower,
+  // rock, glass, mushrooms.
+  [
+    null,
+    [0.08, 0.9, 0.96, 0.34],
+    [0.15, 0.88, 0.94, 0.3],
+    [0.08, 0.6, 0.9, 0.28],
+    [0.1, 0.9, 0.92, 0.34],
+    [0.35, 0.93, 0.9, 0.3],
+    [0.1, 0.92, 0.88, 0.36],
+    null,
+    [0.12, 0.9, 0.9, 0.3],
+  ],
+  // Core: capacitor, server rack, cable coil, broken machine, fan unit,
+  // batteries, robot wreck, monitor stand, pool.
+  [
+    null,
+    [0.26, 0.8, 0.94, 0.26],
+    [0.1, 0.92, 0.9, 0.3],
+    [0.15, 0.92, 0.88, 0.32],
+    [0.12, 0.92, 0.96, 0.34],
+    [0.12, 0.9, 0.84, 0.32],
+    [0.1, 0.92, 0.85, 0.32],
+    [0.26, 0.84, 0.91, 0.24],
+    null,
+  ],
 ];
-const MAX_SOLID = 5;
 // The house spawns in the centre; decor keeps this ellipse clear.
 const CLEAR = { rx: 340, ry: 240 };
 
@@ -42,7 +82,7 @@ export interface ArenaProp {
   flip: boolean;
   flat: boolean;
   explosive: boolean;
-  // Blocks movement and enemy bullets (see solidCircle).
+  // Blocks movement and enemy bullets (see solidCircles).
   solid: boolean;
   hp: number;
   max: number;
@@ -53,9 +93,34 @@ export interface ArenaProp {
 }
 export const themeIndex = (chapter: number) =>
   Number.isFinite(chapter) ? Math.max(0, Math.min(2, Math.floor(chapter))) : 0;
-// The footprint of a solid prop on the ground.
-export function solidCircle(p: ArenaProp) {
-  return { x: p.x, y: p.y - p.size * 0.1, r: p.size * 0.3 };
+export interface Footprint {
+  x: number;
+  y: number;
+  r: number;
+}
+// The ground a prop takes up, as a row of overlapping circles along the foot
+// of its picture (see FOOT), so wide things such as a dumpster are as wide as
+// they look. The picture is drawn with its centre 0.36 of its size above the
+// ground point, so the ground point is 0.86 of the way down it (drawCell).
+export function solidCircles(p: ArenaProp, chapter: number): Footprint[] {
+  const foot = FOOT[themeIndex(chapter)][p.cell];
+  if (!foot) return [];
+  const [left, right, bottom, depth] = foot,
+    s = p.size,
+    r = (depth * s) / 2,
+    y = p.y + (bottom - depth / 2 - 0.86) * s;
+  // A mirrored prop reads its picture from the other side.
+  const from = p.flip ? 1 - right : left,
+    to = p.flip ? 1 - left : right,
+    x0 = p.x + (from - 0.5) * s + r,
+    x1 = p.x + (to - 0.5) * s - r;
+  if (x1 <= x0) return [{ x: (x0 + x1) / 2, y, r }];
+  const n = Math.ceil((x1 - x0) / (r * 1.4)) + 1;
+  return Array.from({ length: n }, (_, i) => ({
+    x: x0 + ((x1 - x0) * i) / (n - 1),
+    y,
+    r,
+  }));
 }
 // Centre and radius of the part of an explosive prop that bullets hit.
 export function propTarget(p: ArenaProp) {
@@ -74,16 +139,15 @@ function stream(seed: number) {
   };
 }
 
-// 14-20 props per arena, 2-4 of them explosive and up to five solid: the
-// rest is decor that nobody collides with.
+// 14-20 props per arena, 2-4 of them explosive. Everything that stands is
+// solid; only the explosive ones and what lies flat can be walked over.
 export function generateProps(seed: number, chapter: number): ArenaProp[] {
   const theme = themeIndex(chapter);
   const rng = stream((seed ^ 0x2c1b3c6d) + theme * 7919);
   const total = 14 + Math.floor(rng() * 7),
     explosives = 2 + Math.floor(rng() * 3);
   const props: ArenaProp[] = [];
-  let flats = 0,
-    solids = 0;
+  let flats = 0;
   for (let attempt = 0; props.length < total && attempt < 800; attempt++) {
     const explosive = props.length < explosives;
     const cell = explosive ? 0 : 1 + Math.floor(rng() * 8);
@@ -113,9 +177,7 @@ export function generateProps(seed: number, chapter: number): ArenaProp[] {
     )
       continue;
     const max = explosive ? 32 + theme * 28 : 0;
-    const solid =
-      !explosive && !flat && solids < MAX_SOLID && SOLID[theme].includes(cell);
-    if (solid) solids++;
+    const solid = !explosive && !flat && !!FOOT[theme][cell];
     props.push({
       x: Math.round(x),
       y: Math.round(y),
@@ -292,14 +354,20 @@ export function drawArenaLight(
   c.save();
   c.globalCompositeOperation = 'lighter';
   c.globalAlpha = 0.11;
-  c.drawImage(sprite, x - radius, y - radius * 0.8, radius * 2, radius * 1.6);
+  c.drawImage(
+    fast(sprite),
+    x - radius,
+    y - radius * 0.8,
+    radius * 2,
+    radius * 1.6,
+  );
   c.restore();
 }
 function shadow(c: CanvasRenderingContext2D, x: number, y: number, r: number) {
   const sprite = blob('#000000');
   if (!sprite) return;
   c.globalAlpha = 0.55;
-  c.drawImage(sprite, x - r, y - r * 0.36, r * 2, r * 0.72);
+  c.drawImage(fast(sprite), x - r, y - r * 0.36, r * 2, r * 0.72);
   c.globalAlpha = 1;
 }
 
@@ -341,7 +409,7 @@ function drawCell(
   c.save();
   c.translate(p.x + dx, flat ? p.y : p.y - s * 0.36);
   if (p.flip) c.scale(-1, 1);
-  c.drawImage(image, -s / 2, -s / 2, s, s);
+  c.drawImage(fast(image), -s / 2, -s / 2, s, s);
   c.restore();
 }
 function drawExplosive(
@@ -357,7 +425,7 @@ function drawExplosive(
     const scorch = blob('#050607');
     if (!scorch) return;
     c.globalAlpha = 0.7;
-    c.drawImage(scorch, p.x - s * 0.75, p.y - s * 0.3, s * 1.5, s * 0.6);
+    c.drawImage(fast(scorch), p.x - s * 0.75, p.y - s * 0.3, s * 1.5, s * 0.6);
     c.globalAlpha = 1;
     return;
   }

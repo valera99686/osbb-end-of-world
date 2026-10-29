@@ -88,10 +88,11 @@ test('Location 1 hurts a house that stands still and is fair to one that moves',
     `every squad bites a still house: ${hps(idle)}`,
   );
   // Blind circling used to end a location-1 elite at ~91%; reading the
-  // telegraphs is what keeps the hull whole now.
+  // telegraphs is what keeps the hull whole now. (Every standing prop blocks
+  // since 0.19.1, and cover is worth a few points to a circler.)
   const elite = perSquad({ step: 4, kind: 'elite' }, 'circle');
   assert.ok(
-    mean(elite.map((r) => r.hp)) < 80,
+    mean(elite.map((r) => r.hp)) < 85,
     `circle ch1 elite: ${hps(elite)}`,
   );
   const read = perSquad({ step: 4, kind: 'elite' }, 'reactive');

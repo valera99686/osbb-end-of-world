@@ -1519,7 +1519,7 @@ export default function Game() {
                 }
                 meta={meta}
                 audio={audio.current!}
-                hold={settingsOpen}
+                hold={settingsOpen || abandon}
                 net={livePartner && run.coop && net ? net : undefined}
                 onDone={ended}
                 onExit={(r) => {
@@ -1528,6 +1528,10 @@ export default function Game() {
                 }}
                 onPauseChange={setCombatPaused}
                 onSettings={() => setSettingsOpen(true)}
+                onAbandon={() => {
+                  setQueued(null);
+                  setAbandon(true);
+                }}
               />
             </Suspense>
           ) : (

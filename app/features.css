@@ -1367,3 +1367,9 @@
 .partner-house .house-preview.still {
   max-width: 240px;
 }
+/* The other player's row: to look at, never to take */
+.item-card.locked {
+  opacity: 0.42;
+  filter: saturate(0.5);
+  pointer-events: none;
+}

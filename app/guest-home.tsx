@@ -92,6 +92,7 @@ export function GuestPages({
               <ItemCard
                 key={loot.kind + loot.id}
                 item={ITEM_BY_ID[loot.id]}
+                locked
                 footer={<span>Ряд господаря</span>}
               />
             ) : loot.kind === 'furniture' && FURNITURE_BY_ID[loot.id] ? (

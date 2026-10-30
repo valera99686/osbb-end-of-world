@@ -77,6 +77,7 @@ export function ItemCard({
   disabled,
   compact = false,
   fresh = false,
+  locked = false,
 }: {
   item: Item;
   footer?: React.ReactNode;
@@ -85,8 +86,10 @@ export function ItemCard({
   compact?: boolean;
   // Newly unlocked: tagged 'НОВЕ' on its first appearance.
   fresh?: boolean;
+  // Shown for looking at (the other player's row), not to be taken.
+  locked?: boolean;
 }) {
-  const className = `item-card rarity-${item.rarity} ${compact ? 'compact' : ''} ${fresh ? 'fresh' : ''}`;
+  const className = `item-card rarity-${item.rarity} ${compact ? 'compact' : ''} ${fresh ? 'fresh' : ''} ${locked ? 'locked' : ''}`;
   const content = (
     <>
       {fresh && <span className="new-badge">НОВЕ</span>}

@@ -1,20 +1,20 @@
 import { CHARACTERS } from './data';
 import type { HeatEffects } from './modes';
 
-// Local co-op: two people, one device. The first player drives the house; the
-// second one is a neighbour on foot who shoots on their own, has a dash and the
-// ability of their own head of ОСББ. Everything the build gives (damage, rate,
-// armour, perks) is shared, as are health of the house, coins and experience.
-// Nothing here touches the network: the game stays offline.
+// Co-op, local or online: two houses, two players. The first player drives the
+// house; the second one drives a second house on its own legs, with the very
+// same build (cannon or core, modules, perks), its own health, a dash and the
+// ability of their own head of ОСББ. The build, coins and experience are
+// shared, and so is the life of the raid (the first house's health).
 export const COOP = {
-  // Partner health as a share of the house's.
-  hp: 0.6,
-  // Partner gun: weaker than the cannon, in line with the house's range.
-  damage: 0.7,
-  range: 0.9,
-  fireGap: 0.95,
-  // The partner is a bit quicker than the heavy house, but not by much.
-  speed: 1.08,
+  // The second house's health as a share of the first one's.
+  hp: 0.85,
+  // It shoots as the house does (the same weapon, range and rate), at this
+  // share of the damage: the build is shared, not doubled.
+  damage: 0.8,
+  range: 1,
+  fireGap: 1,
+  speed: 1,
   regen: 0.5,
   // The number of players a fight is made for. A fight with a partner has
   // this many times the enemies (they come this much faster and in packs this
@@ -43,7 +43,7 @@ export const COOP = {
   spreadX: 1180,
   spreadY: 560,
   // Radius around the partner that draws enemy fire like the house does.
-  hitRadius: 20,
+  hitRadius: 24,
   // Leaders have this much more time to fall: there are two of them, and the
   // clock of a fight is made for one set of guns.
   leaderTime: 1.25,

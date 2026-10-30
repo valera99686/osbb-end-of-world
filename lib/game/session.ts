@@ -34,8 +34,11 @@ export class NetSession {
   error = '';
   // The other end: the guest for the host, the host for the guest.
   partner: Partner | null = null;
-  // Guest only: what the host says it is doing between fights.
+  // Guest only: what the host says it is doing between fights (or, while
+  // joining, how the connection is going).
   status = '';
+  // How the two ends are connected: directly, or through a relay.
+  via: 'p2p' | 'relay' = 'p2p';
   link: Link | null = null;
   fight: FightLink | null = null;
   // Host: how the next fights are shared (see net.ts ShareMode).
@@ -80,6 +83,11 @@ export class NetSession {
     this.version++;
     for (const cb of [...this.subs]) cb();
   }
+  // How the connection is going, for the guest's screen.
+  note(text: string) {
+    this.status = text;
+    this.change();
+  }
   setCode(code: string) {
     this.code = code;
     this.change();
@@ -93,6 +101,9 @@ export class NetSession {
   adopt(link: Link) {
     this.link = link;
     this.error = '';
+    this.via = link.kind === 'relay' ? 'relay' : 'p2p';
+    // A slow link suits the host counting the fights alone.
+    if (this.role === 'host' && this.via === 'relay') this.mode = 'host';
     link.onMessage = (m) => this.handle(m);
     link.onClose = () => this.lost(link);
     if (this.role === 'guest') {

@@ -455,12 +455,16 @@ test('Every hero can be the partner for a whole fight without a crash or a stuck
   assert.ok(H.heroAbility('mechanic'));
 });
 
-test('The partner is drawn on their feet, flickering, and lying down, without a hitch', () => {
+test('The partner is a house: drawn on its feet, flickering, and lying down, without a hitch', () => {
   const calls = [];
   const ctx = new Proxy(
     {},
     {
-      get: (_, name) => (...args) => calls.push([String(name), args]),
+      get: (_, name) => (...args) => {
+        calls.push([String(name), args]);
+        // The house is painted with gradients.
+        return /^create.*Gradient$/.test(String(name)) ? { addColorStop() {} } : undefined;
+      },
       set: () => true,
     },
   );

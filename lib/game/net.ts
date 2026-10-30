@@ -42,6 +42,64 @@ export interface Frame {
 }
 export const NEUTRAL: Frame = { x: 0, y: 0, dash: false, pulse: false };
 
+// A router that will not let two devices talk directly (mobile internet, strict
+// networks) needs a relay (TURN). No free public one that works without an
+// account is left (the servers PeerJS used to give no longer exist), so a player
+// who needs one sets up their own: a free account at any TURN provider gives
+// the addresses, a user name and a password. It lives on this device and is
+// used for every room made or joined from it.
+export interface Relay {
+  urls: string[];
+  username: string;
+  credential: string;
+}
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+// Free public STUN servers: they only tell a device how it looks from outside.
+export const STUN_SERVERS = [
+  'stun:stun.l.google.com:19302',
+  'stun:stun1.l.google.com:19302',
+  'stun:stun.cloudflare.com:3478',
+];
+// The relay a person typed, or null unless it is usable: one to eight turn:,
+// turns: or stun: addresses (at least one turn), a user name and a password.
+export function parseRelay(
+  urls: unknown,
+  username: unknown,
+  credential: unknown,
+): Relay | null {
+  if (
+    typeof urls !== 'string' ||
+    typeof username !== 'string' ||
+    typeof credential !== 'string'
+  )
+    return null;
+  const list = urls.split(/[\s,;]+/).filter(Boolean),
+    user = username.trim(),
+    pass = credential.trim();
+  const fine =
+    list.length > 0 &&
+    list.length <= 8 &&
+    list.every((u) => /^(turns?|stuns?):[^\s]{3,200}$/i.test(u)) &&
+    list.some((u) => /^turns?:/i.test(u));
+  if (!fine || !user || !pass || user.length > 256 || pass.length > 256)
+    return null;
+  return { urls: list, username: user, credential: pass };
+}
+export function iceServers(relay: Relay | null): IceServer[] {
+  const out: IceServer[] = STUN_SERVERS.map((urls) => ({ urls }));
+  if (relay)
+    out.push({
+      urls: relay.urls,
+      username: relay.username,
+      credential: relay.credential,
+    });
+  return out;
+}
+
 export type Msg =
   // Guest to host, first thing: who is knocking, and with which build.
   | { t: 'hello'; v: number; build: string; hero: string; name: string }
@@ -82,6 +140,8 @@ export type Msg =
   | { t: 'bye' };
 
 export interface Link {
+  // 'relay': the messages go through a broker on the internet (slower).
+  readonly kind?: 'p2p' | 'relay';
   send(msg: Msg): void;
   // Owned by the NetSession (session.ts), which hands fight messages on.
   onMessage: ((msg: Msg) => void) | null;

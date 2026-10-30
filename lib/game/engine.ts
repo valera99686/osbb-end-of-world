@@ -2286,7 +2286,7 @@ export class Battle {
       fromY = a.y;
     a.x = Math.max(55, Math.min(1545, a.x + dx * speed * dt));
     a.y = Math.max(55, Math.min(945, a.y + dy * speed * dt));
-    if (this.pushOutOfSolids(a, 18)) {
+    if (this.pushOutOfSolids(a, 24)) {
       a.x = Math.max(55, Math.min(1545, a.x));
       a.y = Math.max(55, Math.min(945, a.y));
     }
@@ -2316,9 +2316,9 @@ export class Battle {
       const target = this.nearest(a.x, a.y, this.stats.range * COOP.range);
       if (target) {
         a.aim = Math.atan2(target.y - a.y, target.x - a.x);
-        a.muzzle = 0.09;
-        this.shoot(a.x, a.y - 10, target, true, undefined, COOP.damage / 0.45);
-        this.audio.play('shoot', { volume: 0.5, pitch: 1.25 });
+        a.muzzle = MUZZLE;
+        this.shoot(a.x, a.y + TURRET_Y, target, false, undefined, 1, true);
+        this.audio.play('shoot', { volume: 0.6, pitch: 1.12 });
         a.shotTimer =
           COOP.fireGap / (this.stats.rate * (this.overloaded() ? 2 : 1));
       } else if (length > 0) a.aim = Math.atan2(a.facing.y, a.facing.x);
@@ -3258,12 +3258,15 @@ export class Battle {
     drone = false,
     replay?: { damage: number; crit: boolean; shots: number },
     power = 1,
+    // The second house: the same weapon, but nothing of the first house's own
+    // state (its coins, volleys, charge or muzzle) is touched.
+    mate = false,
   ) {
     const a = Math.atan2(e.y - y, e.x - x);
     const shots = replay?.shots ?? (drone ? 1 : this.stats.shots);
     let crit = replay?.crit ?? this.rng() < this.stats.crit;
     // Ритм: every fourth main volley is a sure crit.
-    if (!drone && !replay && this.pk('rhythm'))
+    if (!drone && !mate && !replay && this.pk('rhythm'))
       if (++this.volleys % 4 === 0) crit = true;
     let damage =
       this.stats.damage *
@@ -3272,6 +3275,7 @@ export class Battle {
       (drone ? 0.45 * power : 1);
     if (
       !drone &&
+      !mate &&
       !replay &&
       activeEquipment(this.run).some((item) => item.id === 'coinshot') &&
       this.run.coins > 0
@@ -3279,7 +3283,7 @@ export class Battle {
       this.run.coins--;
       damage *= 3;
     }
-    if (!drone && !replay) {
+    if (!drone && !mate && !replay) {
       if (this.dashCharged) {
         damage *= 1.6;
         this.dashCharged = false;
@@ -3291,12 +3295,13 @@ export class Battle {
     if (!replay && this.pk('interest'))
       damage += Math.min(10, Math.floor(this.run.coins / 10));
     if (!drone && !replay) damage *= WEAPONS[this.stats.weapon].damage;
+    if (mate) damage *= COOP.damage;
     if (replay) damage = replay.damage;
     const over = this.overloaded();
     const weapon = drone ? 'cannon' : this.stats.weapon;
     if (weapon !== 'cannon') {
       this.fireCore(weapon, x, y, e, a, damage, crit, shots, over);
-      if (!drone) {
+      if (!drone && !mate) {
         this.audio.play('shoot');
         this.muzzle = MUZZLE;
         this.muzzleAngle = a;
@@ -3324,7 +3329,7 @@ export class Battle {
         ...(homing ? { homing } : {}),
       });
     }
-    if (!drone) {
+    if (!drone && !mate) {
       this.audio.play('shoot');
       this.muzzle = MUZZLE;
       this.muzzleAngle = a;
@@ -4732,35 +4737,49 @@ export class Battle {
     this.drawTurret(c);
     c.restore();
   }
-  // The partner: a neighbour in a coat of their hero's colour with a plain gun,
-  // a plate with the player number and a small health bar. When down, they
-  // lie in the yard and a ring shows how far the revive has come.
+  // The partner: a second house on its own legs, the very same build, with a
+  // ring of their hero's colour on the ground, a plate with the player number
+  // and a health bar. When down, the house lies dim in the yard and a ring
+  // shows how far the revive has come.
   drawAlly(c: CanvasRenderingContext2D) {
     const a = this.ally;
     if (!a) return;
     const color = heroAbility(a.hero).color,
-      TAU = Math.PI * 2,
-      speed = Math.min(1, Math.hypot(a.vx, a.vy) / 120);
+      TAU = Math.PI * 2;
+    // The house is drawn from the first house's own state (legs, muzzle,
+    // flicker): lend it the partner's for the moment.
+    const own = {
+      vx: this.vx,
+      vy: this.vy,
+      muzzle: this.muzzle,
+      angle: this.muzzleAngle,
+      invincible: this.invincible,
+    };
+    this.vx = a.down ? 0 : a.vx;
+    this.vy = a.down ? 0 : a.vy;
+    this.muzzle = a.muzzle;
+    this.muzzleAngle = a.aim;
+    this.invincible = a.invincible;
     c.save();
     c.translate(a.x, a.y);
-    c.fillStyle = '#0006';
+    if (a.down) c.globalAlpha = 0.5;
+    this.drawHouse(c, 0, a.down ? 8 : 0, a.down ? 0.94 : 1);
+    c.globalAlpha = 1;
+    this.vx = own.vx;
+    this.vy = own.vy;
+    this.muzzle = own.muzzle;
+    this.muzzleAngle = own.angle;
+    this.invincible = own.invincible;
+    // The player's colour under the house.
+    c.strokeStyle = color;
+    c.globalAlpha = a.down ? 0.3 : 0.6;
+    c.lineWidth = 3;
     c.beginPath();
-    c.ellipse(0, 16, a.down ? 22 : 15, 6, 0, 0, TAU);
-    c.fill();
+    c.ellipse(0, 24, 58, 21, 0, 0, TAU);
+    c.stroke();
+    c.globalAlpha = 1;
     if (a.down) {
-      c.fillStyle = '#26343c';
-      c.beginPath();
-      c.ellipse(0, 4, 20, 9, 0, 0, TAU);
-      c.fill();
-      c.globalAlpha = 0.7;
-      c.fillStyle = color;
-      c.fillRect(-14, -3, 20, 11);
-      c.globalAlpha = 1;
-      c.fillStyle = '#e0c29c';
-      c.beginPath();
-      c.arc(14, 2, 6, 0, TAU);
-      c.fill();
-      // Where the house has to stand, and how much of the revive is done.
+      // Where the first house has to stand, and how much of the revive is done.
       c.strokeStyle = 'rgba(138,205,182,0.28)';
       c.lineWidth = 2;
       c.setLineDash([6, 8]);
@@ -4771,73 +4790,28 @@ export class Battle {
       c.strokeStyle = '#8acdb6';
       c.lineWidth = 5;
       c.beginPath();
-      c.arc(0, 0, 30, -Math.PI / 2, -Math.PI / 2 + TAU * a.revive);
+      c.arc(0, 0, 46, -Math.PI / 2, -Math.PI / 2 + TAU * a.revive);
       c.stroke();
       c.fillStyle = '#8acdb6';
       c.font = `700 11px ${FONT}`;
       c.textAlign = 'center';
-      c.fillText('ПІДНІМИ', 0, -42);
+      c.fillText('ПІДНІМИ', 0, -96);
     } else {
-      const step = a.walk * 6,
-        swing = Math.sin(step) * 5 * (0.3 + speed);
-      if (a.invincible > 0 && Math.floor(this.elapsed * 16) % 2)
-        c.globalAlpha = 0.55;
-      c.strokeStyle = '#17232a';
-      c.lineWidth = 4;
-      c.lineCap = 'round';
-      for (const side of [-1, 1]) {
-        c.beginPath();
-        c.moveTo(side * 4, 0);
-        c.lineTo(side * 4 + swing * side, 13);
-        c.stroke();
-      }
-      c.lineCap = 'butt';
-      c.fillStyle = color;
-      c.fillRect(-9, -20, 18, 22);
-      c.fillStyle = '#00000033';
-      c.fillRect(-9, -4, 18, 3);
-      c.strokeStyle = '#0b1217';
-      c.lineWidth = 1.5;
-      c.strokeRect(-9, -20, 18, 22);
-      c.fillStyle = '#e0c29c';
-      c.beginPath();
-      c.arc(0, -27, 7, 0, TAU);
-      c.fill();
-      c.fillStyle = '#3a2f2a';
-      c.beginPath();
-      c.arc(0, -29, 7.5, Math.PI, TAU);
-      c.fill();
-      c.save();
-      c.translate(0, -12);
-      c.rotate(a.aim);
-      c.fillStyle = '#2b3940';
-      c.fillRect(4, -2.5, 17, 5);
-      c.fillStyle = '#51636c';
-      c.fillRect(4, -2.5, 6, 5);
-      if (a.muzzle > 0) {
-        c.fillStyle = '#ffe3a0';
-        c.beginPath();
-        c.arc(24, 0, 4, 0, TAU);
-        c.fill();
-      }
-      c.restore();
-      c.globalAlpha = 1;
-      // Health bar and the number of the player.
       const share = Math.max(0, Math.min(1, a.hp / a.max));
       c.fillStyle = '#0b1217cc';
-      c.fillRect(-18, -50, 36, 6);
+      c.fillRect(-26, -96, 52, 7);
       c.fillStyle = share < 0.35 ? '#e69080' : color;
-      c.fillRect(-17, -49, 34 * share, 4);
+      c.fillRect(-25, -95, 50 * share, 5);
     }
     c.fillStyle = a.down ? '#8acdb6' : color;
     c.beginPath();
-    c.arc(a.down ? 0 : -26, a.down ? -58 : -48, 8, 0, TAU);
+    c.arc(a.down ? 0 : -38, a.down ? -108 : -96, 8, 0, TAU);
     c.fill();
     c.fillStyle = '#0b1217';
     c.font = `800 11px ${FONT}`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
-    c.fillText('2', a.down ? 0 : -26, a.down ? -57.5 : -47.5);
+    c.fillText('2', a.down ? 0 : -38, a.down ? -107.5 : -95.5);
     c.restore();
     c.textAlign = 'start';
     c.textBaseline = 'alphabetic';

@@ -1068,6 +1068,40 @@
   margin: 0;
   color: #e5eef9;
 }
+/* The player's own relay, for networks that will not connect two devices. */
+.online-relay {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #bccbdb;
+}
+.online-relay summary {
+  cursor: pointer;
+  font-weight: 650;
+  color: #8fd8c2;
+}
+.online-relay p {
+  margin: 8px 0;
+  line-height: 1.55;
+}
+.online-relay form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.online-relay textarea,
+.online-relay input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #3f5a7a80;
+  border-radius: 6px;
+  background: #0b141c;
+  color: #e5eef9;
+  font: inherit;
+}
+.online-relay-actions {
+  display: flex;
+  gap: 8px;
+}
 /* The shared map of a vote needs the width of the host's own map. */
 .guest-room.voting {
   place-items: start center;

@@ -17,7 +17,7 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Locale;
 
-/** Bundled game. The single-player game is offline; the network permission is only for online co-op (a direct WebRTC link between two players, found through the free PeerJS broker). No analytics, ads, or JavaScript bridge. */
+/** Bundled game. The single-player game is offline; the network permission is only for online co-op (a direct WebRTC link between two players, found through the free PeerJS broker; when it cannot come up, a public MQTT broker over a secure WebSocket, which the WebView does not route through shouldInterceptRequest). No analytics, ads, or JavaScript bridge. */
 public final class MainActivity extends Activity {
   private static final String HOST = "appassets.androidplatform.net";
   // The room broker of online co-op: the only other host the game talks to.

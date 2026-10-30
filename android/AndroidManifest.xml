@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ua.osbb.lastdistrict" android:versionCode="38" android:versionName="0.20.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ua.osbb.lastdistrict" android:versionCode="40" android:versionName="0.21.0">
   <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.INTERNET"/>

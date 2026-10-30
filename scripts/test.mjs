@@ -23,6 +23,7 @@ const modules = [
   'heroes',
   'coop',
   'net',
+  'mqtt',
   'session',
   'mirror',
   'voice',
@@ -66,6 +67,7 @@ const tests = [
   'tests/net.test.cjs',
   'tests/pace.test.cjs',
   'tests/sprites.test.cjs',
+  'tests/mqtt.test.cjs',
 ];
 // Both lists are explicit; a module or test left out fails here, not later.
 const missing = [

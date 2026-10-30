@@ -8,7 +8,13 @@ import {
 import { Check, Copy, Globe, LogIn, LogOut, Users } from 'lucide-react';
 import { CHARACTERS } from '@/lib/game/data';
 import { readMapRun } from '@/lib/game/model';
-import { normalizeCode, ROOM_LENGTH, type ShareMode } from '@/lib/game/net';
+import {
+  normalizeCode,
+  parseRelay,
+  ROOM_LENGTH,
+  type ShareMode,
+} from '@/lib/game/net';
+import { savedRelay, saveRelay } from './relay';
 import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
 
@@ -36,6 +42,85 @@ export function netErrorText(error: string): string {
 }
 const heroName = (id: string) =>
   CHARACTERS.find((c) => c.id === id)?.name ?? '';
+
+// The way round a router that will not connect two devices directly: a relay
+// (TURN) of the player's own (net.ts explains why there is no default one).
+function RelaySetup() {
+  const [saved, setSaved] = useState(savedRelay),
+    [urls, setUrls] = useState(() => savedRelay()?.urls.join('\n') ?? ''),
+    [user, setUser] = useState(() => savedRelay()?.username ?? ''),
+    [pass, setPass] = useState(() => savedRelay()?.credential ?? ''),
+    [note, setNote] = useState('');
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const relay = parseRelay(urls, user, pass);
+    if (!relay) {
+      setNote('Перевір адреси (turn:… або turns:…), ім’я й пароль.');
+      return;
+    }
+    saveRelay(relay);
+    setSaved(relay);
+    setNote('Збережено. Діє для наступної кімнати.');
+  }
+  function clear() {
+    saveRelay(null);
+    setSaved(null);
+    setUrls('');
+    setUser('');
+    setPass('');
+    setNote('Релей прибрано.');
+  }
+  return (
+    <details className="online-relay">
+      <summary>
+        Не з’єднується з другом? Релей{saved ? ' (налаштовано)' : ''}
+      </summary>
+      <p>
+        Відстань не заважає, заважає роутер: на мобільному інтернеті й у суворих
+        мережах пряме з’єднання не виходить, і потрібен релей (TURN).
+        Безкоштовних публічних релеїв без акаунта більше нема, тож його можна
+        завести самому: безкоштовний акаунт у будь-якого TURN-провайдера
+        (наприклад, Metered Open Relay) дає адреси, ім’я й пароль. Зазвичай
+        досить, щоб релей налаштував господар. Дані лишаються на цьому пристрої.
+      </p>
+      <form onSubmit={submit}>
+        <textarea
+          value={urls}
+          onChange={(e) => setUrls(e.target.value)}
+          rows={3}
+          placeholder={'turn:адреса:80\nturns:адреса:443?transport=tcp'}
+          spellCheck={false}
+          aria-label="Адреси релею"
+        />
+        <input
+          value={user}
+          onChange={(e) => setUser(e.target.value)}
+          placeholder="Ім’я"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Ім’я для релею"
+        />
+        <input
+          type="password"
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+          placeholder="Пароль"
+          autoComplete="off"
+          aria-label="Пароль для релею"
+        />
+        <div className="online-relay-actions">
+          <button className="primary">Зберегти</button>
+          {saved && (
+            <button type="button" className="secondary" onClick={clear}>
+              Прибрати
+            </button>
+          )}
+        </div>
+      </form>
+      {note && <p role="status">{note}</p>}
+    </details>
+  );
+}
 
 // The hub's block for online co-op: open a room, or join one by its code.
 export function OnlinePanel({
@@ -140,7 +225,7 @@ export function OnlinePanel({
           </div>
           <p>
             Двоє на різних пристроях: ПК і ПК, ПК і телефон, телефон і телефон.
-            Господар веде рейд, гість грає за сусіда в боях. Потрібні інтернет
+            Господар веде рейд, гість у боях веде другий будинок. Потрібні інтернет
             і однакова версія гри (v{build}).
           </p>
         </>
@@ -179,15 +264,18 @@ export function OnlinePanel({
           </b>{' '}
           Вирушай у рейд: він бачитиме й проходитиме бої разом із тобою.
           Карту, магазин і події веде господар.
+          {session.via === 'relay' &&
+            ' З’єднання йде через резервний канал: затримка більша, а бій рахуєш лише ти.'}
         </p>
       )}
       {session?.role === 'guest' && session.phase === 'joining' && (
-        <p>З’єднуємо з кімнатою…</p>
+        <p>{session.status || 'З’єднуємо з кімнатою…'}</p>
       )}
       {session?.error && <p className="online-error">{netErrorText(session.error)}</p>}
       {session && session.phase === 'closed' && !session.error && (
         <p>Кімнату закрито.</p>
       )}
+      {(!session || session.error) && <RelaySetup />}
     </div>
   );
 }
@@ -254,9 +342,10 @@ export function GuestRoom({
           </div>
         )}
         <p>
-          Коли господар почне бій, він відкриється тут сам. Ти граєш за
-          сусіда: рух, ривок і вміння твого героя. Збірка й нагороди
-          належать господареві.
+          Коли господар почне бій, він відкриється тут сам. Ти ведеш
+          другий будинок: рух, ривок і вміння твого героя, а гармата й
+          збірка ті самі, що в господаря. Карту, магазин і нагороди веде
+          господар.
         </p>
         <button type="button" className="secondary" onClick={onLeave}>
           <LogOut size={16} /> Вийти з кімнати

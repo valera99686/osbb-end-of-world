@@ -645,3 +645,64 @@ test('The map that reaches the guest is checked before it is drawn', () => {
   assert.equal(bad((r) => (r.bossVariants = {})), null);
   assert.equal(bad((r) => delete r.historyStart), null);
 });
+
+test('A relay a person types is checked, and the ICE list always has public STUN servers', () => {
+  const ok = N.parseRelay(
+    'turn:relay.example.com:80\nturns:relay.example.com:443?transport=tcp, stun:relay.example.com:80',
+    ' user ',
+    ' secret ',
+  );
+  assert.deepEqual(ok, {
+    urls: [
+      'turn:relay.example.com:80',
+      'turns:relay.example.com:443?transport=tcp',
+      'stun:relay.example.com:80',
+    ],
+    username: 'user',
+    credential: 'secret',
+  });
+  for (const bad of [
+    ['', 'u', 'p'],
+    ['stun:only.example.com:3478', 'u', 'p'],
+    ['http://relay.example.com', 'u', 'p'],
+    ['turn:a:1 javascript:alert(1)', 'u', 'p'],
+    ['turn:relay.example.com:80', '', 'p'],
+    ['turn:relay.example.com:80', 'u', '   '],
+    ['turn:relay.example.com:80', 'u'.repeat(300), 'p'],
+    [Array.from({ length: 9 }, (_, i) => `turn:r${i}.example.com:80`).join(' '), 'u', 'p'],
+    [null, 'u', 'p'],
+    ['turn:relay.example.com:80', 5, 'p'],
+  ])
+    assert.equal(N.parseRelay(...bad), null, JSON.stringify(bad));
+  // Without a relay: only STUN. With one: STUN first, the relay with its login.
+  const plain = N.iceServers(null);
+  assert.ok(plain.length >= 2);
+  assert.ok(plain.every((s) => typeof s.urls === 'string' && s.urls.startsWith('stun:') && !s.username));
+  const withRelay = N.iceServers(ok);
+  assert.equal(withRelay.length, plain.length + 1);
+  assert.deepEqual(withRelay.at(-1), { urls: ok.urls, username: 'user', credential: 'secret' });
+  // The dead free relay of PeerJS is not on the list.
+  assert.ok(!JSON.stringify(withRelay).includes('peerjs.com'));
+});
+
+test('A relayed link makes the host count the fights alone; the guest is told how the connection goes', () => {
+  const wire = pipe(0);
+  const host = new S.NetSession('host', 'a', hero('mechanic'));
+  host.mode = 'sync';
+  assert.equal(host.via, 'p2p');
+  host.adopt({ ...wire.a, kind: 'relay' });
+  assert.equal(host.via, 'relay');
+  assert.equal(host.mode, 'host', 'a late link suits the mirror');
+  // A direct link leaves the choice alone.
+  const direct = new S.NetSession('host', 'a', hero('mechanic'));
+  direct.mode = 'sync';
+  direct.adopt(pipe(0).a);
+  assert.equal(direct.mode, 'sync');
+  // While joining, the guest reads how it is going.
+  const guest = new S.NetSession('guest', 'a', hero('nina'));
+  let changes = 0;
+  guest.subscribe(() => changes++);
+  guest.note('Пробуємо резервний канал…');
+  assert.equal(guest.status, 'Пробуємо резервний канал…');
+  assert.equal(changes, 1);
+});

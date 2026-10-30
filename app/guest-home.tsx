@@ -1,200 +1,261 @@
-// What the guest of an online room has in the room while the host plays the
-// map: the house (the host's, with the guest's own modules in it), what it
-// can do, its row of the reward and the shop. The guest asks (session.take),
-// the host checks it against its own run and does it.
-import { Check, Plus } from 'lucide-react';
-import type { CSSProperties } from 'react';
-import { FAMILY, ITEMS, ITEM_BY_ID, RARITIES } from '@/lib/game/data';
-import { activeEquipment } from '@/lib/game/equipment';
+// The guest of an online room has the same screens as the host: the same page
+// (the reward with its two rows, the shop), the same side panel of its own
+// house and the same «Квартири й обладнання» to arrange it. It asks (take,
+// house), the host checks the ask against its own run and does it.
+import { useState } from 'react';
+import { Check, Home, Plus } from 'lucide-react';
+import { ITEMS, ITEM_BY_ID, CHARACTERS } from '@/lib/game/data';
 import {
+  furniturePrice,
   giveMate,
+  houseOf,
   mateRun,
-  mateStats,
   priceFor,
-  readView,
   type Meta,
+  type Run,
 } from '@/lib/game/model';
 import type { NetSession } from '@/lib/game/session';
-import { Glyph } from './glyph';
-import { HouseStill } from './residents';
+import { FURNITURE_BY_ID } from '@/lib/game/furniture';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { HouseAside, PartnerHouse } from './house-aside';
+import { ItemCard, takenText } from './item-card';
+import { FurnitureCard } from './campaign-panels';
 import { Currency } from './hud-parts';
+import { Residents } from './residents';
 
-function Card({
-  id,
-  footer,
-  onClick,
-  disabled,
-}: {
-  id: string;
-  footer: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  const item = ITEM_BY_ID[id];
-  if (!item) return null;
-  return (
-    <button
-      type="button"
-      className={`item-card compact rarity-${item.rarity}`}
-      style={{ '--item-color': FAMILY[item.family].color } as CSSProperties}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <div className="item-top">
-        <span className="item-emblem">
-          <Glyph name={item.icon} size={22} />
-        </span>
-        <span className="rarity">{RARITIES[item.rarity]}</span>
-      </div>
-      <h3>{item.name}</h3>
-      <span className="family-label">{FAMILY[item.family].name}</span>
-      <p>{item.desc}</p>
-      <div className="item-footer">{footer}</div>
-    </button>
-  );
+// The profile the guest's checks are made with: everything is on the shelf for
+// the guest to look at, the host checks the rest.
+export const openMeta = (meta: Meta): Meta => ({
+  ...meta,
+  unlocked: ITEMS.map((i) => i.id),
+});
+
+// The guest's own house as a run, with the changes it has made and the host
+// has not yet sent back.
+export function useGuestHouse(view: Run | null) {
+  const [local, setLocal] = useState<{ view: Run; run: Run } | null>(null);
+  const mine = !view
+    ? null
+    : local && local.view === view
+      ? local.run
+      : mateRun(view);
+  return { mine, set: (run: Run) => view && setLocal({ view, run }) };
 }
 
-const nameOf = (id?: string) => (id ? (ITEM_BY_ID[id]?.name ?? '') : '');
-
-export function GuestHome({
+export function GuestPages({
   session,
+  view,
   meta,
 }: {
   session: NetSession;
+  view: Run;
   meta: Meta;
 }) {
-  const view = readView(session.view);
-  if (!view) return null;
-  // Everything is on the shelf for the guest: what the host has opened is not
-  // the guest's to judge, the host checks the rest.
-  const open: Meta = { ...meta, unlocked: ITEMS.map((i) => i.id) };
-  const own = mateRun(view);
-  const gear = activeEquipment(own).map((i) => i.id);
-  const st = mateStats(view, open);
+  const open = openMeta(meta);
+  const mate = CHARACTERS.find((c) => c.id === view.coop)?.name ?? 'Ти';
   const fits = (id: string) => giveMate(view, open, id) !== view;
-  const asked = (source: 'reward' | 'shop', index: number, id: string) =>
-    session.take(source, index, id);
-  return (
-    <div className="guest-home">
-      <div className="guest-house">
-        <b className="guest-house-title">Твій будинок</b>
-        <HouseStill run={view} items={view.mateItems ?? []} />
-        <div className="mate-gear">
-          {gear.length ? (
-            gear.map((id, i) => (
-              <span
-                key={id + i}
-                className={`mate-chip rarity-${ITEM_BY_ID[id].rarity}`}
-                title={ITEM_BY_ID[id].desc}
-              >
-                <Glyph name={ITEM_BY_ID[id].icon} size={14} />{' '}
-                {ITEM_BY_ID[id].name}
-              </span>
-            ))
+  if (view.page === 'reward')
+    return (
+      <>
+        <p className="eyebrow">
+          <Check size={16} /> ЗДОБИЧ
+        </p>
+        <h2>Знайшли дещо корисне.</h2>
+        <p className="lead">
+          У кожного будинку своя полиця: кожен бере по одному предмету зі
+          свого ряду.
+        </p>
+        {view.eventResult && (
+          <div className="mission-banner" role="status">
+            <Home size={22} />
+            <p>{view.eventResult}</p>
+          </div>
+        )}
+        <div className={`reward-owner host${view.picked?.host ? ' done' : ''}`}>
+          <b>Господар</b>
+          {view.picked?.host ? (
+            <span className="took">
+              <Check size={14} /> взяв: {takenText(view.picked.host)}
+            </span>
           ) : (
-            <span className="mate-chip">модулів нема</span>
+            <span>обирає</span>
           )}
         </div>
-        <dl className="guest-stats">
-          <div>
-            <dt>Міцність</dt>
-            <dd>{Math.round(st.health)}</dd>
-          </div>
-          <div>
-            <dt>Шкода</dt>
-            <dd>{Math.round(st.damage)}</dd>
-          </div>
-          <div>
-            <dt>Темп</dt>
-            <dd>{st.rate.toFixed(1)}/с</dd>
-          </div>
-          <div>
-            <dt>Швидкість</dt>
-            <dd>{Math.round(st.speed)}</dd>
-          </div>
-          <div>
-            <dt>Броня</dt>
-            <dd>{st.armor}</dd>
-          </div>
-        </dl>
-      </div>
-      {view.page === 'reward' && (
-        <div className="guest-pick">
-          <div className="reward-owner mate">
-            <b>Твоя знахідка</b>
-            {view.picked?.mate ? (
-              <span className="took">
-                <Check size={14} /> ти взяв: {nameOf(view.picked.mate)}
-              </span>
-            ) : (
-              <span>обери один</span>
-            )}
-          </div>
-          {view.picked?.host && (
-            <p className="guest-note">
-              Господар взяв: {nameOf(view.picked.host)}.
-            </p>
-          )}
-          <div className="reward-cards">
-            {(view.mateLoot ?? []).map((loot, i) => (
-              <Card
-                key={'m' + loot.id}
+        <div className="reward-cards">
+          {view.loot.map((loot) =>
+            loot.kind === 'module' && ITEM_BY_ID[loot.id] ? (
+              <ItemCard
+                key={loot.kind + loot.id}
+                item={ITEM_BY_ID[loot.id]}
+                footer={<span>Ряд господаря</span>}
+              />
+            ) : loot.kind === 'furniture' && FURNITURE_BY_ID[loot.id] ? (
+              <FurnitureCard
+                key={loot.kind + loot.id}
                 id={loot.id}
-                disabled={!fits(loot.id)}
-                onClick={() => asked('reward', i, loot.id)}
+                footer="Ряд господаря"
+                disabled
+                onClick={() => {}}
+              />
+            ) : null,
+          )}
+        </div>
+        <div className={`reward-owner mate${view.picked?.mate ? ' done' : ''}`}>
+          <b>Для тебе</b>
+          {view.picked?.mate ? (
+            <span className="took">
+              <Check size={14} /> ти взяв: {takenText(view.picked.mate)}
+            </span>
+          ) : (
+            <span>обери один</span>
+          )}
+        </div>
+        <div className="reward-cards">
+          {(view.mateLoot ?? []).map((loot, i) => (
+            <ItemCard
+              key={'m' + loot.id}
+              item={ITEM_BY_ID[loot.id]}
+              disabled={!fits(loot.id)}
+              onClick={() => session.take('reward', i, loot.id)}
+              footer={
+                fits(loot.id) ? (
+                  <>
+                    <span>Забрати собі</span>
+                    <Plus size={18} />
+                  </>
+                ) : (
+                  <span>Немає місця</span>
+                )
+              }
+            />
+          ))}
+        </div>
+      </>
+    );
+  if (view.page === 'shop')
+    return (
+      <>
+        <p className="eyebrow">ВІДЧИНЕНО ДО СВІТАНКУ</p>
+        <h2>Нічний ринок</h2>
+        <p className="lead">
+          Каса спільна: {Math.floor(view.coins)} монет. Купуєш для себе, {mate}.
+        </p>
+        <div className="shop-cards">
+          {view.offers.map((id, i) => {
+            const item = ITEM_BY_ID[id];
+            if (!item) return null;
+            const bought = view.bought.includes(i),
+              price = priceFor(item, view),
+              who = view.boughtBy?.[i];
+            return (
+              <ItemCard
+                key={`${id}-${i}`}
+                compact
+                item={item}
+                disabled={bought || view.coins < price || !fits(id)}
+                onClick={() => session.take('shop', i, id)}
                 footer={
-                  fits(loot.id) ? (
+                  bought ? (
                     <>
-                      <span>Забрати собі</span>
-                      <Plus size={18} />
+                      <Check size={16} />{' '}
+                      {who === 'mate' ? 'Купив ти' : 'Купив господар'}
                     </>
                   ) : (
-                    <span>Немає місця</span>
+                    <>
+                      <Currency amount={price} />
+                      <Plus size={17} />
+                    </>
                   )
                 }
               />
-            ))}
-          </div>
+            );
+          })}
         </div>
-      )}
-      {view.page === 'shop' && (
-        <div className="guest-pick">
-          <div className="reward-owner mate">
-            <b>Магазин</b>
-            <span>каса спільна: {Math.floor(view.coins)} монет</span>
-          </div>
-          <div className="shop-cards">
-            {view.offers.map((id, i) => {
-              const item = ITEM_BY_ID[id];
-              if (!item) return null;
-              const bought = view.bought.includes(i),
-                price = priceFor(item, view),
-                who = view.boughtBy?.[i];
-              return (
-                <Card
-                  key={`${id}-${i}`}
-                  id={id}
-                  disabled={bought || view.coins < price || !fits(id)}
-                  onClick={() => asked('shop', i, id)}
-                  footer={
-                    bought ? (
-                      <>
-                        <Check size={16} />{' '}
-                        {who === 'mate' ? 'Купив ти' : 'Купив господар'}
-                      </>
+        <div className="shop-cards furniture-shop-cards">
+          {view.shopFurniture.map((id, i) => {
+            if (!FURNITURE_BY_ID[id]) return null;
+            const bought = view.bought.includes(10 + i);
+            const cost = furniturePrice(view, id);
+            return (
+              <FurnitureCard
+                key={id + i}
+                id={id}
+                disabled={bought || view.coins < cost}
+                footer={
+                  bought ? (
+                    view.boughtBy?.[10 + i] === 'mate' ? (
+                      'Купив ти'
                     ) : (
-                      <>
-                        <Currency amount={price} />
-                        <span>{fits(id) ? 'Купити собі' : 'Немає місця'}</span>
-                      </>
+                      'Купив господар'
                     )
-                  }
-                />
-              );
-            })}
-          </div>
+                  ) : (
+                    <Currency amount={cost} />
+                  )
+                }
+                onClick={() => session.take('shop', 10 + i, id)}
+              />
+            );
+          })}
         </div>
-      )}
-    </div>
+      </>
+    );
+  return null;
+}
+
+export function GuestAside({
+  session,
+  view,
+  mine,
+  setMine,
+  meta,
+}: {
+  session: NetSession;
+  view: Run;
+  mine: Run;
+  setMine: (run: Run) => void;
+  meta: Meta;
+}) {
+  const [housing, setHousing] = useState(false);
+  const open = openMeta(meta);
+  return (
+    <>
+      <HouseAside
+        run={mine}
+        meta={open}
+        title="ТВІЙ БУДИНОК"
+        onOpen={() => setHousing(true)}
+        partner={
+          <PartnerHouse
+            house={{ ...view, ...houseOf(view) }}
+            name="Господар"
+            meta={open}
+          />
+        }
+      />
+      <Dialog open={housing} onOpenChange={setHousing}>
+        <DialogContent className="game-modal housing-modal">
+          <DialogTitle>Твій будинок / Квартири й обладнання</DialogTitle>
+          <DialogDescription>
+            Спільні стіни створюють бонуси й конфлікти. Обери квартиру, щоб
+            переставити її. Обладнання став у вільні клітинки всередині
+            квартир. Зміни бачить і господар.
+          </DialogDescription>
+          <Residents
+            run={mine}
+            meta={open}
+            onChange={(next) => {
+              setMine(next);
+              session.sendHouse(houseOf(next), next.coins, next.scrap);
+            }}
+            onMetaChange={() => {}}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

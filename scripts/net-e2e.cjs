@@ -114,20 +114,29 @@ async function vote(host, guest) {
   await until('the row of the reward at the guest', async () => {
     await host.eval(click('Пропустити', '[role=dialog] button'));
     await host.eval(`document.querySelector('.perk-card')?.click()`);
-    return guest.eval(`!!document.querySelector('.guest-pick .item-card:not([disabled])')`);
+    return guest.eval(`!!document.querySelector('.guest-room button.item-card:not([disabled])')`);
   }, 60000);
-  console.log('guest house plan:', await guest.eval(`!!document.querySelector('.guest-house .house-preview.still')`),
-    '| gear:', await guest.eval(`document.querySelectorAll('.guest-house .mate-chip').length`));
-  await guest.eval(`document.querySelector('.guest-home')?.scrollIntoView()`);
+  console.log('guest house plan:', await guest.eval(`!!document.querySelector('.guest-room .inventory .house-preview')`),
+    '| partner house:', await guest.eval(`!!document.querySelector('.guest-room .partner-house .house-preview.still')`));
+  await guest.eval(`document.querySelector('.guest-room .reward-owner.mate')?.scrollIntoView()`);
   const gshot = await guest.send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(os.tmpdir(), 'osbb-guest-home.png'), Buffer.from(gshot.result.data, 'base64'));
-  const taken = await guest.eval(`(()=>{const c=document.querySelector('.guest-pick .item-card:not([disabled])'); const t=c.querySelector('h3').innerText; c.click(); return t})()`);
+  const taken = await guest.eval(`(()=>{const c=document.querySelector('.guest-room button.item-card:not([disabled])'); const t=c.querySelector('h3').innerText; c.click(); return t})()`);
   await until('the host sees what the guest took', () =>
     host.eval(`!!document.querySelector('.reward-owner.mate.done .took')`),
   );
   console.log('the guest took', taken, '| host sees:', await host.eval(`document.querySelector('.reward-owner.mate.done .took')?.innerText`));
+  // The guest opens its own housing screen: the same one as the host's.
+  await guest.eval(click('Квартири й обладнання', '.guest-room button'));
+  const housing = await until('the guest housing screen', () =>
+    guest.eval(`document.querySelector('.housing-modal')?.innerText.slice(0, 160)`),
+  );
+  console.log('guest housing:', JSON.stringify(housing));
+  const hshot = await guest.send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(path.join(os.tmpdir(), 'osbb-guest-housing.png'), Buffer.from(hshot.result.data, 'base64'));
+  await guest.eval(`document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); 0`);
   await until('the guest sees what it took', () =>
-    guest.eval(`!!document.querySelector('.guest-pick .took')`),
+    guest.eval(`!!document.querySelector('.guest-room .reward-owner.mate .took')`),
   );
   // The fight is won: the loot is sold to get to the next fork of the map.
   await until('the host vote button', async () => {

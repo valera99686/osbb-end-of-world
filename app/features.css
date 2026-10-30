@@ -1348,3 +1348,22 @@
   grid-template-columns: 1fr;
   gap: 10px;
 }
+/* The guest's room with the same layout as the host's page */
+.guest-room.play {
+  display: block;
+  place-items: initial;
+  min-height: 0;
+  padding: 0;
+}
+.guest-card.wide {
+  width: 100%;
+  max-width: none;
+}
+.partner-house {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #3f6a6240;
+}
+.partner-house .house-preview.still {
+  max-width: 240px;
+}

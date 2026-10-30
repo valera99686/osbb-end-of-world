@@ -5,9 +5,18 @@ import {
   useSyncExternalStore,
   type FormEvent,
 } from 'react';
-import { Check, Copy, Globe, LogIn, LogOut, Users } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Globe,
+  LogIn,
+  LogOut,
+  Recycle,
+  Users,
+} from 'lucide-react';
+import { Currency } from './hud-parts';
 import { CHARACTERS } from '@/lib/game/data';
-import { readMapRun } from '@/lib/game/model';
+import { readMapRun, readView } from '@/lib/game/model';
 import {
   normalizeCode,
   parseRelay,
@@ -18,7 +27,7 @@ import { savedRelay, saveRelay } from './relay';
 import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
 import type { Meta } from '@/lib/game/model';
-import { GuestHome } from './guest-home';
+import { GuestAside, GuestPages, useGuestHouse } from './guest-home';
 
 const RouteTree = lazy(() =>
   import('./route-tree').then((m) => ({ default: m.RouteTree })),
@@ -305,9 +314,12 @@ export function GuestRoom({
   const voting = !!map && !!ballot && ballot.step === map.step;
   // One way only (or a fight to go on with): the map is shown, nothing to vote.
   const single = !!ballot && ballot.options.length < 2;
-  return (
-    <section className={`guest-room ${voting ? 'voting' : ''}`}>
-      <div className="guest-card">
+  // The host's run, to read the page from, and the guest's own house in it.
+  const view = readView(session.view);
+  const house = useGuestHouse(view);
+  const page = view && (view.page === 'reward' || view.page === 'shop');
+  const card = (
+      <div className={`guest-card${view ? ' wide' : ''}`}>
         <span className="micro">
           <Globe size={14} /> КІМНАТА {session.code}
         </span>
@@ -340,7 +352,9 @@ export function GuestRoom({
             />
           </Suspense>
         )}
-        <GuestHome session={session} meta={meta} />
+        {view && page && (
+          <GuestPages session={session} view={view} meta={meta} />
+        )}
         {result && (
           <div className="guest-result">
             <b>{result.won ? 'Бій виграно' : 'Бій програно'}</b>
@@ -359,14 +373,45 @@ export function GuestRoom({
         )}
         <p>
           Коли господар почне бій, він відкриється тут сам. Ти ведеш
-          другий будинок: рух, ривок і вміння твого героя, зі своїми
-          модулями: нагороди й магазин діляться на двох, гроші спільні.
-          Карту, магазин і нагороди веде господар, а що вибрано й для кого,
-          видно тут у рядку стану.
+          другий будинок: рух, ривок і вміння твого героя. Нагороди,
+          магазин і мешканці діляться на два будинки, каса спільна; карту
+          веде господар, а куди йти, вирішуєте вдвох.
         </p>
         <button type="button" className="secondary" onClick={onLeave}>
           <LogOut size={16} /> Вийти з кімнати
         </button>
+      </div>
+  );
+  if (!view || !house.mine)
+    return (
+      <section className={`guest-room ${voting ? 'voting' : ''}`}>
+        {card}
+      </section>
+    );
+  return (
+    <section className={`guest-room play ${voting ? 'voting' : ''}`}>
+      <div className="play-layout">
+        <section className="play-main">
+          <div className="page-heading">
+            <span className="micro">
+              <Globe size={14} /> КІМНАТА {session.code}
+            </span>
+            <div className="run-wallet">
+              <Currency amount={view.coins} />
+              <span>
+                <Recycle size={15} /> {view.scrap}
+              </span>
+            </div>
+          </div>
+          {card}
+        </section>
+        <GuestAside
+          session={session}
+          view={view}
+          mine={house.mine}
+          setMine={house.set}
+          meta={meta}
+        />
       </div>
     </section>
   );

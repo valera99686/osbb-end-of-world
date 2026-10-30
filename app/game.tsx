@@ -120,6 +120,13 @@ import {
   VOTE,
 } from '@/lib/game/coop';
 import './features.css';
+import { HouseAside, PartnerHouse } from './house-aside';
+import {
+  ItemCard,
+  rewardNote,
+  shopNote,
+  takenText,
+} from './item-card';
 import {
   Dialog,
   DialogContent,
@@ -173,6 +180,8 @@ import {
   withMate,
   mateRun,
   giveMate,
+  buyFurnitureMate,
+  acceptMateHouse,
   settleReward,
   earned,
   finishRun,
@@ -246,121 +255,6 @@ type Result = {
   // Galyna's protocol of the finished raid, shown inside the result.
   protocol?: Line[];
 };
-// Weapon cores name the neighbour that evolves them.
-function EvolutionHint({ weapon }: { weapon: WeaponId }) {
-  const evo = evolutionHint(weapon),
-    partner = evo && ITEM_BY_ID[evo.partner];
-  if (!evo || !partner) return null;
-  return (
-    <small className="evolution-hint">
-      Поруч із «{partner.name}» → <b>{evo.name}</b>
-    </small>
-  );
-}
-// What the host tells the guest about the finds (the guest has no cards of
-// its own): who took what from the reward and what the shop sold to whom.
-function takenText(id?: string) {
-  return id ? (ITEM_BY_ID[id]?.name ?? FURNITURE_BY_ID[id]?.name ?? '') : '';
-}
-function rewardNote(run: Run) {
-  if (!run.coop) return '';
-  const mine = takenText(run.picked?.host),
-    yours = takenText(run.picked?.mate);
-  return mine || yours
-    ? `: господар — ${mine || 'ще обирає'}, ти — ${yours || 'ще обирає'}`
-    : ' для вас обох';
-}
-function shopNote(run: Run) {
-  if (!run.coop) return '';
-  const sold = Object.entries(run.boughtBy ?? {}).filter(([i]) =>
-    run.bought.includes(+i),
-  );
-  if (!sold.length) return '';
-  const gear = (who: 'host' | 'mate') =>
-    sold
-      .filter(([, w]) => w === who)
-      .map(([i]) => ITEM_BY_ID[run.offers[+i]]?.name)
-      .filter(Boolean)
-      .join(', ');
-  const mine = gear('host'),
-    yours = gear('mate');
-  return `: куплено${mine ? ` господарю — ${mine}` : ''}${mine && yours ? ';' : ''}${yours ? ` тобі — ${yours}` : ''}`;
-}
-// What the second house carries, as a row of chips.
-function MateGear({ run, name }: { run: Run; name: string }) {
-  const ids = activeEquipment(mateRun(run)).map((i) => i.id);
-  return (
-    <div className="mate-gear">
-      <b>{name}</b>
-      {ids.length ? (
-        ids.map((id, i) => (
-          <span
-            key={id + i}
-            className={`mate-chip rarity-${ITEM_BY_ID[id].rarity}`}
-            title={ITEM_BY_ID[id].desc}
-          >
-            <Glyph name={ITEM_BY_ID[id].icon} size={14} /> {ITEM_BY_ID[id].name}
-          </span>
-        ))
-      ) : (
-        <span className="mate-chip">порожньо</span>
-      )}
-    </div>
-  );
-}
-function ItemCard({
-  item,
-  footer,
-  onClick,
-  disabled,
-  compact = false,
-  fresh = false,
-}: {
-  item: Item;
-  footer?: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  compact?: boolean;
-  // Newly unlocked: tagged 'НОВЕ' on its first appearance.
-  fresh?: boolean;
-}) {
-  const className = `item-card rarity-${item.rarity} ${compact ? 'compact' : ''} ${fresh ? 'fresh' : ''}`;
-  const content = (
-    <>
-      {fresh && <span className="new-badge">НОВЕ</span>}
-      <div className="item-top">
-        <span className="item-emblem">
-          <Glyph name={item.icon} size={compact ? 22 : 34} />
-        </span>
-        <span className="rarity">{RARITIES[item.rarity]}</span>
-      </div>
-      <h3>{item.name}</h3>
-      <span className="family-label">{FAMILY[item.family].name}</span>
-      <p>{item.desc}</p>
-      {!compact && item.weapon && <EvolutionHint weapon={item.weapon} />}
-      {footer && <div className="item-footer">{footer}</div>}
-    </>
-  );
-  return onClick ? (
-    <button
-      className={className}
-      style={{ '--item-color': FAMILY[item.family].color } as CSSProperties}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      {content}
-    </button>
-  ) : (
-    <article
-      className={className}
-      style={{ '--item-color': FAMILY[item.family].color } as CSSProperties}
-    >
-      {content}
-    </article>
-  );
-}
-// Reveal cue for a set of reward cards: the best card's sound lands with its
-// flip (cards flip 140 ms apart; see rewards.css).
 function revealCue(cards: { rarity: number; fresh: boolean }[]) {
   const legendary = cards.findIndex((c) => c.rarity >= 4);
   if (legendary >= 0)
@@ -894,16 +788,23 @@ export default function Game() {
   ]);
   // The guest sees the same house, its own modules, its row of the reward and
   // the shop, and takes from them; what it asks for is checked here.
+  const houseKey = (h: Run) =>
+    [
+      h.items.join(),
+      h.backpack.map((i) => i.id).join(),
+      h.residents.map((r) => r.id + r.x + r.y + r.rotation).join(),
+      h.furniture.map((f) => `${f.id}${f.resident}${f.cell}`).join(),
+      h.houseLevel,
+    ].join('/');
   const viewKey =
     livePartner && screen === 'play' && run?.coop
       ? [
           run.page,
           run.step,
           Math.floor(run.coins),
-          run.items.join(),
-          (run.mateItems ?? []).join(),
-          run.residents.map((r) => r.id + r.x + r.y + r.rotation).join(),
-          run.furniture.length,
+          Math.floor(run.scrap),
+          houseKey(run),
+          run.mate ? houseKey(mateRun(run)) : '',
           run.loot.map((l) => l.id).join(),
           (run.mateLoot ?? []).map((l) => l.id).join(),
           run.offers.join(),
@@ -920,18 +821,32 @@ export default function Game() {
   >(() => {});
   takeRef.current = (m) => {
     if (!run?.coop) return;
-    if (
+    if (m.source === 'shop' && m.index >= 10) {
+      if (run.page === 'shop' && run.shopFurniture[m.index - 10] === m.id)
+        buyFurnitureFor(m.id, 'mate');
+    } else if (
       m.source === 'reward'
         ? run.page === 'reward' && run.mateLoot?.[m.index]?.id === m.id
         : run.page === 'shop' && run.offers[m.index] === m.id
     )
       giveToMate(m.id, m.source, m.index);
   };
+  const houseRef = useRef<
+    (m: { house: unknown; coins: number; scrap: number }) => void
+  >(() => {});
+  houseRef.current = (m) => {
+    const next = run && acceptMateHouse(run, m);
+    // Refused: the guest is shown the true state again.
+    if (next) setRun(next);
+    else if (run && net?.role === 'host') net.sendView(run);
+  };
   useEffect(() => {
     if (net?.role !== 'host') return;
     net.onTake = (m) => takeRef.current(m);
+    net.onHouse = (m) => houseRef.current(m);
     return () => {
       net.onTake = null;
+      net.onHouse = null;
     };
   }, [net]);
   // Online, where the raid goes next is a vote of both players on one map
@@ -1224,9 +1139,22 @@ export default function Game() {
       (run.bought.includes(index) || run.coins < priceFor(ITEM_BY_ID[id], run))
     )
       return;
-    if (source === 'shop' && run.coop && buyFor === 'mate')
+    if (source === 'shop' && run.coop && !livePartner && buyFor === 'mate')
       return giveToMate(id, 'shop', index);
     setPending({ id, source, index });
+  }
+  // Furniture from the shop for one of the two houses.
+  function buyFurnitureFor(id: string, who: 'host' | 'mate') {
+    if (!run) return;
+    const next = who === 'mate' ? buyFurnitureMate(run, id) : buyFurniture(run, id);
+    if (next === run) return;
+    const index = 10 + run.shopFurniture.indexOf(id);
+    setRun({ ...next, boughtBy: { ...next.boughtBy, [index]: who } });
+    ping(
+      who === 'mate'
+        ? `Меблі для дому ${mateName}.`
+        : 'Меблі на борту. Встанови їх у квартирі.',
+    );
   }
   // The second house gets a module, from the shop or from its row of a
   // reward: it goes straight into its rooms (no placing by hand).
@@ -1338,84 +1266,18 @@ export default function Game() {
   }
   const stats = run ? statsFor(run, meta) : null;
   const inventory = run && stats && (
-    <aside className="inventory">
-      <div className="section-kicker">
-        <Home size={16} /> БУДИНОК № 17{' '}
-        <span>{run.residents.length} мешканців</span>
-      </div>
-      <HousePreview
-        run={run}
-        level={run.houseLevel}
-        onOpen={() => setHousingOpen(true)}
-      />
-      {run.coop && <MateGear run={run} name={mateName} />}
-      <button
-        className="primary housing-open"
-        onClick={() => setHousingOpen(true)}
-      >
-        <Home size={18} /> Квартири й обладнання{' '}
-        <span>
-          {run.residents.reduce((n, r) => n + residentCells(r.id).length, 0)}/
-          {houseSize(run.houseLevel).width * houseSize(run.houseLevel).height}
-        </span>
-      </button>
-      <p className="board-help">
-        Натисни квартиру: обладнання встановлюється всередині неї. Сусідні
-        модулі й мешканці утворюють комбінації.
-      </p>
-      <div className="equipment-summary">
-        <span>
-          Обладнання у квартирах <b>{activeEquipment(run).length}</b>
-        </span>
-      </div>
-      <div className="stat-grid">
-        <div>
-          <Heart size={16} />
-          <span>Міцність</span>
-          <b>
-            {Math.ceil(run.hp)}/{stats.health}
-          </b>
-        </div>
-        <div>
-          <Crosshair size={16} />
-          <span>Шкода</span>
-          <b>
-            {Math.round(
-              stats.damage * (1 + Math.min(0.6, (run.level - 1) * 0.04)),
-            )}
-          </b>
-        </div>
-        <div>
-          <Zap size={16} />
-          <span>Темп</span>
-          <b>{stats.rate.toFixed(1)}/с</b>
-        </div>
-        <div>
-          <Footprints size={16} />
-          <span>Швидкість</span>
-          <b>{stats.speed}</b>
-        </div>
-        <div>
-          <Shield size={16} />
-          <span>Броня</span>
-          <b>{stats.armor}</b>
-        </div>
-        <div>
-          <Recycle size={16} />
-          <span>Брухт</span>
-          <b>{run.scrap}</b>
-        </div>
-      </div>
-      {stats.synergies.length > 0 && (
-        <div className="synergies">
-          <b>
-            <Zap size={15} /> ПРАЦЮЄ РАЗОМ
-          </b>
-          {stats.synergies.map((s, i) => (
-            <p key={i}>{s}</p>
-          ))}
-        </div>
-      )}
+    <HouseAside
+      run={run}
+      meta={meta}
+      title="БУДИНОК № 17"
+      hp={run.hp}
+      onOpen={() => setHousingOpen(true)}
+      partner={
+        run.coop && (
+          <PartnerHouse house={mateRun(run)} name={mateName} meta={meta} />
+        )
+      }
+    >
       <div className="craft-box">
         <span>
           <Wrench size={16} /> Польовий ремонт
@@ -1441,7 +1303,7 @@ export default function Game() {
           3 брухту → +35 <Heart size={13} />
         </button>
       </div>
-    </aside>
+    </HouseAside>
   );
   return (
     <main
@@ -2002,10 +1864,12 @@ export default function Game() {
                               <ItemCard
                                 key={'m' + loot.id}
                                 item={ITEM_BY_ID[loot.id]}
-                                disabled={!fits}
+                                disabled={!fits || livePartner}
                                 onClick={() => giveToMate(loot.id, 'reward', i)}
                                 footer={
-                                  fits ? (
+                                  livePartner ? (
+                                    <span>Обирає {mateName}</span>
+                                  ) : fits ? (
                                     <>
                                       <span>Віддати: {mateName}</span>
                                       <Plus size={18} />
@@ -2020,6 +1884,18 @@ export default function Game() {
                         </div>
                       </>
                     )}
+                    {livePartner &&
+                      run.picked?.host &&
+                      !run.picked.mate &&
+                      (run.mateLoot?.length ?? 0) > 0 && (
+                        <button
+                          className="text-button"
+                          onClick={() => setRun(settleReward(run, 'mate'))}
+                        >
+                          {mateName} не обирає: пропустити його ряд{' '}
+                          <ArrowRight size={16} />
+                        </button>
+                      )}
                     <button
                       className="text-button"
                       onClick={() => {
@@ -2041,7 +1917,7 @@ export default function Game() {
                     <p className="lead">
                       «Майже нове. Лише один власник. Він більше не скаржиться».
                     </p>
-                    {run.coop && (
+                    {run.coop && !livePartner && (
                       <div className="shop-owner">
                         <span>Купувати для:</span>
                         <button
@@ -2061,7 +1937,6 @@ export default function Game() {
                         <span className="till">Каса спільна</span>
                       </div>
                     )}
-                    {run.coop && <MateGear run={run} name={mateName} />}
                     <div className="shop-cards">
                       {run.offers.map((id, i) => (
                         <ItemCard
@@ -2107,18 +1982,27 @@ export default function Game() {
                           }
                           footer={
                             run.bought.includes(10 + i) ? (
-                              'Придбано'
+                              run.coop ? (
+                                run.boughtBy?.[10 + i] === 'mate' ? (
+                                  `Купили: ${mateName}`
+                                ) : (
+                                  'Купили: ти'
+                                )
+                              ) : (
+                                'Придбано'
+                              )
                             ) : (
                               <Currency amount={furniturePrice(run, id)} />
                             )
                           }
-                          onClick={() => {
-                            const next = buyFurniture(run, id);
-                            if (next !== run) {
-                              setRun(next);
-                              ping('Меблі на борту. Встанови їх у квартирі.');
-                            }
-                          }}
+                          onClick={() =>
+                            buyFurnitureFor(
+                              id,
+                              run.coop && !livePartner && buyFor === 'mate'
+                                ? 'mate'
+                                : 'host',
+                            )
+                          }
                         />
                       ))}
                     </div>

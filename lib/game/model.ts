@@ -13,12 +13,14 @@ import {
   apartmentEffects,
   linkedIds,
   planRoomMove,
+  restoreRoomLinks,
+  restoreRoomModes,
   roomsTouch,
   type RoomLink,
   type RoomMode,
 } from './apartments';
-import { RESIDENTS, RESIDENT_BY_ID } from './residents';
-import { FURNITURE } from './furniture';
+import { RESIDENTS, RESIDENT_BY_ID, restoreResidents } from './residents';
+import { FURNITURE, restoreFurniture } from './furniture';
 import {
   APARTMENT_SLOTS,
   STORAGE_LIMIT,
@@ -279,15 +281,31 @@ export interface Run {
   coop: string;
   // Times the partner was helped back to their feet in this run.
   revives: number;
-  // Co-op: the second house's own modules, in the same rooms and slots as
-  // `items`, and its row of the current reward (the first house's row is
-  // `loot`). Nothing here when playing alone.
-  mateItems?: (string | null)[];
+  // Co-op: the second house, with its own neighbours, rooms, furniture and
+  // modules (the first house's are the fields of the run itself), and its row
+  // of the current reward (the first house's row is `loot`). Nothing here when
+  // playing alone. The two houses share the coins, the scrap, the research,
+  // the perks and the raid itself.
+  mate?: MateHouse;
   mateLoot?: Loot[];
   // What each house took from the current reward and from the shop (shop
   // index to the house), so that both players see who got what.
   picked?: { host?: string; mate?: string };
   boughtBy?: Record<number, 'host' | 'mate'>;
+}
+// Everything a house is made of: the part of a Run that the second house has
+// a copy of (see mateRun).
+export interface MateHouse {
+  rescued: string[];
+  residents: ResidentRoom[];
+  roomLinks: RoomLink[];
+  roomModes: Record<string, RoomMode>;
+  furniture: Furnishing[];
+  nextFurnitureId: number;
+  items: (string | null)[];
+  backpack: PackedItem[];
+  nextBagId: number;
+  houseLevel: number;
 }
 export interface RunOptions {
   mode?: RunMode;
@@ -728,11 +746,11 @@ export function battleRewards(run: Run, meta: Meta): Run {
     next.battlesSinceRescue >= 4 ||
     seeded(run.seed + run.chapter * 100003 + run.step * 419)() < 0.18
   ) {
-    const rescue = recruit(next, meta);
+    const rescue = recruitBoth(next, meta);
     next = rescue.run;
     if (rescue.id) {
       next = rescueHeal({ ...next, rescue: rescue.id }, meta);
-      next.eventResult = `Урятовано: ${RESIDENT_BY_ID[rescue.id].name}. ${next.residents.some((r) => r.id === rescue.id) ? 'Квартиру заселено.' : 'Потрібне місце: переплануй або розшир будинок.'}`;
+      next.eventResult = `Урятовано: ${RESIDENT_BY_ID[rescue.id].name}. ${next.residents.some((r) => r.id === rescue.id) ? 'Квартиру заселено.' : 'Потрібне місце: переплануй або розшир будинок.'}${rescue.mateId ? ` Другий будинок прийняв: ${RESIDENT_BY_ID[rescue.mateId].name}.` : ''}`;
     }
   }
   const rare =
@@ -808,6 +826,7 @@ export function nextEndlessLoop(run: Run, meta: Meta): Run {
     minibossVariants: {},
     // Apartment modes belong to location three and do not survive the reset.
     roomModes: {},
+    ...(run.mate ? { mate: { ...run.mate, roomModes: {} } } : {}),
     step: 0,
     path: [],
     historyStart: 0,
@@ -915,7 +934,7 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
     ),
   };
   if (e.rescue) {
-    const result = recruit(next, meta);
+    const result = recruitBoth(next, meta);
     next = {
       ...(result.id
         ? rescueHeal({ ...result.run, rescue: result.id }, meta)
@@ -1167,21 +1186,8 @@ export function makeRun(
   };
   // A small apartment has fewer slots: the hero's own item takes the second
   // one and the legs wait in the backpack with whatever else did not fit.
-  const targets = equipmentTargets(run).slice(0, 3);
-  const kit =
-    targets.length < 3
-      ? ['cannon', c.start, 'engine']
-      : ['cannon', 'engine', c.start];
-  targets.forEach((target, index) => {
-    run.items[target.slot] = kit[index];
-  });
-  for (const id of kit.slice(targets.length)) {
-    const spot = findSpace(run.backpack, id);
-    if (!spot) continue;
-    run.backpack.push({ uid: run.nextBagId, id, ...spot });
-    run.nextBagId++;
-  }
-  if (run.coop) run.mateItems = mateKit(run, run.coop);
+  placeKit(run, c.start);
+  if (run.coop) run.mate = freshHouse(run, run.coop);
   run.fresh = (meta.fresh ?? []).filter(
     (id) =>
       !!ITEM_BY_ID[id] && meta.unlocked.includes(id) && blueprintPool(run, id),
@@ -1575,47 +1581,170 @@ export function readMapRun(x: unknown): Run | null {
   if (!Array.isArray(r.bossVariants)) return null;
   return r;
 }
+const knownItem = (id: unknown): id is string =>
+  typeof id === 'string' && !!ITEM_BY_ID[id];
+// A house that came over the wire (the guest's view of it, or the guest's
+// change of its own): null unless it has the shape the screens read, and what
+// is in it is cleaned the way a saved game is.
+export function readHouse(
+  x: unknown,
+  chapter: number,
+  hero: string,
+): MateHouse | null {
+  if (!x || typeof x !== 'object') return null;
+  const r = x as Record<string, unknown>;
+  if (
+    !Array.isArray(r.rescued) ||
+    !Array.isArray(r.residents) ||
+    !Array.isArray(r.items) ||
+    !Array.isArray(r.backpack)
+  )
+    return null;
+  const level =
+    typeof r.houseLevel === 'number' &&
+    Number.isInteger(r.houseLevel) &&
+    r.houseLevel >= 0 &&
+    r.houseLevel <= HOUSE_EXPANSION_COSTS.length
+      ? r.houseLevel
+      : 0;
+  const rescued = [
+    ...new Set([
+      hero,
+      ...r.rescued.filter(
+        (id): id is string => typeof id === 'string' && !!RESIDENT_BY_ID[id],
+      ),
+    ]),
+  ];
+  const residents = restoreResidents(r.residents, rescued, hero, level);
+  const uids = new Set<number>();
+  const backpack: PackedItem[] = [];
+  for (const i of r.backpack as PackedItem[]) {
+    if (
+      !i ||
+      !knownItem(i.id) ||
+      !Number.isInteger(i.uid) ||
+      i.uid <= 0 ||
+      i.uid > 1e8 ||
+      uids.has(i.uid) ||
+      backpack.length >= RESTORED_STORAGE_LIMIT
+    )
+      continue;
+    uids.add(i.uid);
+    backpack.push({ uid: i.uid, id: i.id, x: 0, y: 0, rotation: 0 });
+  }
+  const items = emptyEquipment();
+  r.items
+    .slice(0, APARTMENT_SLOTS.length)
+    .forEach((id, slot) => (items[slot] = knownItem(id) ? id : null));
+  const furniture = restoreFurniture(r.furniture, residents);
+  const nextBagId =
+    typeof r.nextBagId === 'number' && Number.isInteger(r.nextBagId)
+      ? Math.max(1, Math.min(1e8, r.nextBagId))
+      : 1;
+  const nextFurnitureId =
+    typeof r.nextFurnitureId === 'number' &&
+    Number.isInteger(r.nextFurnitureId)
+      ? Math.max(1, Math.min(1e8, r.nextFurnitureId))
+      : 1;
+  return {
+    rescued,
+    residents,
+    roomLinks: restoreRoomLinks(r.roomLinks, residents),
+    roomModes: restoreRoomModes(r.roomModes, residents, chapter),
+    furniture,
+    nextFurnitureId: Math.max(
+      nextFurnitureId,
+      ...furniture.map((f) => f.uid + 1),
+    ),
+    items,
+    backpack,
+    nextBagId: Math.max(nextBagId, ...backpack.map((i) => i.uid + 1)),
+    houseLevel: level,
+  };
+}
 // What the guest of an online room gets as the host's run, to show the house,
-// its own modules, its row of the reward and the shop (never to play from):
+// its own house, its row of the reward and the shop (never to play from):
 // null unless it has the shape those screens read.
 export function readView(x: unknown): Run | null {
   const r = readMapRun(x);
   if (!r || !r.coop) return null;
-  const lists = [
-    r.residents,
-    r.roomLinks,
-    r.furniture,
-    r.items,
-    r.backpack,
-    r.loot,
-    r.offers,
-    r.bought,
-  ];
-  if (!lists.every(Array.isArray)) return null;
+  const lists = [r.residents, r.roomLinks, r.furniture, r.items, r.backpack];
+  if (!lists.every(Array.isArray) || !r.mate) return null;
   if (
+    !Array.isArray(r.loot) ||
+    !Array.isArray(r.offers) ||
+    !Array.isArray(r.bought) ||
+    !Array.isArray(r.shopFurniture) ||
     !['map', 'combat', 'shop', 'event', 'reward'].includes(r.page) ||
     !Number.isFinite(r.coins) ||
     !Number.isFinite(r.scrap) ||
-    !Number.isInteger(r.nextBagId) ||
-    !Number.isInteger(r.houseLevel)
+    !Number.isFinite(r.hp) ||
+    !Number.isInteger(r.level)
   )
     return null;
-  const known = (id: unknown): id is string =>
-    typeof id === 'string' && !!ITEM_BY_ID[id];
+  const mine = readHouse(houseOf(r), r.chapter, r.character),
+    theirs = readHouse(r.mate, r.chapter, r.coop);
+  if (!mine || !theirs) return null;
   return {
     ...r,
-    items: r.items.map((id) => (known(id) ? id : null)),
-    mateItems: Array.isArray(r.mateItems)
-      ? r.mateItems.map((id) => (known(id) ? id : null))
-      : emptyEquipment(),
+    ...mine,
+    mate: theirs,
     mateLoot: Array.isArray(r.mateLoot)
-      ? r.mateLoot.filter((l) => l?.kind === 'module' && known(l.id))
+      ? r.mateLoot.filter((l) => l?.kind === 'module' && knownItem(l.id))
       : [],
-    picked:
-      r.picked && typeof r.picked === 'object' ? r.picked : {},
-    boughtBy:
-      r.boughtBy && typeof r.boughtBy === 'object' ? r.boughtBy : {},
+    offers: r.offers,
+    picked: r.picked && typeof r.picked === 'object' ? r.picked : {},
+    boughtBy: r.boughtBy && typeof r.boughtBy === 'object' ? r.boughtBy : {},
   };
+}
+// The guest of an online room rearranged its own house (moved a room, put a
+// module in a slot, expanded...): the host takes it only if nothing came from
+// nowhere. The neighbours, the modules and the furniture are the same ones as
+// before (fewer if some were scrapped), the house grew by one step at most,
+// and the shared coins were only spent. Null when it is refused.
+export function acceptMateHouse(run: Run, raw: unknown): Run | null {
+  if (!run.coop || !run.mate || run.page === 'combat') return null;
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as { house?: unknown; coins?: unknown; scrap?: unknown };
+  const next = readHouse(o.house, run.chapter, run.coop);
+  if (
+    !next ||
+    typeof o.coins !== 'number' ||
+    typeof o.scrap !== 'number' ||
+    !Number.isFinite(o.coins) ||
+    !Number.isFinite(o.scrap)
+  )
+    return null;
+  const prev = run.mate;
+  const count = (ids: (string | null)[]) => {
+    const m = new Map<string, number>();
+    for (const id of ids) if (id) m.set(id, (m.get(id) ?? 0) + 1);
+    return m;
+  };
+  const gear = (h: MateHouse) =>
+    count([...h.items, ...h.backpack.map((i) => i.id)]);
+  const had = gear(prev),
+    has = gear(next);
+  let lost = 0;
+  for (const [id, n] of has) if (n > (had.get(id) ?? 0)) return null;
+  for (const [id, n] of had) lost += n - (has.get(id) ?? 0);
+  const stuff = count(prev.furniture.map((f) => f.id)),
+    stuffNow = count(next.furniture.map((f) => f.id));
+  let lostStuff = 0;
+  for (const [id, n] of stuffNow) if (n > (stuff.get(id) ?? 0)) return null;
+  for (const [id, n] of stuff) lostStuff += n - (stuffNow.get(id) ?? 0);
+  if (
+    prev.rescued.length !== next.rescued.length ||
+    !prev.rescued.every((id) => next.rescued.includes(id)) ||
+    next.houseLevel < prev.houseLevel ||
+    next.houseLevel > prev.houseLevel + 1 ||
+    o.coins > run.coins ||
+    o.coins < 0 ||
+    o.scrap < 0 ||
+    o.scrap > run.scrap + 3 * (lost + lostStuff)
+  )
+    return null;
+  return { ...run, mate: next, coins: o.coins, scrap: o.scrap };
 }
 export function reachableColumns(run: Run): number[][] {
   const reachable = run.nodes.map(() => [] as number[]);
@@ -1778,48 +1907,93 @@ export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
   next.items[slot] = itemId;
   return equipmentHealth(run, next, meta);
 }
-// The second house's starting modules: the cannon, an engine and the start
-// module of its own head of ОСББ, in the first rooms (as for the first house).
-function mateKit(run: Run, hero: string): (string | null)[] {
-  const start = CHARACTERS.find((c) => c.id === hero)?.start ?? 'workshop';
-  const items = emptyEquipment();
-  const targets = equipmentTargets(run).slice(0, 3);
+// The cannon, an engine and the head's own module go into the first rooms of
+// a house; what does not fit waits in its backpack.
+function placeKit(house: Run, start: string) {
+  const targets = equipmentTargets(house).slice(0, 3);
   const kit =
     targets.length < 3
       ? ['cannon', start, 'engine']
       : ['cannon', 'engine', start];
   targets.forEach((target, index) => {
-    items[target.slot] = kit[index];
+    house.items[target.slot] = kit[index];
   });
-  return items;
+  for (const id of kit.slice(targets.length)) {
+    const spot = findSpace(house.backpack, id);
+    if (!spot) continue;
+    house.backpack.push({ uid: house.nextBagId, id, ...spot });
+    house.nextBagId++;
+  }
 }
-// A partner joins the raid (or changes): the second house gets its kit.
+export function houseOf(run: Run): MateHouse {
+  return {
+    rescued: run.rescued,
+    residents: run.residents,
+    roomLinks: run.roomLinks,
+    roomModes: run.roomModes,
+    furniture: run.furniture,
+    nextFurnitureId: run.nextFurnitureId,
+    items: run.items,
+    backpack: run.backpack,
+    nextBagId: run.nextBagId,
+    houseLevel: run.houseLevel,
+  };
+}
+// A new house for a head of ОСББ: their own room, the starting kit, nothing
+// else.
+export function freshHouse(base: Run, hero: string): MateHouse {
+  const house: Run = {
+    ...base,
+    character: hero,
+    rescued: [hero],
+    residents: initialHouse(hero),
+    roomLinks: [],
+    roomModes: {},
+    furniture: [],
+    nextFurnitureId: 1,
+    items: emptyEquipment(),
+    backpack: [],
+    nextBagId: 1,
+    houseLevel: 0,
+  };
+  placeKit(house, CHARACTERS.find((c) => c.id === hero)?.start ?? 'workshop');
+  return houseOf(house);
+}
+// A partner joins the raid (or changes): the second house starts afresh.
 export function withMate(run: Run, hero: string): Run {
-  if (!hero) return { ...run, coop: '', mateItems: undefined, mateLoot: [] };
+  if (!hero)
+    return { ...run, coop: '', mate: undefined, mateLoot: [], picked: {} };
   return {
     ...run,
     coop: hero,
-    mateItems: mateKit(run, hero),
+    mate: freshHouse(run, hero),
     mateLoot: [],
     picked: {},
   };
 }
-// The second house as a run of its own, for the stats and the guns: its head
-// of ОСББ and its modules; the rooms, furniture, research and perks are
-// shared with the first house.
+// The second house as a run of its own, for the stats, the guns and every
+// function that works on a house (equip, furnish, rescue...): its head of
+// ОСББ and its neighbours, rooms and modules; the coins, scrap, research and
+// perks are shared with the first house.
 export function mateRun(run: Run): Run {
+  const house = run.mate ?? freshHouse(run, run.coop || run.character);
+  return { ...run, ...house, character: run.coop || run.character };
+}
+// What a change made to the second house as a run (mateRun) means for the
+// real one: its house, and the shared coins and scrap.
+export function withMateHouse(run: Run, house: Run): Run {
   return {
     ...run,
-    character: run.coop || run.character,
-    items: run.mateItems ?? emptyEquipment(),
+    mate: houseOf(house),
+    coins: house.coins,
+    scrap: house.scrap,
   };
 }
 export const mateStats = (run: Run, meta: Meta): Stats =>
   statsFor(mateRun(run), meta);
 // Gives a module to the second house: into a free slot of its rooms, or, when
-// they are all taken, in place of its weakest module unless the new one is
-// weaker still (the old one goes to the first house's backpack, or to scrap).
-// Returns the run unchanged when it does not fit.
+// they are all taken, into its backpack. Returns the run unchanged when it
+// does not fit.
 export function giveMate(run: Run, meta: Meta, id: string): Run {
   const item = ITEM_BY_ID[id];
   if (
@@ -1831,25 +2005,25 @@ export function giveMate(run: Run, meta: Meta, id: string): Run {
       !run.mateLoot?.some((l) => l.kind === 'module' && l.id === id))
   )
     return run;
-  const gear = [...(run.mateItems ?? emptyEquipment())];
-  const slots = equipmentTargets(run).filter((t) => canEquipAt(run, t.slot));
-  let next = run;
-  let slot = slots.find((t) => !gear[t.slot])?.slot;
-  if (slot === undefined) {
-    const weakest = slots
-      .map((t) => ({
-        slot: t.slot,
-        rarity: ITEM_BY_ID[gear[t.slot] ?? '']?.rarity ?? 0,
-      }))
-      .sort((a, b) => a.rarity - b.rarity)[0];
-    if (!weakest || weakest.rarity > item.rarity || gear[weakest.slot] === id)
-      return run;
-    slot = weakest.slot;
-    const stored = storedItem(run, gear[slot]!);
-    next = stored === run ? { ...run, scrap: run.scrap + 2 } : stored;
+  const house = mateRun(run);
+  const free = equipmentTargets(house).find(
+    (t) => canEquipAt(house, t.slot) && !house.items[t.slot],
+  );
+  if (free) {
+    const items = [...house.items];
+    items[free.slot] = id;
+    return withMateHouse(run, { ...house, items });
   }
-  gear[slot] = id;
-  return { ...next, mateItems: gear };
+  if (house.backpack.length >= STORAGE_LIMIT) return run;
+  const stored = storedItem(house, id);
+  return stored === house ? run : withMateHouse(run, stored);
+}
+// The second house's furniture from the shared shop.
+export function buyFurnitureMate(run: Run, id: string): Run {
+  if (!run.coop) return run;
+  const house = mateRun(run);
+  const next = buyFurniture(house, id);
+  return next === house ? run : withMateHouse(run, next);
 }
 export function packItem(run: Run, meta: Meta, id: string): Run {
   if (
@@ -2089,8 +2263,15 @@ export function reserveResident(run: Run, meta: Meta, id: string): Run {
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
-export function recruit(run: Run, meta: Meta): { run: Run; id: string | null } {
-  const pool = RESIDENTS.filter((r) => !run.rescued.includes(r.id));
+export function recruit(
+  run: Run,
+  meta: Meta,
+  // Neighbours the other house has already taken.
+  exclude: readonly string[] = run.mate?.rescued ?? [],
+): { run: Run; id: string | null } {
+  const pool = RESIDENTS.filter(
+    (r) => !run.rescued.includes(r.id) && !exclude.includes(r.id),
+  );
   if (!pool.length)
     return {
       run: { ...run, coins: run.coins + earned(run, 25), battlesSinceRescue: 0 },
@@ -2112,10 +2293,32 @@ export function recruit(run: Run, meta: Meta): { run: Run; id: string | null } {
   if (room) next = houseResident(next, meta, room);
   return { run: next, id };
 }
+// With a partner a rescue saves two neighbours, one for each house: the
+// people of the block are shared out between the two, never taken twice.
+export function recruitBoth(
+  run: Run,
+  meta: Meta,
+): { run: Run; id: string | null; mateId: string | null } {
+  const first = recruit(run, meta);
+  if (!run.mate) return { ...first, mateId: null };
+  const house = mateRun(first.run);
+  const second = recruit(
+    { ...house, seed: run.seed + 313 },
+    meta,
+    first.run.rescued,
+  );
+  return second.id
+    ? {
+        run: { ...first.run, mate: houseOf(second.run) },
+        id: first.id,
+        mateId: second.id,
+      }
+    : { ...first, mateId: null };
+}
 export function rescueResident(run: Run, meta: Meta) {
   if (run.page !== 'event' || run.kind !== 'event' || run.eventDone)
     return null;
-  const result = recruit(run, meta);
+  const result = recruitBoth(run, meta);
   if (!result.id) return null;
   return {
     run: rescueHeal(

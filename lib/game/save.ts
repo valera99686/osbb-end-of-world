@@ -37,6 +37,7 @@ import {
   legacyTree,
   makeRun,
   mysteryKind,
+  readHouse,
   previousCampaignTree,
   previousMinibossCampaignTree,
   previousRandomCampaignTree,
@@ -640,17 +641,10 @@ export function readSave(raw: string | null): {
           else run = storedItem(run, id);
         }
       }
-      // Co-op: the second house keeps its own modules; a save from before
-      // them (or without any) keeps the kit that makeRun gave it.
-      if (run.coop && Array.isArray(r.mateItems)) {
-        run.mateItems = emptyEquipment();
-        r.mateItems
-          .slice(0, APARTMENT_SLOTS.length)
-          .forEach((id: unknown, slot: number) => {
-            if (typeof id === 'string' && !!ITEM_BY_ID[id] && canEquipAt(run!, slot))
-              run!.mateItems![slot] = id;
-          });
-      }
+      // Co-op: the second house keeps its own neighbours, rooms and modules; a
+      // save from before them (or a damaged one) keeps the kit makeRun gave it.
+      if (run.coop)
+        run.mate = readHouse(r.mate, run.chapter, run.coop) ?? run.mate;
       for (const k of [
         'coins',
         'scrap',
@@ -732,7 +726,8 @@ export function readSave(raw: string | null): {
         run.loot = run.reward.map((id) => ({ kind: 'module', id }));
       for (const id of [
         ...run.items,
-        ...(run.mateItems ?? []),
+        ...(run.mate?.items ?? []),
+        ...(run.mate?.backpack.map((i) => i.id) ?? []),
         ...run.backpack.map((i) => i.id),
       ])
         if (id && !base.unlocked.includes(id)) base.unlocked.push(id);

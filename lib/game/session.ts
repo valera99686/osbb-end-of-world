@@ -63,6 +63,10 @@ export class NetSession {
   onTake:
     | ((m: { source: 'reward' | 'shop'; index: number; id: string }) => void)
     | null = null;
+  // Host: the guest rearranged its house.
+  onHouse:
+    | ((m: { house: unknown; coins: number; scrap: number }) => void)
+    | null = null;
   // Host: the guest has voted.
   onVoted: (() => void) | null = null;
   // Host: the room still takes a guest after one has left.
@@ -209,6 +213,17 @@ export class NetSession {
           return;
         this.onTake?.({ source: m.source, index: m.index, id: m.id });
         return;
+      case 'house':
+        if (
+          this.role !== 'host' ||
+          !m.house ||
+          typeof m.house !== 'object' ||
+          typeof m.coins !== 'number' ||
+          typeof m.scrap !== 'number'
+        )
+          return;
+        this.onHouse?.({ house: m.house, coins: m.coins, scrap: m.scrap });
+        return;
       case 'start':
         if (this.role !== 'guest') return;
         this.ballot = null;
@@ -304,6 +319,11 @@ export class NetSession {
   take(source: 'reward' | 'shop', index: number, id: string) {
     if (this.role === 'guest' && this.phase === 'connected')
       this.link?.send({ t: 'take', source, index, id });
+  }
+  // Guest: its own house after a change, for the host to check and take.
+  sendHouse(house: unknown, coins: number, scrap: number) {
+    if (this.role === 'guest' && this.phase === 'connected')
+      this.link?.send({ t: 'house', house, coins, scrap });
   }
   // Host: the vote is over (the fight or the room is next).
   closeVote() {

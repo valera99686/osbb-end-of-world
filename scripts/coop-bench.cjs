@@ -27,7 +27,8 @@ for (const [env, key] of [
   ['LD', 'leaders'],
   ['LH', 'leaderHealth'],
   ['BT', 'bossTime'],
-  ['LOOT', 'loot'],
+  ['XP', 'xp'],
+  ['COINS', 'coins'],
 ])
   if (process.env[env]) COOP[key] = Number(process.env[env]);
 const LAG = Number(process.env.LAG) || 0;

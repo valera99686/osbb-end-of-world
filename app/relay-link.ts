@@ -120,6 +120,17 @@ class Broker {
   }
 }
 
+// Messages that may be lost without harm: the next one replaces them. Every
+// other message is delivered for certain (numbered, acknowledged and sent again
+// until it is), because the public brokers drop messages when they come too
+// fast (about ten a second were seen to get through).
+const LOSSY = new Set(['snap', 'pin']);
+// A message not acknowledged for this long is sent again.
+const RESEND = 1200;
+const RESEND_EVERY = 400;
+const ACK_AFTER = 120;
+const PENDING_MAX = 300;
+
 // One end of a relayed conversation, as a Link for the NetSession.
 class RelayLink implements Link {
   readonly kind = 'relay' as const;
@@ -128,6 +139,14 @@ class RelayLink implements Link {
   open = true;
   private heard = Date.now();
   private beat = 0;
+  private resend = 0;
+  private ack = 0;
+  // The numbered messages: sent and not yet acknowledged, and what the other
+  // end has sent (the next number to hand on, and those that came early).
+  private seq = 0;
+  private pending = new Map<number, { body: Record<string, unknown>; at: number }>();
+  private expect = 1;
+  private early = new Map<number, Record<string, unknown>>();
   constructor(
     private out: (body: unknown) => void,
     private release: () => void,
@@ -138,21 +157,81 @@ class RelayLink implements Link {
       this.out({ k: 'beat' });
       if (Date.now() - this.heard > SILENCE) this.shut();
     }, BEAT);
+    this.resend = window.setInterval(() => {
+      if (!this.open) return;
+      const now = Date.now();
+      for (const entry of this.pending.values())
+        if (now - entry.at > RESEND) {
+          entry.at = now;
+          this.out(entry.body);
+        }
+    }, RESEND_EVERY);
   }
+  // How many messages came from / went to the other end, by kind (for tracing).
+  seen: Record<string, number> = {};
+  sent: Record<string, number> = {};
   send(msg: Msg) {
-    if (this.open) this.out({ m: msg });
+    this.sent[msg.t] = (this.sent[msg.t] ?? 0) + 1;
+    if (!this.open) return;
+    // A press of the dash or the ability must arrive: only plain steering of
+    // the stick may be lost.
+    const lossy = LOSSY.has(msg.t) && !(msg.t === 'pin' && msg.f);
+    if (lossy) this.out({ m: msg });
+    else {
+      const q = ++this.seq;
+      const body = { m: msg, q };
+      if (this.pending.size >= PENDING_MAX)
+        this.pending.delete(this.pending.keys().next().value as number);
+      this.pending.set(q, { body, at: Date.now() });
+      this.out(body);
+    }
   }
   // What came from the other end.
   take(body: Record<string, unknown>) {
     this.heard = Date.now();
-    if (body.k === 'bye') this.shut();
-    else if (body.m && typeof body.m === 'object')
-      this.onMessage?.(body.m as Msg);
+    if (body.k === 'bye') return this.shut();
+    if (body.k === 'rcv') {
+      // Everything up to this number has arrived.
+      if (typeof body.a === 'number')
+        for (const q of [...this.pending.keys()])
+          if (q <= body.a) this.pending.delete(q);
+      return;
+    }
+    if (typeof body.q === 'number') {
+      this.acknowledge();
+      // Handed on in order; a repeat is dropped, an early one waits its turn.
+      if (body.q < this.expect) return;
+      this.early.set(body.q, body);
+      for (let next = this.early.get(this.expect); next; ) {
+        this.early.delete(this.expect++);
+        this.deliver(next);
+        next = this.early.get(this.expect);
+      }
+      return;
+    }
+    this.deliver(body);
+  }
+  private deliver(body: Record<string, unknown>) {
+    const msg = body.m as { t?: unknown } | undefined;
+    if (!msg || typeof msg !== 'object') return;
+    const kind = String(msg.t ?? '?');
+    this.seen[kind] = (this.seen[kind] ?? 0) + 1;
+    this.onMessage?.(msg as Msg);
+  }
+  // Tells the other end what has arrived, a moment after the last one.
+  private acknowledge() {
+    if (this.ack) return;
+    this.ack = window.setTimeout(() => {
+      this.ack = 0;
+      if (this.open) this.out({ k: 'rcv', a: this.expect - 1 });
+    }, ACK_AFTER);
   }
   shut() {
     if (!this.open) return;
     this.open = false;
     window.clearInterval(this.beat);
+    window.clearInterval(this.resend);
+    window.clearTimeout(this.ack);
     this.release();
     this.onClose?.();
   }

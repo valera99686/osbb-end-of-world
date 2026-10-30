@@ -323,6 +323,7 @@ export function Combat({
         __rec?: Record<number, number>;
       };
       w.__battle = b;
+      (w as unknown as { __link?: unknown }).__link = net?.link;
       w.__rec = {};
       const stepOnce = b.update.bind(b);
       let n = 0;

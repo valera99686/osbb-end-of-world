@@ -1216,3 +1216,78 @@
   background: #16273a;
   color: #e5eef9;
 }
+
+/* Co-op: two rows of finds, the shop's recipient, the second house's modules */
+.reward-owner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 16px 0 6px;
+  padding: 6px 10px;
+  border-left: 3px solid #f0c466;
+  background: #1b1a12a8;
+  font-size: calc(13px * var(--text-scale, 1));
+  color: #c9b98c;
+}
+.reward-owner.mate {
+  border-left-color: #5fbfa5;
+  background: #13211fa8;
+  color: #9ec7bb;
+}
+.reward-owner b {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.reward-owner .took {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #d7f0e6;
+  font-weight: 700;
+}
+.reward-owner.done + .reward-cards:empty {
+  display: none;
+}
+.shop-owner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 2px;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #9ec7bb;
+}
+.shop-owner .till {
+  margin-left: auto;
+  color: #c9b98c;
+}
+.mate-gear {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #9ec7bb;
+}
+.mate-gear > b {
+  margin-right: 2px;
+  color: #8fd8c2;
+}
+.mate-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 1px solid #3f6a6290;
+  border-radius: 4px;
+  background: #101a18;
+  color: #c4ddd5;
+}
+.mate-chip.rarity-3,
+.mate-chip.rarity-4 {
+  border-color: #f0c466a0;
+  color: #f4dca0;
+}

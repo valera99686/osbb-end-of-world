@@ -64,7 +64,7 @@ import {
   type RunMode,
 } from './modes';
 import { newAchievements } from './achievements';
-import { coopHero } from './coop';
+import { COOP, coopHero } from './coop';
 import { perkStats } from './upgrades';
 import { EVOLUTION_BY_ID, WEAPONS, weaponFor, type WeaponId } from './weapons';
 export { readSave, saveData, exportSave, importSave } from './save';
@@ -279,6 +279,15 @@ export interface Run {
   coop: string;
   // Times the partner was helped back to their feet in this run.
   revives: number;
+  // Co-op: the second house's own modules, in the same rooms and slots as
+  // `items`, and its row of the current reward (the first house's row is
+  // `loot`). Nothing here when playing alone.
+  mateItems?: (string | null)[];
+  mateLoot?: Loot[];
+  // What each house took from the current reward and from the shop (shop
+  // index to the house), so that both players see who got what.
+  picked?: { host?: string; mate?: string };
+  boughtBy?: Record<number, 'host' | 'mate'>;
 }
 export interface RunOptions {
   mode?: RunMode;
@@ -591,6 +600,8 @@ export function randomLoot(
   any = false,
   forced?: 'module' | 'furniture',
   rare = false,
+  // Finds that are already on the table (the other house's row).
+  skip: readonly string[] = [],
 ): Loot[] {
   const rng = seeded(run.seed + run.chapter * 100003 + run.step * 301 + salt);
   const out: Loot[] = [];
@@ -608,7 +619,9 @@ export function randomLoot(
             ).fill(i.id),
           );
     const available = pool.filter(
-      (id) => !out.some((l) => l.kind === kind && l.id === id),
+      (id) =>
+        !out.some((l) => l.kind === kind && l.id === id) &&
+        !(kind === 'module' && skip.includes(id)),
     );
     if (available.length)
       out.push({ kind, id: available[Math.floor(rng() * available.length)] });
@@ -623,16 +636,37 @@ export function claimFurniture(run: Run, index: number): Run {
     run.furniture.length >= 30
   )
     return run;
-  return nextNode({
+  return settleReward(
+    {
+      ...run,
+      furniture: [
+        ...run.furniture,
+        { uid: run.nextFurnitureId, id: loot.id, resident: null, cell: null },
+      ],
+      nextFurnitureId: run.nextFurnitureId + 1,
+    },
+    'host',
+    loot.id,
+  );
+}
+// Coins earned in the raid count double with a partner (COOP.money): two
+// houses are kitted out from one till. Costs and penalties stay as they are.
+export function earned(run: Pick<Run, 'coop'>, coins: number) {
+  return coins > 0 && run.coop ? Math.round(coins * COOP.money) : coins;
+}
+// One row of the reward is taken (or left): with a partner the raid goes on
+// once both houses have taken theirs. `id` is what was taken, for the screen.
+export function settleReward(
+  run: Run,
+  row: 'host' | 'mate',
+  id?: string,
+): Run {
+  const left: Run = {
     ...run,
-    furniture: [
-      ...run.furniture,
-      { uid: run.nextFurnitureId, id: loot.id, resident: null, cell: null },
-    ],
-    nextFurnitureId: run.nextFurnitureId + 1,
-    loot: [],
-    reward: [],
-  });
+    ...(row === 'host' ? { loot: [], reward: [] } : { mateLoot: [] }),
+    picked: id ? { ...run.picked, [row]: id } : run.picked,
+  };
+  return left.loot.length || left.mateLoot?.length ? left : nextNode(left);
 }
 // Newly unlocked items take the last reward slots (they flip in last), up to
 // the whole reward; the rest wait for the next one.
@@ -673,15 +707,18 @@ export function battleRewards(run: Run, meta: Meta): Run {
     rescue: '',
     coins:
       run.coins +
-      18 +
-      run.chapter * 6 +
-      (run.kind === 'elite'
-        ? 14
-        : run.kind === 'miniboss'
-          ? 22
-          : run.kind === 'boss'
-            ? 25
-            : 0),
+      earned(
+        run,
+        18 +
+          run.chapter * 6 +
+          (run.kind === 'elite'
+            ? 14
+            : run.kind === 'miniboss'
+              ? 22
+              : run.kind === 'boss'
+                ? 25
+                : 0),
+      ),
     scrap:
       run.scrap + (run.kind === 'miniboss' ? 4 : run.kind === 'elite' ? 3 : 1),
     eventResult: '',
@@ -698,22 +735,41 @@ export function battleRewards(run: Run, meta: Meta): Run {
       next.eventResult = `Урятовано: ${RESIDENT_BY_ID[rescue.id].name}. ${next.residents.some((r) => r.id === rescue.id) ? 'Квартиру заселено.' : 'Потрібне місце: переплануй або розшир будинок.'}`;
     }
   }
+  const rare =
+    run.kind === 'elite' || run.kind === 'miniboss' || run.kind === 'boss';
   const drop = withFresh(
     run,
-    randomLoot(
-      run,
-      meta,
-      3,
-      67,
-      false,
-      undefined,
-      run.kind === 'elite' || run.kind === 'miniboss' || run.kind === 'boss',
-    ),
+    randomLoot(run, meta, 3, 67, false, undefined, rare),
   );
   next.loot = drop.loot;
   next.fresh = drop.fresh;
   next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
+  next.mateLoot = mateRow(run, meta, 3, 71, next.loot, rare);
+  next.picked = {};
   return next;
+}
+// Co-op: the second house's row of a reward, modules only and none of the
+// first house's own, so the finds are shared out and not doubled.
+export function mateRow(
+  run: Run,
+  meta: Meta,
+  count: number,
+  salt: number,
+  taken: Loot[],
+  rare = false,
+  any = false,
+): Loot[] {
+  if (!run.coop) return [];
+  return randomLoot(
+    run,
+    meta,
+    count,
+    salt,
+    any,
+    'module',
+    rare,
+    taken.filter((l) => l.kind === 'module').map((l) => l.id),
+  );
 }
 // Pair with the battle result: the run stands at the last boss of location
 // three in a mode that ends there.
@@ -760,6 +816,9 @@ export function nextEndlessLoop(run: Run, meta: Meta): Run {
     bossesDefeated: run.bossesDefeated + 1,
     loot: [],
     reward: [],
+    mateLoot: [],
+    picked: {},
+    boughtBy: {},
     offers: [],
     shopFurniture: [],
     bought: [],
@@ -794,6 +853,9 @@ export function advanceLocation(run: Run, meta: Meta): Run {
     bossesDefeated: run.bossesDefeated + 1,
     loot: [],
     reward: [],
+    mateLoot: [],
+    picked: {},
+    boughtBy: {},
     offers: [],
     shopFurniture: [],
     bought: [],
@@ -833,9 +895,9 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
       eventResult:
         choice === 0
           ? 'Відновлено 35% міцності.'
-          : 'Знайдено 20 монет і 3 брухту.',
+          : `Знайдено ${earned(run, 20)} монет і 3 брухту.`,
       hp: choice === 0 ? Math.min(max, run.hp + max * 0.35) : run.hp,
-      coins: run.coins + (choice === 1 ? 20 : 0),
+      coins: run.coins + (choice === 1 ? earned(run, 20) : 0),
       scrap: run.scrap + (choice === 1 ? 3 : 0),
     };
   const selected = eventFor(run).choices[choice];
@@ -845,7 +907,7 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
     ...run,
     eventDone: true,
     eventResult: selected.result,
-    coins: run.coins + (e.coins ?? 0),
+    coins: run.coins + earned(run, e.coins ?? 0),
     scrap: run.scrap + (e.scrap ?? 0),
     hp: Math.min(
       max,
@@ -862,13 +924,16 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
         selected.result +
         (result.id
           ? ` Урятовано: ${RESIDENT_BY_ID[result.id].name}.`
-          : ' Усі мешканці вже з нами: +25 монет.'),
+          : ` Усі мешканці вже з нами: +${earned(run, 25)} монет.`),
     };
   }
   if (e.loot) {
     next.page = 'reward';
     next.loot = randomLoot(run, meta, 1, 404, false, e.loot, e.rare);
     next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
+    next.mateLoot =
+      e.loot === 'module' ? mateRow(run, meta, 1, 405, next.loot, e.rare) : [];
+    next.picked = {};
   }
   return next;
 }
@@ -1096,6 +1161,9 @@ export function makeRun(
     eliteWins: 0,
     coop: mode === 'daily' ? '' : coopHero(meta.wins, opts.coop),
     revives: 0,
+    mateLoot: [],
+    picked: {},
+    boughtBy: {},
   };
   // A small apartment has fewer slots: the hero's own item takes the second
   // one and the legs wait in the backpack with whatever else did not fit.
@@ -1113,6 +1181,7 @@ export function makeRun(
     run.backpack.push({ uid: run.nextBagId, id, ...spot });
     run.nextBagId++;
   }
+  if (run.coop) run.mateItems = mateKit(run, run.coop);
   run.fresh = (meta.fresh ?? []).filter(
     (id) =>
       !!ITEM_BY_ID[id] && meta.unlocked.includes(id) && blueprintPool(run, id),
@@ -1552,6 +1621,9 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
         ? { ...run.revealed, [nodeId]: kind }
         : run.revealed,
     loot: [],
+    mateLoot: [],
+    picked: {},
+    boughtBy: {},
     eventResult: '',
     rescue: '',
     repairUsed: false,
@@ -1582,6 +1654,16 @@ export function enterNode(run: Run, meta: Meta, nodeId: string): Run {
     next.loot = drop.loot;
     next.fresh = drop.fresh;
     next.reward = next.loot.filter((l) => l.kind === 'module').map((l) => l.id);
+    next.mateLoot = mateRow(
+      run,
+      meta,
+      researchOwned(run.research, 'chest') ? 2 : 1,
+      733,
+      next.loot,
+      false,
+      true,
+    );
+    next.picked = {};
   } else next.page = 'combat';
   return next;
 }
@@ -1597,6 +1679,9 @@ export function nextNode(run: Run): Run {
     ...run,
     step: run.step + 1,
     loot: [],
+    mateLoot: [],
+    picked: {},
+    boughtBy: {},
     eventResult: '',
     rescue: '',
     shopFurniture: [],
@@ -1650,6 +1735,79 @@ export function equip(run: Run, itemId: string, slot: number, meta: Meta): Run {
   next = { ...next, items: [...run.items] };
   next.items[slot] = itemId;
   return equipmentHealth(run, next, meta);
+}
+// The second house's starting modules: the cannon, an engine and the start
+// module of its own head of ОСББ, in the first rooms (as for the first house).
+function mateKit(run: Run, hero: string): (string | null)[] {
+  const start = CHARACTERS.find((c) => c.id === hero)?.start ?? 'workshop';
+  const items = emptyEquipment();
+  const targets = equipmentTargets(run).slice(0, 3);
+  const kit =
+    targets.length < 3
+      ? ['cannon', start, 'engine']
+      : ['cannon', 'engine', start];
+  targets.forEach((target, index) => {
+    items[target.slot] = kit[index];
+  });
+  return items;
+}
+// A partner joins the raid (or changes): the second house gets its kit.
+export function withMate(run: Run, hero: string): Run {
+  if (!hero) return { ...run, coop: '', mateItems: undefined, mateLoot: [] };
+  return {
+    ...run,
+    coop: hero,
+    mateItems: mateKit(run, hero),
+    mateLoot: [],
+    picked: {},
+  };
+}
+// The second house as a run of its own, for the stats and the guns: its head
+// of ОСББ and its modules; the rooms, furniture, research and perks are
+// shared with the first house.
+export function mateRun(run: Run): Run {
+  return {
+    ...run,
+    character: run.coop || run.character,
+    items: run.mateItems ?? emptyEquipment(),
+  };
+}
+export const mateStats = (run: Run, meta: Meta): Stats =>
+  statsFor(mateRun(run), meta);
+// Gives a module to the second house: into a free slot of its rooms, or, when
+// they are all taken, in place of its weakest module unless the new one is
+// weaker still (the old one goes to the first house's backpack, or to scrap).
+// Returns the run unchanged when it does not fit.
+export function giveMate(run: Run, meta: Meta, id: string): Run {
+  const item = ITEM_BY_ID[id];
+  if (
+    !run.coop ||
+    run.page === 'combat' ||
+    !item ||
+    (!meta.unlocked.includes(id) &&
+      !run.loot.some((l) => l.kind === 'module' && l.id === id) &&
+      !run.mateLoot?.some((l) => l.kind === 'module' && l.id === id))
+  )
+    return run;
+  const gear = [...(run.mateItems ?? emptyEquipment())];
+  const slots = equipmentTargets(run).filter((t) => canEquipAt(run, t.slot));
+  let next = run;
+  let slot = slots.find((t) => !gear[t.slot])?.slot;
+  if (slot === undefined) {
+    const weakest = slots
+      .map((t) => ({
+        slot: t.slot,
+        rarity: ITEM_BY_ID[gear[t.slot] ?? '']?.rarity ?? 0,
+      }))
+      .sort((a, b) => a.rarity - b.rarity)[0];
+    if (!weakest || weakest.rarity > item.rarity || gear[weakest.slot] === id)
+      return run;
+    slot = weakest.slot;
+    const stored = storedItem(run, gear[slot]!);
+    next = stored === run ? { ...run, scrap: run.scrap + 2 } : stored;
+  }
+  gear[slot] = id;
+  return { ...next, mateItems: gear };
 }
 export function packItem(run: Run, meta: Meta, id: string): Run {
   if (
@@ -1893,7 +2051,7 @@ export function recruit(run: Run, meta: Meta): { run: Run; id: string | null } {
   const pool = RESIDENTS.filter((r) => !run.rescued.includes(r.id));
   if (!pool.length)
     return {
-      run: { ...run, coins: run.coins + 25, battlesSinceRescue: 0 },
+      run: { ...run, coins: run.coins + earned(run, 25), battlesSinceRescue: 0 },
       id: null,
     };
   const id =

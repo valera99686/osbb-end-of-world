@@ -99,7 +99,7 @@ test('Co-op fights have more and tougher enemies; the ladder of heat is untouche
   assert.ok(duo.ally);
   assert.ok(Math.abs(duo.heat.enemyHealth / solo.heat.enemyHealth - C.COOP.enemyHealth) < 1e-9);
   assert.ok(duo.squadTotal > solo.squadTotal, 'more enemies are planned for two');
-  assert.equal(duo.ally.max, C.allyHealth(duo.stats.health));
+  assert.equal(duo.ally.max, C.allyHealth(duo.mateStats.health), 'the second house is as sturdy as its own build');
   assert.equal(duo.ally.hero, 'flora');
 });
 
@@ -346,7 +346,7 @@ test('Pickups go to whoever is closer; kits heal the one who takes them', () => 
   b.drops.push({ x: 1190, y: 690, kind: 'coin', value: 7 });
   const coins = b.run.coins;
   step(b, 0.2);
-  assert.equal(b.run.coins, coins + Math.floor(7 * C.COOP.loot), 'the coin goes into the shared till, at the co-op loot share');
+  assert.equal(b.run.coins, coins + Math.floor(7 * C.COOP.coins), 'the coin goes into the shared till, at the co-op coin share');
   assert.equal(b.run.hp, 50, 'the kit did not heal the distant house');
   assert.ok(b.ally.hp > 10, 'it healed the one who took it');
   // Crystals still level up the shared build.
@@ -489,15 +489,16 @@ test('The partner is a house: drawn on its feet, flickering, and lying down, wit
   assert.equal(calls.length, 0);
 });
 
-test('With two guns the floor pays a share, carried over so nothing is lost, and alone it pays in full', () => {
+test('With two guns the floor pays coins in full and crystals by a share, carried over so nothing is lost, and alone it pays in full', () => {
   const solo = fight('').b;
   assert.equal(solo.loot(7, 'coin'), 7);
   assert.equal(solo.loot(3, 'xp'), 3);
   const { b } = fight('mechanic');
-  assert.equal(C.COOP.loot, 0.5);
+  assert.equal(C.COOP.xp, 0.5);
+  assert.equal(C.COOP.coins, 1);
   let paid = 0;
   for (let i = 0; i < 100; i++) paid += b.loot(1, 'coin');
-  assert.equal(paid, 50, 'a hundred coins pay the share, whole ones only');
+  assert.equal(paid, 100, 'coins are worth the whole sum: the till is shared by two houses');
   let xp = 0;
   for (let i = 0; i < 50; i++) xp += b.loot(4, 'xp');
   assert.equal(xp, 100);

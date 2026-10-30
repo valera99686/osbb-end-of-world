@@ -201,6 +201,12 @@ async function vote(host, guest) {
     await sleep(500);
   }
   await until('the map', () => host.eval(`!!document.querySelector('button.tree-go')`));
+  // The first step has one way only: the guest still sees the same map, with
+  // nothing to vote on.
+  const seen = await until('the shared map at the guest', () =>
+    guest.eval(`document.querySelector('.guest-room .tree-vote-note')?.innerText`),
+  );
+  console.log('guest sees the first map:', seen);
   await host.eval(`document.querySelector('button.tree-go').click()`);
   // A production build has no debugging hook: then only the screens are seen.
   const PROD = !!process.env.PROD;
@@ -273,7 +279,14 @@ async function vote(host, guest) {
     const text = await until('the guest result card', async () => {
       await host.eval(`document.querySelector('.perk-card')?.click()`);
       return guest.eval(`document.querySelector('.guest-result')?.innerText`);
-    }, 90000);
+    }, 90000).catch(async (e) => {
+      // Where each end stands when the result does not come.
+      const look = (p) =>
+        p.eval(`(()=>{const b=window.__battle; return {battle: b ? {ended:b.ended, elapsed:b.elapsed, duration:b.duration, kind:b.client?'mirror':b.feed?'feed':'other', stalled:(b.client||b.feed||{}).stalled, closed:(b.client||b.feed||{}).closed, seen:(b.client||{}).seen, relayIn:(window.__link||{}).seen, relayOut:(window.__link||{}).sent} : null, screen: document.body.innerText.slice(0, 160)}})()`).catch((e) => String(e));
+      console.log('host:', JSON.stringify(await look(host)));
+      console.log('guest:', JSON.stringify(await look(guest)));
+      throw e;
+    });
     const cores = await guest.eval(`document.querySelector('.guest-cores')?.innerText`);
     console.log('guest result card:', JSON.stringify(text), '|', cores);
     ok = ok && /Бій/.test(text) && /\+\d+/.test(cores || '');

@@ -110,7 +110,7 @@ import {
 import { NoticeBoard } from './notice-board';
 import { CoopSelect } from './coop-select';
 import { GuestRoom, OnlinePanel, useNet } from './online';
-import { NetSession } from '@/lib/game/session';
+import { HOST_IN_FIGHT, NetSession } from '@/lib/game/session';
 import type { ShareMode } from '@/lib/game/net';
 import {
   ballotResult,
@@ -170,6 +170,11 @@ import {
   nextNode,
   equip,
   packItem,
+  withMate,
+  mateRun,
+  giveMate,
+  settleReward,
+  earned,
   finishRun,
   readSave,
   saveData,
@@ -250,6 +255,57 @@ function EvolutionHint({ weapon }: { weapon: WeaponId }) {
     <small className="evolution-hint">
       Поруч із «{partner.name}» → <b>{evo.name}</b>
     </small>
+  );
+}
+// What the host tells the guest about the finds (the guest has no cards of
+// its own): who took what from the reward and what the shop sold to whom.
+function takenText(id?: string) {
+  return id ? (ITEM_BY_ID[id]?.name ?? FURNITURE_BY_ID[id]?.name ?? '') : '';
+}
+function rewardNote(run: Run) {
+  if (!run.coop) return '';
+  const mine = takenText(run.picked?.host),
+    yours = takenText(run.picked?.mate);
+  return mine || yours
+    ? `: господар — ${mine || 'ще обирає'}, ти — ${yours || 'ще обирає'}`
+    : ' для вас обох';
+}
+function shopNote(run: Run) {
+  if (!run.coop) return '';
+  const sold = Object.entries(run.boughtBy ?? {}).filter(([i]) =>
+    run.bought.includes(+i),
+  );
+  if (!sold.length) return '';
+  const gear = (who: 'host' | 'mate') =>
+    sold
+      .filter(([, w]) => w === who)
+      .map(([i]) => ITEM_BY_ID[run.offers[+i]]?.name)
+      .filter(Boolean)
+      .join(', ');
+  const mine = gear('host'),
+    yours = gear('mate');
+  return `: куплено${mine ? ` господарю — ${mine}` : ''}${mine && yours ? ';' : ''}${yours ? ` тобі — ${yours}` : ''}`;
+}
+// What the second house carries, as a row of chips.
+function MateGear({ run, name }: { run: Run; name: string }) {
+  const ids = activeEquipment(mateRun(run)).map((i) => i.id);
+  return (
+    <div className="mate-gear">
+      <b>{name}</b>
+      {ids.length ? (
+        ids.map((id, i) => (
+          <span
+            key={id + i}
+            className={`mate-chip rarity-${ITEM_BY_ID[id].rarity}`}
+            title={ITEM_BY_ID[id].desc}
+          >
+            <Glyph name={ITEM_BY_ID[id].icon} size={14} /> {ITEM_BY_ID[id].name}
+          </span>
+        ))
+      ) : (
+        <span className="mate-chip">порожньо</span>
+      )}
+    </div>
   );
 }
 function ItemCard({
@@ -364,6 +420,8 @@ export default function Game() {
       source: 'shop' | 'reward' | 'draft';
       index: number;
     } | null>(null),
+    // Co-op shop: whose house the next purchase is for.
+    [buyFor, setBuyFor] = useState<'host' | 'mate'>('host'),
     [result, setResult] = useState<Result | null>(null),
     [search, setSearch] = useState(''),
     [filter, setFilter] = useState('all'),
@@ -747,6 +805,12 @@ export default function Game() {
   // A guest is in the room and listening: the host's next raid is for two.
   const livePartner = net?.role === 'host' && net.phase === 'connected';
   const nameOf = (id: string) => CHARACTERS.find((c) => c.id === id)?.name ?? id;
+  // The second house in the texts: the partner's name online, else their hero.
+  const mateName = run?.coop
+    ? livePartner && net?.partner?.name
+      ? net.partner.name
+      : nameOf(run.coop)
+    : '';
   const netPhase = net?.phase;
   // The guest opens the fights the host starts, and a connected guest lives
   // in the room screen; a lost room sends everyone back.
@@ -811,24 +875,33 @@ export default function Game() {
         : run.page === 'map'
           ? `Карта: ${LOCATIONS[run.chapter]?.name ?? ''}, крок ${run.step + 1}`
           : run.page === 'shop'
-            ? 'Господар у магазині'
+            ? 'Господар у магазині' + shopNote(run)
             : run.page === 'event'
               ? 'Господар на події'
               : run.page === 'reward'
-                ? 'Господар вибирає нагороду'
-                : 'Господар у бою',
+                ? 'Господар вибирає нагороду' + rewardNote(run)
+                : HOST_IN_FIGHT,
     );
-  }, [netPhase, screen, run?.page, run?.step, run?.chapter]);
+  }, [
+    netPhase,
+    screen,
+    run?.page,
+    run?.step,
+    run?.chapter,
+    run?.picked?.host,
+    run?.picked?.mate,
+    run?.bought.length,
+  ]);
   // Online, where the raid goes next is a vote of both players on one map
   // (coop.ts): a fork is voted on, a single way or a fight to continue is not.
   const ballot = net?.role === 'host' ? net.ballot : null;
+  // The guest sees the map whenever the host does; a fork is voted on.
+  const mapOpen = livePartner && screen === 'play' && run?.page === 'map';
   const voting =
-    livePartner &&
-    screen === 'play' &&
-    run?.page === 'map' &&
+    mapOpen &&
     run.path.length <= run.step &&
     availableColumns(run).length > 1;
-  const voteKey = voting && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
+  const voteKey = mapOpen && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
   const [guestSilent, setGuestSilent] = useState(false);
   useEffect(() => {
     if (net?.role !== 'host') return;
@@ -866,6 +939,29 @@ export default function Game() {
     );
     return () => clearTimeout(timer);
   }, [ballot?.done?.col, ballot?.done?.coin, ballot?.step]);
+  // A guest does not stay in a fight nobody runs: when the host has said it is
+  // in the fight and then says it is somewhere else (and the fight's own end
+  // did not come, lost on the way or never sent), the guest leaves it after a
+  // moment, long enough for the result of a normal end to be shown first.
+  const hostSays = net?.role === 'guest' ? net.status : '';
+  const sawFight = useRef(false);
+  useEffect(() => {
+    if (!guestFight) {
+      sawFight.current = false;
+      return;
+    }
+    if (hostSays === HOST_IN_FIGHT) {
+      sawFight.current = true;
+      return;
+    }
+    if (!sawFight.current || !hostSays) return;
+    const sid = guestFight.sid;
+    const timer = setTimeout(() => {
+      setGuestFight((f) => (f && f.sid === sid ? null : f));
+      setNotice('Господар уже поза боєм: чекаємо на нього в кімнаті.');
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [hostSays, guestFight?.sid]);
   function closeOnline() {
     roomHandle.current?.close();
     roomHandle.current = null;
@@ -934,7 +1030,7 @@ export default function Game() {
   }
   function launch(spec: Launch, base: Meta = meta) {
     audio.current!.unlock();
-    const started = makeRun(
+    let started = makeRun(
       base,
       spec.character || character,
       0,
@@ -950,8 +1046,10 @@ export default function Game() {
     // The partner who joined the room is not held to this profile's unlocks.
     const mate =
       livePartner && spec.mode !== 'daily' ? (net?.partner?.hero ?? '') : '';
-    if (mate && CHARACTERS.some((c) => c.id === mate)) started.coop = mate;
+    if (mate && CHARACTERS.some((c) => c.id === mate))
+      started = withMate(started, mate);
     setOnlineRun(!!started.coop && !!mate);
+    setBuyFor('host');
     setRun(started);
     const begun = startDaily(base, started);
     setMeta({
@@ -1084,7 +1182,41 @@ export default function Game() {
       (run.bought.includes(index) || run.coins < priceFor(ITEM_BY_ID[id], run))
     )
       return;
+    if (source === 'shop' && run.coop && buyFor === 'mate')
+      return giveToMate(id, 'shop', index);
     setPending({ id, source, index });
+  }
+  // The second house gets a module, from the shop or from its row of a
+  // reward: it goes straight into its rooms (no placing by hand).
+  function giveToMate(id: string, source: 'shop' | 'reward', index: number) {
+    if (!run) return;
+    const item = ITEM_BY_ID[id];
+    if (!item) return;
+    const cost = source === 'shop' ? priceFor(item, run) : 0;
+    if (source === 'shop' && (run.coins < cost || run.bought.includes(index)))
+      return;
+    let next = giveMate(run, meta, id);
+    if (next === run) {
+      ping(
+        `У ${mateName} немає місця: усі кімнати зайняті модулями не гіршими за цей.`,
+      );
+      return;
+    }
+    next = { ...next, coins: next.coins - cost };
+    if (source === 'shop')
+      next = {
+        ...next,
+        bought: [...next.bought, index],
+        boughtBy: { ...next.boughtBy, [index]: 'mate' },
+      };
+    setMeta((m) => ({
+      ...m,
+      seen: [...new Set([...m.seen, id])],
+      unlocked: [...new Set([...m.unlocked, id])],
+    }));
+    if (source === 'reward') next = settleReward(next, 'mate', id);
+    setRun(next);
+    ping(`${item.name} — ${mateName}.`);
   }
   function acquireToBag() {
     if (!run || !pending) return;
@@ -1103,8 +1235,12 @@ export default function Game() {
       ...next,
       coins: next.coins - cost,
       bought: source === 'shop' ? [...next.bought, index] : next.bought,
+      boughtBy:
+        source === 'shop'
+          ? { ...next.boughtBy, [index]: 'host' }
+          : next.boughtBy,
     };
-    if (source === 'reward') next = nextNode(next);
+    if (source === 'reward') next = settleReward(next, 'host', id);
     if (source === 'draft') next = skipDraft(next);
     setRun(next);
     setPending(null);
@@ -1140,13 +1276,17 @@ export default function Game() {
       ...next,
       coins: next.coins - cost,
       bought: source === 'shop' ? [...next.bought, index] : next.bought,
+      boughtBy:
+        source === 'shop'
+          ? { ...next.boughtBy, [index]: 'host' }
+          : next.boughtBy,
     };
     setMeta((m) => ({
       ...m,
       seen: [...new Set([...m.seen, id])],
       unlocked: [...new Set([...m.unlocked, id])],
     }));
-    if (source === 'reward') next = nextNode(next);
+    if (source === 'reward') next = settleReward(next, 'host', id);
     if (source === 'draft') next = skipDraft(next);
     setRun(next);
     setPending(null);
@@ -1166,6 +1306,7 @@ export default function Game() {
         level={run.houseLevel}
         onOpen={() => setHousingOpen(true)}
       />
+      {run.coop && <MateGear run={run} name={mateName} />}
       <button
         className="primary housing-open"
         onClick={() => setHousingOpen(true)}
@@ -1722,7 +1863,9 @@ export default function Game() {
                         ? run.loot.length > 1
                           ? 'Подвійне дно: у скрині дві знахідки, забери одну.'
                           : 'У скрині один випадковий предмет.'
-                        : 'Вибери один предмет.'}{' '}
+                        : run.coop
+                          ? 'У кожного будинку своя полиця: кожен бере по одному предмету.'
+                          : 'Вибери один предмет.'}{' '}
                       Обладнання й меблі встановлюються всередині квартир.
                     </p>
                     {run.rescue && RESIDENT_BY_ID[run.rescue] && (
@@ -1749,6 +1892,18 @@ export default function Game() {
                           </button>
                         </div>
                       )}
+                    {run.coop && (
+                      <div className={`reward-owner host${run.picked?.host ? ' done' : ''}`}>
+                        <b>Для тебе</b>
+                        {run.picked?.host ? (
+                          <span className="took">
+                            <Check size={14} /> взяв: {takenText(run.picked.host)}
+                          </span>
+                        ) : (
+                          <span>обери один</span>
+                        )}
+                      </div>
+                    )}
                     <div className="reward-cards">
                       {run.loot.map((loot, i) =>
                         loot.kind === 'module' ? (
@@ -1785,14 +1940,53 @@ export default function Game() {
                         ),
                       )}
                     </div>
+                    {run.coop && (
+                      <>
+                        <div className={`reward-owner mate${run.picked?.mate ? ' done' : ''}`}>
+                          <b>Для {mateName}</b>
+                          {run.picked?.mate ? (
+                            <span className="took">
+                              <Check size={14} /> взяв(ла):{' '}
+                              {takenText(run.picked.mate)}
+                            </span>
+                          ) : (
+                            <span>обери один</span>
+                          )}
+                        </div>
+                        <div className="reward-cards">
+                          {(run.mateLoot ?? []).map((loot, i) => {
+                            const fits = giveMate(run, meta, loot.id) !== run;
+                            return (
+                              <ItemCard
+                                key={'m' + loot.id}
+                                item={ITEM_BY_ID[loot.id]}
+                                disabled={!fits}
+                                onClick={() => giveToMate(loot.id, 'reward', i)}
+                                footer={
+                                  fits ? (
+                                    <>
+                                      <span>Віддати: {mateName}</span>
+                                      <Plus size={18} />
+                                    </>
+                                  ) : (
+                                    <span>Немає місця</span>
+                                  )
+                                }
+                              />
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                     <button
                       className="text-button"
                       onClick={() => {
-                        setRun(nextNode({ ...run, coins: run.coins + 10 }));
-                        ping('Лут продано. +10 монет.');
+                        const pay = earned(run, 10);
+                        setRun(nextNode({ ...run, coins: run.coins + pay }));
+                        ping(`Лут продано. +${pay} монет.`);
                       }}
                     >
-                      Продати знахідки за 10 монет <ArrowRight size={16} />
+                      Продати знахідки за {earned(run, 10)} монет <ArrowRight size={16} />
                     </button>
                   </>
                 )}
@@ -1805,6 +1999,27 @@ export default function Game() {
                     <p className="lead">
                       «Майже нове. Лише один власник. Він більше не скаржиться».
                     </p>
+                    {run.coop && (
+                      <div className="shop-owner">
+                        <span>Купувати для:</span>
+                        <button
+                          className={`coop-switch${buyFor === 'host' ? ' active' : ''}`}
+                          aria-pressed={buyFor === 'host'}
+                          onClick={() => setBuyFor('host')}
+                        >
+                          Тебе
+                        </button>
+                        <button
+                          className={`coop-switch${buyFor === 'mate' ? ' active' : ''}`}
+                          aria-pressed={buyFor === 'mate'}
+                          onClick={() => setBuyFor('mate')}
+                        >
+                          {mateName}
+                        </button>
+                        <span className="till">Каса спільна</span>
+                      </div>
+                    )}
+                    {run.coop && <MateGear run={run} name={mateName} />}
                     <div className="shop-cards">
                       {run.offers.map((id, i) => (
                         <ItemCard
@@ -1819,7 +2034,12 @@ export default function Game() {
                           footer={
                             run.bought.includes(i) ? (
                               <>
-                                <Check size={16} /> Встановлено
+                                <Check size={16} />{' '}
+                                {run.coop
+                                  ? run.boughtBy?.[i] === 'mate'
+                                    ? `Купили: ${mateName}`
+                                    : 'Купили: ти'
+                                  : 'Встановлено'}
                               </>
                             ) : (
                               <>

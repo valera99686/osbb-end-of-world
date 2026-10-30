@@ -51,6 +51,8 @@ import { ITEM_BY_ID, FAMILY } from './data';
 import {
   seeded,
   statsFor,
+  mateStats as statsOfMate,
+  mateRun,
   minibossVariant,
   DEFAULT_SETTINGS,
   type Run,
@@ -325,6 +327,8 @@ interface Bullet {
   bounce?: number;
   homing?: boolean;
   hitSet?: Enemy[];
+  // Fired by the second house: its modules (explosion, chain) count.
+  mate?: true;
   shard?: boolean;
   // Weapon-core projectile look and on-hit extras.
   kind?: 'pellet' | 'rail' | 'coin' | 'flame' | 'rocket';
@@ -584,6 +588,9 @@ export class Battle {
   ctx: CanvasRenderingContext2D | null;
   run: Run;
   stats: Stats;
+  // The second house's stats: its own modules (model.ts mateItems), the rest
+  // of the build shared. The very same object as `stats` when playing alone.
+  mateStats: Stats;
   audio: AudioEngine;
   settings: Settings;
   onPause?: () => void;
@@ -739,6 +746,10 @@ export class Battle {
   shells: Shell[] = [];
   // Pre-rendered facade: rebuilt when the layout or crew changes.
   facade: { key: string; canvas: HTMLCanvasElement | null } | null = null;
+  // The same for the second house (its own modules), and whether the house
+  // being drawn right now is that one.
+  mateFacade: { key: string; canvas: HTMLCanvasElement | null } | null = null;
+  drawingMate = false;
   // Lightning polylines of the arc core, for a few frames.
   // Lines of lightning (arc cores, Іскра); `bold` ones glow.
   arcs: { pts: number[]; life: number; bold?: boolean }[] = [];
@@ -786,6 +797,7 @@ export class Battle {
     this.run = { ...run, items: [...run.items] };
     this.minibossVariant = minibossVariant(run);
     this.stats = statsFor(run, meta);
+    this.mateStats = run.coop ? statsOfMate(run, meta) : this.stats;
     this.specials = specialEffects(run);
     // Марта starts every fight with one shield.
     this.shieldCharges = this.specials.shields + (run.character === 'marta' ? 1 : 0);
@@ -981,6 +993,9 @@ export class Battle {
     this.refreshPerks();
     const before = this.stats.health;
     this.stats = statsFor(this.run, this.meta);
+    this.mateStats = this.run.coop
+      ? statsOfMate(this.run, this.meta)
+      : this.stats;
     this.run.hp = Math.min(
       this.stats.health,
       this.run.hp + Math.max(0, this.stats.health - before),
@@ -1210,12 +1225,13 @@ export class Battle {
   get localDuo() {
     return !!this.ally && !this.sync && !this.hostRemote && !this.client;
   }
-  // What a pickup is worth: whole with one player, COOP.loot of it with two,
-  // the odd fractions carried over so nothing is lost on average.
+  // What a pickup is worth: whole with one player; with two, COOP.coins of a
+  // coin and COOP.xp of a crystal, the odd fractions carried over so nothing
+  // is lost on average.
   loot(value: number, kind: 'coin' | 'xp') {
     if (!this.ally) return value;
     const key = kind === 'coin' ? 'coinCarry' : 'xpCarry';
-    const total = value * COOP.loot + this[key];
+    const total = value * (kind === 'coin' ? COOP.coins : COOP.xp) + this[key];
     const whole = Math.floor(total + 1e-9);
     this[key] = total - whole;
     return whole;
@@ -1380,7 +1396,7 @@ export class Battle {
   }
   // ---- Co-op: the second player (coop.ts) ----
   makeAlly(hero: string): Ally {
-    const max = allyHealth(this.stats.health);
+    const max = allyHealth(this.mateStats.health);
     return {
       hero,
       x: this.x + 90,
@@ -2219,7 +2235,7 @@ export class Battle {
     return damage * this.heat.enemyDamage;
   }
   // What an enemy's touch costs after armour, for the house or the partner.
-  contactHit(e: Enemy) {
+  contactHit(e: Enemy, armor = this.stats.armor) {
     return Math.max(
       2,
       this.threat(
@@ -2228,7 +2244,7 @@ export class Battle {
           : e.type === 99
             ? 12 + this.run.chapter * 4
             : ENEMY_DEFS[e.type].contactDamage * (e.chief ? 1.5 : 1),
-      ) - this.stats.armor,
+      ) - armor,
     );
   }
   // The partner each frame: timers, the walk, the tether, the revive and the
@@ -2281,7 +2297,7 @@ export class Battle {
             1,
           );
     const speed =
-      this.stats.speed * COOP.speed * slow * (a.hasteTime > 0 ? EXPRESS.haste : 1);
+      this.mateStats.speed * COOP.speed * slow * (a.hasteTime > 0 ? EXPRESS.haste : 1);
     const fromX = a.x,
       fromY = a.y;
     a.x = Math.max(55, Math.min(1545, a.x + dx * speed * dt));
@@ -2310,17 +2326,17 @@ export class Battle {
     a.vx += ((a.x - fromX) / Math.max(dt, 1e-3) - a.vx) * k;
     a.vy += ((a.y - fromY) / Math.max(dt, 1e-3) - a.vy) * k;
     a.walk += Math.hypot(a.vx, a.vy) * dt * 0.05;
-    a.hp = Math.min(a.max, a.hp + this.stats.regen * COOP.regen * dt);
+    a.hp = Math.min(a.max, a.hp + this.mateStats.regen * COOP.regen * dt);
     a.shotTimer -= dt;
     if (a.shotTimer <= 0) {
-      const target = this.nearest(a.x, a.y, this.stats.range * COOP.range);
+      const target = this.nearest(a.x, a.y, this.mateStats.range * COOP.range);
       if (target) {
         a.aim = Math.atan2(target.y - a.y, target.x - a.x);
         a.muzzle = MUZZLE;
         this.shoot(a.x, a.y + TURRET_Y, target, false, undefined, 1, true);
         this.audio.play('shoot', { volume: 0.6, pitch: 1.12 });
         a.shotTimer =
-          COOP.fireGap / (this.stats.rate * (this.overloaded() ? 2 : 1));
+          COOP.fireGap / (this.mateStats.rate * (this.overloaded() ? 2 : 1));
       } else if (length > 0) a.aim = Math.atan2(a.facing.y, a.facing.x);
     }
   }
@@ -2940,8 +2956,10 @@ export class Battle {
     crit: boolean,
     shots: number,
     over: boolean,
+    mate = false,
   ) {
-    const evo = this.stats.evolution,
+    const st = mate ? this.mateStats : this.stats;
+    const evo = st.evolution,
       pierce = this.pk('complaint'),
       bounce = this.pk('ricochet'),
       homing = this.pk('homing') > 0;
@@ -2967,6 +2985,7 @@ export class Battle {
         ...(pierce ? { pierce } : {}),
         ...(bounce ? { bounce } : {}),
         ...(homing ? { homing } : {}),
+        ...(mate ? { mate: true as const } : {}),
         ...extra,
       });
     if (weapon === 'spread') {
@@ -3011,8 +3030,7 @@ export class Battle {
       let best = e,
         most = -1;
       for (const c of this.enemies) {
-        if (c.hp <= 0 || Math.hypot(c.x - x, c.y - y) > this.stats.range)
-          continue;
+        if (c.hp <= 0 || Math.hypot(c.x - x, c.y - y) > st.range) continue;
         let n = 0;
         for (const o of this.enemies)
           if (o.hp > 0 && Math.hypot(o.x - c.x, o.y - c.y) < 95) n++;
@@ -3035,7 +3053,7 @@ export class Battle {
           cluster: evo === 'cluster',
         });
     } else if (weapon === 'arc') {
-      const jumps = (evo === 'storm' ? 6 : 3) + this.stats.chain;
+      const jumps = (evo === 'storm' ? 6 : 3) + st.chain;
       const pts = [x, y];
       const struck: Enemy[] = [];
       let cur: Enemy | null = e,
@@ -3263,13 +3281,14 @@ export class Battle {
     mate = false,
   ) {
     const a = Math.atan2(e.y - y, e.x - x);
-    const shots = replay?.shots ?? (drone ? 1 : this.stats.shots);
-    let crit = replay?.crit ?? this.rng() < this.stats.crit;
+    const st = mate ? this.mateStats : this.stats;
+    const shots = replay?.shots ?? (drone ? 1 : st.shots);
+    let crit = replay?.crit ?? this.rng() < st.crit;
     // Ритм: every fourth main volley is a sure crit.
     if (!drone && !mate && !replay && this.pk('rhythm'))
       if (++this.volleys % 4 === 0) crit = true;
     let damage =
-      this.stats.damage *
+      st.damage *
       (1 + Math.min(0.6, (this.run.level - 1) * 0.04)) *
       (crit ? 1.8 : 1) *
       (drone ? 0.45 * power : 1);
@@ -3294,13 +3313,13 @@ export class Battle {
     // Відсотки: +1 damage per 10 coins in the till, up to +10.
     if (!replay && this.pk('interest'))
       damage += Math.min(10, Math.floor(this.run.coins / 10));
-    if (!drone && !replay) damage *= WEAPONS[this.stats.weapon].damage;
+    if (!drone && !replay) damage *= WEAPONS[st.weapon].damage;
     if (mate) damage *= COOP.damage;
     if (replay) damage = replay.damage;
     const over = this.overloaded();
-    const weapon = drone ? 'cannon' : this.stats.weapon;
+    const weapon = drone ? 'cannon' : st.weapon;
     if (weapon !== 'cannon') {
-      this.fireCore(weapon, x, y, e, a, damage, crit, shots, over);
+      this.fireCore(weapon, x, y, e, a, damage, crit, shots, over, mate);
       if (!drone && !mate) {
         this.audio.play('shoot');
         this.muzzle = MUZZLE;
@@ -3327,6 +3346,7 @@ export class Battle {
         ...(pierce ? { pierce } : {}),
         ...(bounce ? { bounce } : {}),
         ...(homing ? { homing } : {}),
+        ...(mate ? { mate: true as const } : {}),
       });
     }
     if (!drone && !mate) {
@@ -4073,8 +4093,8 @@ export class Battle {
             : Math.hypot(partner.x - e.x, partner.y - e.y) || 1;
         if (partnerDist < e.r + COOP.hitRadius + 4) {
           e.attack = 0.18;
-          this.hurtAlly(this.contactHit(e), 0.7, 0.4);
-          if (this.stats.thorns) this.damage(e, this.stats.thorns);
+          this.hurtAlly(this.contactHit(e, this.mateStats.armor), 0.7, 0.4);
+          if (this.mateStats.thorns) this.damage(e, this.mateStats.thorns);
           if (!leader) {
             e.x -= ((partner.x - e.x) / partnerDist) * 32;
             e.y -= ((partner.y - e.y) / partnerDist) * 32;
@@ -4104,7 +4124,7 @@ export class Battle {
         hazardContains(hazard, partner.x, partner.y)
       ) {
         const taken = this.hurtAlly(
-          Math.max(2, this.threat(hazard.damage) - this.stats.armor),
+          Math.max(2, this.threat(hazard.damage) - this.mateStats.armor),
           0.7,
           0.38,
         );
@@ -4156,7 +4176,7 @@ export class Battle {
           Math.hypot(b.x - partner.x, b.y - partner.y) < COOP.hitRadius + 7
         ) {
           this.hurtAlly(
-            Math.max(2, this.threat(b.damage) - this.stats.armor),
+            Math.max(2, this.threat(b.damage) - this.mateStats.armor),
             0.45,
             0.3,
           );
@@ -4177,13 +4197,12 @@ export class Battle {
           this.perkHit(e, b);
           this.passOn(b, e);
           if (b.blast) this.rocketBlast(b, e, this.enemies.slice(0, standing));
+          const st = b.mate ? this.mateStats : this.stats;
           const around =
-            this.stats.explosion || this.stats.chain
-              ? this.enemies.slice(0, standing)
-              : [];
-          if (this.stats.explosion) {
+            st.explosion || st.chain ? this.enemies.slice(0, standing) : [];
+          if (st.explosion) {
             this.burst(e.x, e.y, '#dab97b', 8);
-            this.ring(e.x, e.y, this.stats.explosion, '#dab97b', 0.25, 3);
+            this.ring(e.x, e.y, st.explosion, '#dab97b', 0.25, 3);
             this.addTrauma(0.08, 0.4);
             if (this.explosionCd <= 0) {
               this.audio.play('explosion', { volume: 0.45 });
@@ -4192,17 +4211,17 @@ export class Battle {
             for (const other of around)
               if (
                 other !== e &&
-                Math.hypot(other.x - e.x, other.y - e.y) < this.stats.explosion
+                Math.hypot(other.x - e.x, other.y - e.y) < st.explosion
               )
                 this.damage(other, b.damage * 0.5);
           }
-          if (this.stats.chain) {
+          if (st.chain) {
             const neighbors = around
               .filter(
                 (n) =>
                   n !== e && n.hp > 0 && Math.hypot(n.x - e.x, n.y - e.y) < 170,
               )
-              .slice(0, this.stats.chain);
+              .slice(0, st.chain);
             for (const n of neighbors) {
               this.damage(n, b.damage * 0.6);
               for (let j = 0; j < 6; j++)
@@ -4464,7 +4483,7 @@ export class Battle {
     this.muzzle = Math.max(0, this.muzzle - dt);
   }
   // Static facade of the block: panels, windows lit by modules and crew.
-  paintFacade(c: CanvasRenderingContext2D) {
+  paintFacade(c: CanvasRenderingContext2D, house: Run = this.run) {
     const W = 76,
       H = 86;
     c.fillStyle = '#0a1218';
@@ -4490,11 +4509,11 @@ export class Battle {
       c.lineTo(2 + i * 18, H - 2);
       c.stroke();
     }
-    const targets = equipmentTargets(this.run),
-      lit = new Map(activeEquipment(this.run).map((i) => [i.slot, i.id])),
+    const targets = equipmentTargets(house),
+      lit = new Map(activeEquipment(house).map((i) => [i.slot, i.id])),
       fw = Math.max(6, ...targets.map((t) => t.x + 1)),
       fh = Math.max(5, ...targets.map((t) => t.y + 1)),
-      crew = (this.run.residents ?? []).map(
+      crew = (house.residents ?? []).map(
         (r) => RESIDENT_BY_ID[r.id]?.color ?? '#f1be69',
       );
     // 4 columns x 5 floors of windows; modules light theirs in family colour.
@@ -4702,15 +4721,17 @@ export class Battle {
     c.lineCap = 'butt';
     const flicker = this.invincible > 0 && Math.floor(this.elapsed * 16) % 2;
     if (flicker) c.globalAlpha = 0.55;
+    const mate = this.drawingMate,
+      house = mate ? mateRun(this.run) : this.run;
     const key = [
       this.stats.weapon,
       this.stats.evolution,
-      activeEquipment(this.run)
+      activeEquipment(house)
         .map((i) => i.slot + i.id)
         .join(','),
-      (this.run.residents ?? []).map((r) => r.id).join(','),
+      (house.residents ?? []).map((r) => r.id).join(','),
     ].join('|');
-    if (this.facade?.key !== key) {
+    if ((mate ? this.mateFacade : this.facade)?.key !== key) {
       let canvas: HTMLCanvasElement | null = null;
       if (typeof document !== 'undefined') {
         canvas = document.createElement('canvas');
@@ -4720,18 +4741,19 @@ export class Battle {
         if (fc) {
           fc.scale(2, 2);
           fc.translate(0, 16);
-          this.paintFacade(fc);
+          this.paintFacade(fc, house);
         } else canvas = null;
       }
-      this.facade = { key, canvas };
+      if (mate) this.mateFacade = { key, canvas };
+      else this.facade = { key, canvas };
     }
     c.translate(0, bob);
-    if (this.facade.canvas)
-      c.drawImage(fast(this.facade.canvas), -38, -76, 76, 104);
+    const made = mate ? this.mateFacade : this.facade;
+    if (made?.canvas) c.drawImage(fast(made.canvas), -38, -76, 76, 104);
     else {
       c.save();
       c.translate(-38, -60);
-      this.paintFacade(c);
+      this.paintFacade(c, house);
       c.restore();
     }
     this.drawTurret(c);
@@ -4754,7 +4776,11 @@ export class Battle {
       muzzle: this.muzzle,
       angle: this.muzzleAngle,
       invincible: this.invincible,
+      stats: this.stats,
     };
+    // Its own weapon and modules on the facade.
+    this.stats = this.mateStats;
+    this.drawingMate = true;
     this.vx = a.down ? 0 : a.vx;
     this.vy = a.down ? 0 : a.vy;
     this.muzzle = a.muzzle;
@@ -4763,7 +4789,12 @@ export class Battle {
     c.save();
     c.translate(a.x, a.y);
     if (a.down) c.globalAlpha = 0.5;
-    this.drawHouse(c, 0, a.down ? 8 : 0, a.down ? 0.94 : 1);
+    try {
+      this.drawHouse(c, 0, a.down ? 8 : 0, a.down ? 0.94 : 1);
+    } finally {
+      this.stats = own.stats;
+      this.drawingMate = false;
+    }
     c.globalAlpha = 1;
     this.vx = own.vx;
     this.vy = own.vy;

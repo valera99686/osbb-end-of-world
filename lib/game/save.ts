@@ -640,6 +640,17 @@ export function readSave(raw: string | null): {
           else run = storedItem(run, id);
         }
       }
+      // Co-op: the second house keeps its own modules; a save from before
+      // them (or without any) keeps the kit that makeRun gave it.
+      if (run.coop && Array.isArray(r.mateItems)) {
+        run.mateItems = emptyEquipment();
+        r.mateItems
+          .slice(0, APARTMENT_SLOTS.length)
+          .forEach((id: unknown, slot: number) => {
+            if (typeof id === 'string' && !!ITEM_BY_ID[id] && canEquipAt(run!, slot))
+              run!.mateItems![slot] = id;
+          });
+      }
       for (const k of [
         'coins',
         'scrap',
@@ -690,11 +701,40 @@ export function readSave(raw: string | null): {
             (n: number) => Number.isInteger(n) && n >= 0 && n < 12,
           )
         : [];
+      run.mateLoot =
+        run.coop && Array.isArray(r.mateLoot)
+          ? r.mateLoot
+              .filter(
+                (l: { kind?: string; id?: string }) =>
+                  l?.kind === 'module' &&
+                  typeof l.id === 'string' &&
+                  base.unlocked.includes(l.id),
+              )
+              .slice(0, 3)
+              .map((l: { id: string }) => ({ kind: 'module' as const, id: l.id }))
+          : [];
+      const named = (v: unknown) =>
+        typeof v === 'string' && (!!ITEM_BY_ID[v] || !!FURNITURE_BY_ID[v])
+          ? v
+          : undefined;
+      run.picked = {};
+      for (const who of ['host', 'mate'] as const) {
+        const id = named(r.picked?.[who]);
+        if (id) run.picked[who] = id;
+      }
+      run.boughtBy = {};
+      for (const [k, who] of Object.entries(r.boughtBy ?? {}))
+        if (Number.isInteger(+k) && +k >= 0 && +k < 12 && (who === 'host' || who === 'mate'))
+          run.boughtBy[+k] = who;
       run.rerolls = finite(r.rerolls, 0, 50, 0);
       run.eventDone = !!r.eventDone;
       if (!run.loot.length && run.page === 'reward')
         run.loot = run.reward.map((id) => ({ kind: 'module', id }));
-      for (const id of [...run.items, ...run.backpack.map((i) => i.id)])
+      for (const id of [
+        ...run.items,
+        ...(run.mateItems ?? []),
+        ...run.backpack.map((i) => i.id),
+      ])
         if (id && !base.unlocked.includes(id)) base.unlocked.push(id);
       if (m.storyRevision === STORY_REVISION || m.storyRevision === 4)
         base.sceneProgress = restoreProgress(

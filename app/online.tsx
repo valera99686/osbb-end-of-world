@@ -299,13 +299,21 @@ export function GuestRoom({
   const map = readMapRun(session.map),
     ballot = session.ballot;
   const voting = !!map && !!ballot && ballot.step === map.step;
+  // One way only (or a fight to go on with): the map is shown, nothing to vote.
+  const single = !!ballot && ballot.options.length < 2;
   return (
     <section className={`guest-room ${voting ? 'voting' : ''}`}>
       <div className="guest-card">
         <span className="micro">
           <Globe size={14} /> КІМНАТА {session.code}
         </span>
-        <h2>{voting ? 'Куди йти — вирішуєте вдвох' : 'Господар веде рейд'}</h2>
+        <h2>
+          {!voting
+            ? 'Господар веде рейд'
+            : single
+              ? 'Карта рейду'
+              : 'Куди йти — вирішуєте вдвох'}
+        </h2>
         <p className="guest-status">
           {session.status || 'Чекаємо, поки господар дійде до бою.'}
         </p>
@@ -321,6 +329,9 @@ export function GuestRoom({
                 partnerName: 'Господар',
                 done: ballot.done,
                 onVote: (col) => session.voteGuest(col),
+                locked: single
+                  ? 'Єдиний шлях: господар вирушає, а ти йдеш за ним.'
+                  : undefined,
               }}
             />
           </Suspense>
@@ -343,9 +354,10 @@ export function GuestRoom({
         )}
         <p>
           Коли господар почне бій, він відкриється тут сам. Ти ведеш
-          другий будинок: рух, ривок і вміння твого героя, а гармата й
-          збірка ті самі, що в господаря. Карту, магазин і нагороди веде
-          господар.
+          другий будинок: рух, ривок і вміння твого героя, зі своїми
+          модулями: нагороди й магазин діляться на двох, гроші спільні.
+          Карту, магазин і нагороди веде господар, а що вибрано й для кого,
+          видно тут у рядку стану.
         </p>
         <button type="button" className="secondary" onClick={onLeave}>
           <LogOut size={16} /> Вийти з кімнати

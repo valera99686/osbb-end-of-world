@@ -2,16 +2,17 @@ import { CHARACTERS } from './data';
 import type { HeatEffects } from './modes';
 
 // Co-op, local or online: two houses, two players. The first player drives the
-// house; the second one drives a second house on its own legs, with the very
-// same build (cannon or core, modules, perks), its own health, a dash and the
-// ability of their own head of ОСББ. The build, coins and experience are
-// shared, and so is the life of the raid (the first house's health).
+// house; the second one drives a second house on its own legs, with a build of
+// its own (model.ts mateItems: its own cannon or core and modules in the same
+// rooms), its own health, a dash and the ability of their own head of ОСББ.
+// The rooms, perks, experience and coins are shared, and so is the life of the
+// raid (the first house's health). Every reward is two rows of finds, one for
+// each house, and the shop sells to either; money comes twice as fast.
 export const COOP = {
-  // The second house's health as a share of the first one's.
-  hp: 0.85,
-  // It shoots as the house does (the same weapon, range and rate), at this
-  // share of the damage: the build is shared, not doubled.
-  damage: 0.8,
+  // The second house's health and damage as a share of what its own build
+  // gives (a build of its own is already half of the finds, so no handicap).
+  hp: 1,
+  damage: 1,
   range: 1,
   fireGap: 1,
   speed: 1,
@@ -47,9 +48,13 @@ export const COOP = {
   // Leaders have this much more time to fall: there are two of them, and the
   // clock of a fight is made for one set of guns.
   leaderTime: 1.25,
-  // Two guns kill a third more enemies, so coins and crystals from the floor
-  // count at this share: the economy and the levels keep the pace of solo play.
-  loot: 0.5,
+  // Two guns kill a third more enemies, so crystals from the floor count at
+  // this share: the levels keep the pace of solo play.
+  xp: 0.5,
+  // Coins from the floor count in full and every other gain of coins is
+  // multiplied: two houses are kitted out from one till.
+  coins: 1,
+  money: 2,
   // Online, a link and a person react late: every hit leaves this many more
   // seconds of safety, for both players (it is part of the shared simulation).
   netGrace: 0.15,

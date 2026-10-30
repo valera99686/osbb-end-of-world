@@ -12,6 +12,9 @@ import {
 } from './net';
 import { castVote, newBallot, readBallot, type Ballot } from './coop';
 
+// What the host tells the guest while it is in a fight: when it says anything
+// else, the fight is over at the host.
+export const HOST_IN_FIGHT = 'Господар у бою';
 export type Phase = 'waiting' | 'joining' | 'connected' | 'refused' | 'closed';
 export interface Partner {
   hero: string;

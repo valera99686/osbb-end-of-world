@@ -15,6 +15,12 @@ import type { Hazard } from './bosses';
 
 export const SNAP_HZ = 15;
 export const PIN_HZ = 30;
+// Over a relay (a public broker, see app/relay-link.ts) only about ten messages
+// a second get through, and some may still be lost: fewer snapshots, the
+// guest's stick sent when it changes, and now and then a snapshot that holds
+// everything, so that a lost one cannot leave an enemy missing or a ghost.
+export const RELAY_SNAP_HZ = 6;
+export const RELAY_KEY_EVERY = 12;
 
 type Fields = Record<string, unknown>;
 // An effect that happened on the host: [kind, ...arguments].
@@ -34,6 +40,8 @@ export interface Snap {
   // Enemies: uid -> fields changed since the last snapshot; gone uids.
   en: Record<number, Fields>;
   gone: number[];
+  // A snapshot that holds everything: the uids of all enemies alive.
+  live?: number[];
   // Bullets: x, y, vx, vy, life, enemy, crit, then the kind.
   bu: (number | string)[][];
   // Drops: x, y, kind code, value.
@@ -69,6 +77,7 @@ export class HostFeed {
   private n = 0;
   private acc = 0;
   private uid = 0;
+  private sinceKey = 0;
   private known = new Map<Enemy, { uid: number; sent: Fields }>();
   private fx: Fx[] = [];
   onClosed?: () => void;
@@ -119,11 +128,17 @@ export class HostFeed {
   // Called every frame: sends a snapshot at its own rate.
   pump(b: Battle, real: number) {
     this.acc += real;
-    if (this.acc < 1 / SNAP_HZ || !this.link.open) return;
+    const relay = this.link.kind === 'relay';
+    if (this.acc < 1 / (relay ? RELAY_SNAP_HZ : SNAP_HZ) || !this.link.open)
+      return;
     this.acc = 0;
-    this.link.send({ t: 'snap', sid: this.sid, s: this.snapshot(b) });
+    const key = relay && ++this.sinceKey >= RELAY_KEY_EVERY;
+    if (key) this.sinceKey = 0;
+    this.link.send({ t: 'snap', sid: this.sid, s: this.snapshot(b, false, key) });
   }
-  snapshot(b: Battle, end = false): Snap {
+  snapshot(b: Battle, end = false, key = false): Snap {
+    // A snapshot that holds everything: each enemy as if it were new.
+    if (key) for (const k of this.known.values()) k.sent = {};
     const en: Record<number, Fields> = {};
     const alive = new Set<Enemy>();
     for (const e of b.enemies) {
@@ -220,6 +235,7 @@ export class HostFeed {
       cb: [b.combo, r2(b.comboTimer)],
       ev: this.fx,
       ...(end ? { end: true } : {}),
+      ...(key ? { live: [...this.known.values()].map((k) => k.uid) } : {}),
     };
     this.fx = [];
     return snap;
@@ -281,6 +297,7 @@ export class MirrorClient {
   private mate = { x: 0, y: 0 };
   private fresh = true;
   private lastAt = performance.now();
+  private lastPin = '';
   onClosed?: () => void;
   onOver?: () => void;
   onEnd?: (result: unknown) => void;
@@ -298,7 +315,10 @@ export class MirrorClient {
     if (kind === 'dash') this.dash = true;
     else this.pulse = true;
   }
+  // How many messages of each kind have arrived (for tracing a lost one).
+  seen: Record<string, number> = {};
   receive(m: Msg) {
+    this.seen[m.t] = (this.seen[m.t] ?? 0) + 1;
     if (m.t === 'snap') this.apply(m.s as Snap);
     else if (m.t === 'end') this.onEnd?.(m.result);
     else if (m.t === 'over') this.onOver?.();
@@ -312,16 +332,27 @@ export class MirrorClient {
   pump(b: Battle, real: number) {
     this.acc += real;
     const wants = this.dash || this.pulse;
-    if ((this.acc >= 1 / PIN_HZ || wants) && this.link.open) {
+    const relay = this.link.kind === 'relay';
+    const v = this.aim();
+    const len = Math.hypot(v.x, v.y),
+      k = len > 1 ? 1 / len : 1;
+    const x = Math.round(v.x * k * 100),
+      y = Math.round(v.y * k * 100);
+    // Over a relay the stick is sent when it moves (at most a few times a
+    // second) and now and then when it does not.
+    const gap = relay
+      ? `${x},${y}` !== this.lastPin
+        ? 0.15
+        : 0.5
+      : 1 / PIN_HZ;
+    if ((this.acc >= gap || wants) && this.link.open) {
       this.acc = 0;
-      const v = this.aim();
-      const len = Math.hypot(v.x, v.y),
-        k = len > 1 ? 1 / len : 1;
+      this.lastPin = `${x},${y}`;
       this.link.send({
         t: 'pin',
         sid: this.sid,
-        x: Math.round(v.x * k * 100),
-        y: Math.round(v.y * k * 100),
+        x,
+        y,
         f: (this.dash ? 1 : 0) | (this.pulse ? 2 : 0),
       });
       this.dash = this.pulse = false;
@@ -432,6 +463,16 @@ export class MirrorClient {
         g.y = e.y;
       }
       this.goal.set(uid, g);
+    }
+    // A snapshot that holds everything: whoever is not in it is gone, even if
+    // the snapshot that said so was lost on the way.
+    if (s.live) {
+      const keep = new Set(s.live);
+      for (const uid of [...this.enemies.keys()])
+        if (!keep.has(uid)) {
+          this.enemies.delete(uid);
+          this.goal.delete(uid);
+        }
     }
     b.enemies = [...this.enemies.values()];
     b.bullets = s.bu.map(([bx, by, bvx, bvy, life, enemy, crit, kind]) => ({

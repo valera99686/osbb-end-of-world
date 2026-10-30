@@ -64,6 +64,7 @@ const tests = [
   'tests/heroes.test.cjs',
   'tests/humor.test.cjs',
   'tests/coop.test.cjs',
+  'tests/pools.test.cjs',
   'tests/net.test.cjs',
   'tests/pace.test.cjs',
   'tests/sprites.test.cjs',

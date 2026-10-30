@@ -132,8 +132,12 @@ export interface RouteVote {
   partnerName: string;
   done?: { col: number; coin: boolean };
   onVote: (col: number) => void;
+  // A map with nothing to vote on (one way, a fight to go on with): shown to
+  // the guest as it is, with this line instead of the vote.
+  locked?: string;
 }
 function voteNote(vote: RouteVote) {
+  if (vote.locked) return vote.locked;
   if (vote.done)
     return vote.done.coin
       ? 'Голоси розійшлись: монетка вирішила. Вирушаємо!'
@@ -403,14 +407,16 @@ export function RouteTree({
         <button
           type="button"
           className="tree-go"
-          disabled={!canEnter || !!vote?.done}
+          disabled={!canEnter || !!vote?.done || !!vote?.locked}
           onClick={() =>
             vote ? vote.onVote(selectedCol) : onEnter(selection)
           }
         >
           {!canEnter
             ? 'Недоступно'
-            : vote
+            : vote?.locked
+              ? 'Господар вирушає'
+              : vote
               ? vote.mine === selectedCol
                 ? 'Мій голос тут'
                 : 'Голосую сюди'

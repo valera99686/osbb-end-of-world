@@ -11,7 +11,7 @@ import type { Battle } from './engine';
 
 // Both ends must run the same build: the simulation is only repeatable inside
 // one version of the code, so a mismatch is refused at the door.
-export const NET_PROTOCOL = 3;
+export const NET_PROTOCOL = 4;
 // How a fight is shared: both ends simulate it and trade inputs ('sync'), or
 // the host alone simulates and streams it to the guest ('host').
 export type ShareMode = 'sync' | 'host';
@@ -120,6 +120,12 @@ export type Msg =
       done?: { col: number; coin: boolean };
     }
   | { t: 'vote'; step: number; col: number }
+  // Host to guest, whenever it changes: the host's run as the guest sees it
+  // (the house, the guest's modules, its row of the reward, the shop). And
+  // guest to host: the guest takes its find or buys from the shop; the host
+  // checks it against its own run and does it.
+  | { t: 'view'; run: unknown }
+  | { t: 'take'; source: 'reward' | 'shop'; index: number; id: string }
   // A fight begins: the run and the profile the simulation is made from, and
   // how it is shared: 'sync' (both simulate, net.ts) or 'host' (mirror.ts).
   | { t: 'start'; sid: number; run: unknown; meta: unknown; mode?: ShareMode }

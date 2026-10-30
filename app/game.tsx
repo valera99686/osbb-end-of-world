@@ -892,6 +892,48 @@ export default function Game() {
     run?.picked?.mate,
     run?.bought.length,
   ]);
+  // The guest sees the same house, its own modules, its row of the reward and
+  // the shop, and takes from them; what it asks for is checked here.
+  const viewKey =
+    livePartner && screen === 'play' && run?.coop
+      ? [
+          run.page,
+          run.step,
+          Math.floor(run.coins),
+          run.items.join(),
+          (run.mateItems ?? []).join(),
+          run.residents.map((r) => r.id + r.x + r.y + r.rotation).join(),
+          run.furniture.length,
+          run.loot.map((l) => l.id).join(),
+          (run.mateLoot ?? []).map((l) => l.id).join(),
+          run.offers.join(),
+          run.bought.join(),
+          JSON.stringify(run.boughtBy ?? {}),
+          JSON.stringify(run.picked ?? {}),
+        ].join('|')
+      : '';
+  useEffect(() => {
+    if (net?.role === 'host' && viewKey && run) net.sendView(run);
+  }, [netPhase, viewKey]);
+  const takeRef = useRef<
+    (m: { source: 'reward' | 'shop'; index: number; id: string }) => void
+  >(() => {});
+  takeRef.current = (m) => {
+    if (!run?.coop) return;
+    if (
+      m.source === 'reward'
+        ? run.page === 'reward' && run.mateLoot?.[m.index]?.id === m.id
+        : run.page === 'shop' && run.offers[m.index] === m.id
+    )
+      giveToMate(m.id, m.source, m.index);
+  };
+  useEffect(() => {
+    if (net?.role !== 'host') return;
+    net.onTake = (m) => takeRef.current(m);
+    return () => {
+      net.onTake = null;
+    };
+  }, [net]);
   // Online, where the raid goes next is a vote of both players on one map
   // (coop.ts): a fork is voted on, a single way or a fight to continue is not.
   const ballot = net?.role === 'host' ? net.ballot : null;
@@ -2169,6 +2211,7 @@ export default function Game() {
         ) : (
           <GuestRoom
             session={net}
+            meta={meta}
             result={guestResult}
             earned={guestEarned}
             onLeave={closeOnline}

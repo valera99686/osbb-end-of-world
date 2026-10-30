@@ -1575,6 +1575,48 @@ export function readMapRun(x: unknown): Run | null {
   if (!Array.isArray(r.bossVariants)) return null;
   return r;
 }
+// What the guest of an online room gets as the host's run, to show the house,
+// its own modules, its row of the reward and the shop (never to play from):
+// null unless it has the shape those screens read.
+export function readView(x: unknown): Run | null {
+  const r = readMapRun(x);
+  if (!r || !r.coop) return null;
+  const lists = [
+    r.residents,
+    r.roomLinks,
+    r.furniture,
+    r.items,
+    r.backpack,
+    r.loot,
+    r.offers,
+    r.bought,
+  ];
+  if (!lists.every(Array.isArray)) return null;
+  if (
+    !['map', 'combat', 'shop', 'event', 'reward'].includes(r.page) ||
+    !Number.isFinite(r.coins) ||
+    !Number.isFinite(r.scrap) ||
+    !Number.isInteger(r.nextBagId) ||
+    !Number.isInteger(r.houseLevel)
+  )
+    return null;
+  const known = (id: unknown): id is string =>
+    typeof id === 'string' && !!ITEM_BY_ID[id];
+  return {
+    ...r,
+    items: r.items.map((id) => (known(id) ? id : null)),
+    mateItems: Array.isArray(r.mateItems)
+      ? r.mateItems.map((id) => (known(id) ? id : null))
+      : emptyEquipment(),
+    mateLoot: Array.isArray(r.mateLoot)
+      ? r.mateLoot.filter((l) => l?.kind === 'module' && known(l.id))
+      : [],
+    picked:
+      r.picked && typeof r.picked === 'object' ? r.picked : {},
+    boughtBy:
+      r.boughtBy && typeof r.boughtBy === 'object' ? r.boughtBy : {},
+  };
+}
 export function reachableColumns(run: Run): number[][] {
   const reachable = run.nodes.map(() => [] as number[]);
   reachable[run.step] = [...availableColumns(run)];

@@ -335,6 +335,28 @@ function HousePlan({
   );
 }
 
+// The plan of a house with the given modules in it, only to look at (the
+// guest's house in an online room).
+export function HouseStill({
+  run,
+  items,
+}: {
+  run: Run;
+  items: (string | null)[];
+}) {
+  return (
+    <div className="house-preview still" role="img" aria-label="План будинку">
+      <HousePlan
+        rooms={run.residents}
+        links={run.roomLinks}
+        level={run.houseLevel}
+        furniture={run.furniture}
+        items={items}
+        compact
+      />
+    </div>
+  );
+}
 export function HousePreview({
   run,
   level = 0,

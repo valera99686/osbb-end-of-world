@@ -1291,3 +1291,60 @@
   border-color: #f0c466a0;
   color: #f4dca0;
 }
+
+/* Guest of an online room: its own house, its find, the shop */
+.guest-home {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0;
+}
+.guest-house {
+  padding: 10px 12px;
+  border: 1px solid #3f6a6260;
+  border-left: 3px solid #5fbfa5;
+  border-radius: 5px;
+  background: #13211f90;
+}
+.guest-house-title {
+  display: block;
+  margin-bottom: 8px;
+  color: #8fd8c2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.house-preview.still {
+  display: block;
+  max-width: 340px;
+  margin: 0 auto 8px;
+}
+.guest-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.guest-stats div {
+  display: flex;
+  gap: 6px;
+}
+.guest-stats dt {
+  color: #8fa8a0;
+}
+.guest-stats dd {
+  margin: 0;
+  color: #d7f0e6;
+  font-weight: 700;
+}
+.guest-note {
+  margin: 4px 0 8px;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #c9b98c;
+}
+.guest-pick .reward-cards,
+.guest-pick .shop-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}

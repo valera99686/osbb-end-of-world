@@ -17,6 +17,8 @@ import {
 import { savedRelay, saveRelay } from './relay';
 import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
+import type { Meta } from '@/lib/game/model';
+import { GuestHome } from './guest-home';
 
 const RouteTree = lazy(() =>
   import('./route-tree').then((m) => ({ default: m.RouteTree })),
@@ -284,11 +286,13 @@ export function OnlinePanel({
 // and after a fight; the fights themselves open by themselves.
 export function GuestRoom({
   session,
+  meta,
   result,
   earned,
   onLeave,
 }: {
   session: NetSession;
+  meta: Meta;
   result: BattleResult | null;
   // Cores the last fight and raid paid this player.
   earned: { fight: number; raid: number };
@@ -336,6 +340,7 @@ export function GuestRoom({
             />
           </Suspense>
         )}
+        <GuestHome session={session} meta={meta} />
         {result && (
           <div className="guest-result">
             <b>{result.won ? 'Бій виграно' : 'Бій програно'}</b>

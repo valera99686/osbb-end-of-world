@@ -109,6 +109,26 @@ const click = (text, sel = 'button') =>
 // different node of the shared map, the coin decides, and both end up in the
 // same next fight.
 async function vote(host, guest) {
+  // The fight is won and the reward has two rows: the guest sees its own
+  // house and its row, takes a find, and the host sees who took what.
+  await until('the row of the reward at the guest', async () => {
+    await host.eval(click('Пропустити', '[role=dialog] button'));
+    await host.eval(`document.querySelector('.perk-card')?.click()`);
+    return guest.eval(`!!document.querySelector('.guest-pick .item-card:not([disabled])')`);
+  }, 60000);
+  console.log('guest house plan:', await guest.eval(`!!document.querySelector('.guest-house .house-preview.still')`),
+    '| gear:', await guest.eval(`document.querySelectorAll('.guest-house .mate-chip').length`));
+  await guest.eval(`document.querySelector('.guest-home')?.scrollIntoView()`);
+  const gshot = await guest.send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(path.join(os.tmpdir(), 'osbb-guest-home.png'), Buffer.from(gshot.result.data, 'base64'));
+  const taken = await guest.eval(`(()=>{const c=document.querySelector('.guest-pick .item-card:not([disabled])'); const t=c.querySelector('h3').innerText; c.click(); return t})()`);
+  await until('the host sees what the guest took', () =>
+    host.eval(`!!document.querySelector('.reward-owner.mate.done .took')`),
+  );
+  console.log('the guest took', taken, '| host sees:', await host.eval(`document.querySelector('.reward-owner.mate.done .took')?.innerText`));
+  await until('the guest sees what it took', () =>
+    guest.eval(`!!document.querySelector('.guest-pick .took')`),
+  );
   // The fight is won: the loot is sold to get to the next fork of the map.
   await until('the host vote button', async () => {
     await host.eval(click('Пропустити', '[role=dialog] button'));

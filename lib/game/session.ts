@@ -57,6 +57,12 @@ export class NetSession {
   // the host's run to draw the map from. Nothing here while no map is open.
   ballot: Ballot | null = null;
   map: unknown = null;
+  // Guest: the host's run to show the house, the finds and the shop from.
+  view: unknown = null;
+  // Host: the guest takes a find or buys something.
+  onTake:
+    | ((m: { source: 'reward' | 'shop'; index: number; id: string }) => void)
+    | null = null;
   // Host: the guest has voted.
   onVoted: (() => void) | null = null;
   // Host: the room still takes a guest after one has left.
@@ -185,6 +191,24 @@ export class NetSession {
         this.onVoted?.();
         return;
       }
+      case 'view':
+        if (this.role !== 'guest') return;
+        this.view = m.run && typeof m.run === 'object' ? m.run : null;
+        this.change();
+        return;
+      case 'take':
+        if (
+          this.role !== 'host' ||
+          (m.source !== 'reward' && m.source !== 'shop') ||
+          !Number.isInteger(m.index) ||
+          m.index < 0 ||
+          m.index > 20 ||
+          typeof m.id !== 'string' ||
+          m.id.length > 60
+        )
+          return;
+        this.onTake?.({ source: m.source, index: m.index, id: m.id });
+        return;
       case 'start':
         if (this.role !== 'guest') return;
         this.ballot = null;
@@ -217,6 +241,7 @@ export class NetSession {
     this.link = null;
     this.ballot = null;
     this.map = null;
+    this.view = null;
     for (const done of this.waiting.values()) done(null);
     this.waiting.clear();
     this.fight?.handleClose();
@@ -269,6 +294,16 @@ export class NetSession {
     this.ballot = { ...this.ballot, done };
     this.broadcast();
     this.change();
+  }
+  // Host: the guest is told what the host sees now (see Msg 'view').
+  sendView(run: unknown) {
+    if (this.role === 'host' && this.phase === 'connected')
+      this.link?.send({ t: 'view', run });
+  }
+  // Guest: takes a find from the reward or buys from the shop.
+  take(source: 'reward' | 'shop', index: number, id: string) {
+    if (this.role === 'guest' && this.phase === 'connected')
+      this.link?.send({ t: 'take', source, index, id });
   }
   // Host: the vote is over (the fight or the room is next).
   closeVote() {

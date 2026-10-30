@@ -231,3 +231,98 @@ test('Coins on the floor count in full for two, crystals keep their share, and a
   assert.equal(solo.loot(7, 'coin'), 7);
   assert.equal(solo.loot(3, 'xp'), 3);
 });
+
+// ---- The guest's own screen: the view the host sends and what the guest asks ----
+const N = require('../.test-build/net.js');
+const SS = require('../.test-build/session.js');
+function wireUp() {
+  const toGuest = [],
+    toHost = [];
+  const mk = (out, inbox) => {
+    const l = {
+      kind: 'p2p',
+      onMessage: null,
+      onClose: null,
+      send: (m) => out.push(JSON.parse(JSON.stringify(m))),
+      close() {},
+    };
+    return { l, pump: () => inbox.splice(0).forEach((m) => l.onMessage?.(m)) };
+  };
+  const h = mk(toGuest, toHost),
+    g = mk(toHost, toGuest);
+  const host = new SS.NetSession('host', 'x', { hero: 'mechanic', name: 'Г' });
+  const guest = new SS.NetSession('guest', 'x', { hero: 'flora', name: 'Ф' });
+  host.adopt(h.l);
+  guest.adopt(g.l);
+  const pump = () => {
+    for (let i = 0; i < 4; i++) {
+      h.pump();
+      g.pump();
+    }
+  };
+  pump();
+  return { host, guest, pump };
+}
+
+test('The guest is sent the host run to show, and what it takes is checked by the host', () => {
+  assert.equal(N.NET_PROTOCOL, 4);
+  const meta = veteran();
+  const { host, guest, pump } = wireUp();
+  assert.equal(host.phase, 'connected');
+  const run = afterFight(coopRun('flora', meta), meta);
+  host.sendView(run);
+  pump();
+  const view = M.readView(guest.view);
+  assert.ok(view, 'the guest reads the view');
+  assert.deepEqual(view.mateLoot.map((l) => l.id), run.mateLoot.map((l) => l.id));
+  assert.deepEqual(view.mateItems, run.mateItems);
+  // The guest asks; the host hears it, and only a well-formed ask.
+  const heard = [];
+  host.onTake = (m) => heard.push(m);
+  guest.take('reward', 0, run.mateLoot[0].id);
+  guest.take('shop', 3, 'redline');
+  pump();
+  assert.deepEqual(heard, [
+    { source: 'reward', index: 0, id: run.mateLoot[0].id },
+    { source: 'shop', index: 3, id: 'redline' },
+  ]);
+  const link = guest.link;
+  for (const bad of [
+    { t: 'take', source: 'x', index: 0, id: 'a' },
+    { t: 'take', source: 'shop', index: -1, id: 'a' },
+    { t: 'take', source: 'shop', index: 99, id: 'a' },
+    { t: 'take', source: 'shop', index: 1.5, id: 'a' },
+    { t: 'take', source: 'shop', index: 1, id: 7 },
+  ])
+    link.send(bad);
+  pump();
+  assert.equal(heard.length, 2, 'malformed asks are dropped');
+  // The host never takes asks from a host-side message, and the guest never sends a view.
+  guest.sendView(run);
+  host.take('shop', 0, 'redline');
+  pump();
+  assert.equal(heard.length, 2);
+});
+
+test('A view that is not a run of the shape the screens read is not shown', () => {
+  const meta = veteran();
+  const run = afterFight(coopRun('flora', meta), meta);
+  assert.ok(M.readView(JSON.parse(JSON.stringify(run))));
+  assert.equal(M.readView(null), null);
+  assert.equal(M.readView({ seed: 3 }), null);
+  assert.equal(M.readView({ ...run, coop: '' }), null, 'a view is for two houses');
+  assert.equal(M.readView({ ...run, residents: 'x' }), null);
+  assert.equal(M.readView({ ...run, backpack: undefined }), null);
+  assert.equal(M.readView({ ...run, page: 'nonsense' }), null);
+  const shaped = M.readView({
+    ...run,
+    mateItems: [1, 'zzz', 'cannon'],
+    mateLoot: [{ kind: 'module', id: 'zzz' }, { kind: 'module', id: 'redline' }, 5],
+    picked: 4,
+  });
+  assert.deepEqual(shaped.mateItems, [null, null, 'cannon']);
+  assert.deepEqual(shaped.mateLoot, [{ kind: 'module', id: 'redline' }]);
+  assert.deepEqual(shaped.picked, {});
+  // What the guest's screen asks of the model works on a view.
+  assert.ok(M.mateStats(shaped, veteran()).health > 0);
+});

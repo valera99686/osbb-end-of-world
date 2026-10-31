@@ -77,6 +77,7 @@ import {
   CalendarDays,
   Flame,
   Infinity as InfinityIcon,
+  LogOut,
   MonitorDown,
   Route,
   Users,
@@ -1502,6 +1503,16 @@ export default function Game() {
                 <b>Рейд триває:</b> {LOCATIONS[run.chapter].name}, крок{' '}
                 {run.step + 1}. Голова ОСББ: {RESIDENT_BY_ID[run.character].name},
                 врятовано {run.rescued.length}. <RunBadge run={run} />
+                <button
+                  type="button"
+                  className="secondary stop-raid"
+                  onClick={() => {
+                    setQueued(null);
+                    setAbandon(true);
+                  }}
+                >
+                  <LogOut size={16} /> Завершити рейд
+                </button>
               </div>
             )}
             <button
@@ -1635,19 +1646,8 @@ export default function Game() {
               </button>
             </div>
             )}
-            {(run || install.canInstall) && (
+            {install.canInstall && (
               <div className="hub-secondary">
-                {run && (
-                  <button
-                    className="text-button muted small"
-                    onClick={() => {
-                      setQueued(null);
-                      setAbandon(true);
-                    }}
-                  >
-                    Завершити поточний рейд
-                  </button>
-                )}
                 {install.canInstall && (
                   <button
                     className="text-button small"
@@ -1724,9 +1724,20 @@ export default function Game() {
             <div className="play-layout">
               <section className="play-main">
                 <div className="page-heading">
-                  <button className="text-button" onClick={back}>
-                    <ArrowLeft size={16} /> Меню
-                  </button>
+                  <div className="page-actions">
+                    <button className="text-button" onClick={back}>
+                      <ArrowLeft size={16} /> Меню
+                    </button>
+                    <button
+                      className="text-button stop-raid-link"
+                      onClick={() => {
+                        setQueued(null);
+                        setAbandon(true);
+                      }}
+                    >
+                      <LogOut size={16} /> Завершити рейд
+                    </button>
+                  </div>
                   <RunBadge run={run} />
                   <div className="run-wallet">
                     <Currency amount={run.coins} />

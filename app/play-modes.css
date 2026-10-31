@@ -285,3 +285,28 @@
   font-size: clamp(56px, 6.2vw, 96px);
   letter-spacing: -4px;
 }
+
+/* Stopping a raid: said plainly in the "raid in progress" card, and next to "Меню" on the raid's own pages */
+.hub-resume .stop-raid {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 0;
+  border-color: #b9615a;
+  color: #f3b3ac;
+}
+.hub-resume .stop-raid:hover {
+  background: #3a1c1a;
+}
+.page-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+.stop-raid-link {
+  color: #f0a39b;
+}
+.stop-raid-link:hover {
+  color: #ffc9c2;
+}

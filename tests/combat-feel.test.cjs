@@ -452,6 +452,35 @@ test('Mid-battle events come in half of the fights and start on kills too', () =
   assert.fail('no event seed');
 });
 
+test('A squad grows a little with every fight, a body or two at a time, never shrinks, and carries a little from location to location', () => {
+  for (let seed = 1; seed <= 30; seed++)
+    for (const chapter of [0, 1, 2]) {
+      const t = C.encounterFor({ seed, chapter }, '4:0');
+      const base = [...t.waves, t.final].reduce((n, w) => n + w.length, 0);
+      const first = C.encounterWaves(t, 0, false, 1, chapter).flat();
+      // The first fight of a location carries only what the locations before it handed on.
+      assert.equal(first.length, base + Math.floor(base * C.squadGrowth(chapter, 0) + 1e-9), `seed ${seed} location ${chapter}`);
+      let prev = first.length;
+      for (let step = 1; step <= 9; step++) {
+        const now = C.encounterWaves(t, step, false, 1, chapter).flat().length;
+        assert.ok(now >= prev && now - prev <= 2, `seed ${seed} location ${chapter} step ${step}: ${prev} -> ${now}`);
+        prev = now;
+      }
+      // What was added is the squad's own fodder, and the waves stay as many.
+      const last = C.encounterWaves(t, 9, false, 1, chapter);
+      assert.equal(last.length, t.waves.length + 1);
+      assert.ok(last.flat().filter((x) => x === t.fodder).length > first.filter((x) => x === t.fodder).length);
+      assert.ok(prev >= base * 1.2, `a ninth fight is bigger by a fifth at least: ${base} -> ${prev}`);
+    }
+  // The share only goes up with the raid, and stops at its cap.
+  for (let chapter = 0; chapter < 3; chapter++)
+    for (let step = 0; step < 9; step++) assert.ok(C.squadGrowth(chapter, step + 1) >= C.squadGrowth(chapter, step));
+  assert.ok(C.squadGrowth(1, 0) > C.squadGrowth(0, 0) && C.squadGrowth(2, 0) > C.squadGrowth(1, 0), 'a little carried over');
+  assert.equal(C.squadGrowth(0, 0), 0, 'the very first fight is the template');
+  assert.ok(C.squadGrowth(9, 99) === C.SQUAD_GROWTH.cap);
+  assert.ok(Number.isFinite(C.squadGrowth(NaN, NaN)));
+});
+
 test('Heat still scales squads: more bodies, quicker packs; heat 0 exact', () => {
   const cold = battle({ step: 4, seed: 9 }).b,
     hot = (() => {
@@ -473,7 +502,7 @@ test('Heat still scales squads: more bodies, quicker packs; heat 0 exact', () =>
   assert.ok(hot.squadTotal > cold.squadTotal);
   assert.deepEqual(
     cold.plan,
-    C.encounterWaves(cold.encounter, 4, false, require('../.test-build/modes.js').baselineAt(0, 4).spawnRate),
+    C.encounterWaves(cold.encounter, 4, false, require('../.test-build/modes.js').baselineAt(0, 4).spawnRate, 0),
     'heat 0 adds nothing but the baseline of the step',
   );
 });

@@ -732,17 +732,39 @@ export function encounterFor(
   return pool[Math.floor(roll * pool.length)];
 }
 
+/** How many more bodies than its template a squad has at a given point of the
+ * raid, as a share of them: a little more with every fight, not in jumps, and
+ * a little carried over from one location to the next. */
+export const SQUAD_GROWTH = { perStep: 0.045, perLocation: 0.12, cap: 0.75 } as const;
+export function squadGrowth(chapter: number, step: number): number {
+  const c = Number.isFinite(chapter) ? Math.max(0, chapter) : 0,
+    s = Number.isFinite(step) ? Math.max(0, step) : 0;
+  return Math.min(
+    SQUAD_GROWTH.cap,
+    SQUAD_GROWTH.perStep * s + SQUAD_GROWTH.perLocation * c,
+  );
+}
+
 /** Wave lists for a squad: three regular waves and the final escort (the
- * leader is added on top of the last one). Deeper steps add fodder, elite
- * squads one more shooter per wave (the first armed ranged type of the
- * opening wave); `density` is the heat spawn rate (1.15 adds ~15% bodies). */
+ * leader is added on top of the last one). Every fight along the map adds a
+ * few more fodder (squadGrowth, spread evenly over the waves), elite squads one
+ * more shooter per wave (the first armed ranged type of the opening wave);
+ * `density` is the heat spawn rate (1.15 adds ~15% bodies). */
 export function encounterWaves(
   template: EncounterTemplate,
   step: number,
   elite = false,
   density = 1,
+  chapter = 0,
 ): number[][] {
-  const deep = Math.floor(Math.max(0, Number.isFinite(step) ? step : 0) / 3);
+  const waves = [...template.waves, template.final];
+  // The extra bodies of this fight, handed out wave by wave so that their
+  // total is exact (the share of the squad rounded down) and none is lost.
+  const extra = Math.floor(
+    waves.reduce((n, wave) => n + wave.length, 0) * squadGrowth(chapter, step) +
+      1e-9,
+  );
+  let given = 0;
   const shooter = elite
     ? template.waves[0].find((type) => {
         const behavior = ENEMY_DEFS[type]?.behavior;
@@ -754,10 +776,13 @@ export function encounterWaves(
         );
       })
     : undefined;
-  return [...template.waves, template.final].map((wave) => {
+  return waves.map((wave, i) => {
     const list = [...wave];
+    const upto = Math.floor((extra * (i + 1)) / waves.length + 1e-9),
+      grown = upto - given;
+    given = upto;
     const bodies =
-      deep +
+      grown +
       (elite && shooter === undefined ? 1 : 0) +
       Math.round(list.length * Math.max(0, (density || 1) - 1));
     for (let i = 0; i < bodies; i++) list.push(template.fodder);

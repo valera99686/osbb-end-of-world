@@ -866,6 +866,7 @@ export class Battle {
         run.step,
         run.kind === 'elite',
         this.heat.spawnRate,
+        run.chapter,
       );
       this.squadTotal = this.plan.reduce((n, w) => n + w.length, 1);
       this.quota = Math.ceil(this.squadTotal * SQUAD_QUOTA);

@@ -454,7 +454,7 @@ test('Orbit blades cut the event courier too', () => {
   assert.ok(courier.hp > 0);
 });
 
-test('Everything that stands is solid; only explosive props and flat ones can be walked over; the layout does not change', () => {
+test('Everything that stands is solid, as a whole body; only explosive props and flat ones can be walked over; the layout does not change', () => {
   let arenas = 0;
   for (let seed = 1; seed <= 60; seed++)
     for (let chapter = 0; chapter < 3; chapter++) {
@@ -471,42 +471,86 @@ test('Everything that stands is solid; only explosive props and flat ones can be
       for (const p of props.filter((p) => p.solid)) {
         assert.ok(Math.hypot((p.x - 800) / 340, (p.y - 500) / 240) >= 1, 'clear of the house');
         for (const c of Arena.solidCircles(p, chapter)) {
-          assert.ok(c.r >= 7 && c.r <= 25, 'a sensible footprint: ' + c.r);
-          assert.ok(c.x - c.r > 0 && c.x + c.r < 1600 && c.y - c.r > 0 && c.y + c.r < 1000);
+          // A whole object: from a bump of a few pixels to the heart of a dumpster.
+          assert.ok(c.r >= 3 && c.r <= 55, 'a sensible body: ' + c.r);
+          assert.ok(c.x > 0 && c.x < 1600 && c.y > 0 && c.y < 1000, 'its middle is on the playfield');
+          // However tall the thing is, it does not reach the house where it starts.
+          assert.ok(Math.hypot(c.x - 800, c.y - 500) - c.r > 60, `clear of the start: ${Math.hypot(c.x - 800, c.y - 500) - c.r}`);
         }
       }
     }
   assert.equal(arenas, 180);
 });
 
-test('A footprint lies along the foot of the picture and is as wide as the thing looks', () => {
-  // A dumpster of the first location: wide, so a row of circles.
-  const dumpster = { x: 400, y: 600, cell: 4, size: 100, flip: false };
-  const row = Arena.solidCircles(dumpster, 0);
-  assert.ok(row.length >= 3, 'wide things get several circles');
-  const left = Math.min(...row.map((c) => c.x - c.r)),
-    right = Math.max(...row.map((c) => c.x + c.r));
-  // The picture is 100 wide centred on 400; the foot covers most of it.
-  assert.ok(left >= 350 && left <= 365, 'left ' + left);
-  assert.ok(right >= 435 && right <= 450, 'right ' + right);
-  // The picture's centre is 0.36 above the ground point, its base 0.08 below
-  // it; the circles end at the base, not below it.
-  for (const c of row) {
-    assert.equal(c.y, row[0].y);
-    assert.ok(c.y + c.r <= 600 + 0.08 * 100 + 1e-6, 'not under the picture');
-    assert.ok(c.y + c.r >= 600 - 0.02 * 100, 'reaches the base');
+test('A prop\'s hitbox covers the whole object as it is drawn, tall or wide, in every picture of every location', async () => {
+  const sharp = require('sharp');
+  const SIDE = 128;
+  const names = ['rust', 'green', 'core'];
+  const flat = [[8], [7], [8]];
+  for (let theme = 0; theme < 3; theme++) {
+    const atlas = sharp(`public/art/props-${names[theme]}.webp`);
+    const { width, height } = await atlas.metadata();
+    const cw = Math.floor(width / 3),
+      ch = Math.floor(height / 3);
+    for (let cell = 0; cell < 9; cell++) {
+      // A prop of size SIDE standing with its ground point 0.86 down its picture:
+      // the world is then the picture's own pixels.
+      const prop = { x: SIDE / 2, y: 0.86 * SIDE, cell, size: SIDE, flip: false, theme };
+      const body = cell === 0 ? Arena.propBody(prop) : Arena.solidCircles(prop, theme);
+      if (flat[theme].includes(cell)) {
+        assert.equal(body.length, 0, `${names[theme]} ${cell} lies flat`);
+        continue;
+      }
+      assert.ok(body.length >= 1 && body.length <= 12, `${names[theme]} ${cell}: ${body.length} circles`);
+      const raw = await atlas
+        .clone()
+        .extract({ left: (cell % 3) * cw, top: Math.floor(cell / 3) * ch, width: cw, height: ch })
+        .resize(SIDE, SIDE)
+        .ensureAlpha()
+        .raw()
+        .toBuffer();
+      let object = 0,
+        covered = 0,
+        inside = 0;
+      for (let y = 0; y < SIDE; y++)
+        for (let x = 0; x < SIDE; x++) {
+          const solid = raw[(y * SIDE + x) * 4 + 3] > 60,
+            hit = body.some((c) => Math.hypot(x + 0.5 - c.x, y + 0.5 - c.y) <= c.r);
+          if (solid) object++;
+          if (hit) inside++;
+          if (solid && hit) covered++;
+        }
+      // The body covers the thing (thin wires and shards excepted) and does not
+      // make a wall out of air.
+      assert.ok(covered / object > 0.7, `${names[theme]} ${cell} is covered ${(covered / object).toFixed(2)}`);
+      assert.ok(covered / inside > 0.8, `${names[theme]} ${cell} is mostly object ${(covered / inside).toFixed(2)}`);
+      // Mirrored, the same prop is the mirror image of itself.
+      const flipped = cell === 0 ? Arena.propBody({ ...prop, flip: true }) : Arena.solidCircles({ ...prop, flip: true }, theme);
+      assert.deepEqual(
+        flipped.map((c) => +(c.x).toFixed(6)).sort((m, n) => m - n),
+        body.map((c) => +(SIDE - c.x).toFixed(6)).sort((m, n) => m - n),
+      );
+    }
   }
-  // Mirrored, the same prop is the mirror image of itself.
-  const flipped = Arena.solidCircles({ ...dumpster, flip: true }, 0);
-  const mirror = (xs) => xs.map((x) => +(800 - x).toFixed(6)).sort((a, b) => a - b);
-  assert.deepEqual(
-    mirror(row.map((c) => c.x)),
-    flipped.map((c) => +c.x.toFixed(6)).sort((a, b) => a - b),
-  );
-  // A narrow thing (the lamp) is one circle; flat and explosive ones have none.
-  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 7, size: 100, flip: false }, 0).length, 2);
-  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 0, size: 60, flip: false }, 0).length, 0);
-  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 8, size: 100, flip: false }, 0).length, 0);
+  // The top of a tall thing blocks as well as its foot: a server rack is hit
+  // high on its picture, not only at its base.
+  const rack = { x: 400, y: 600, cell: 1, size: 100, flip: false };
+  const top = Math.min(...Arena.solidCircles(rack, 2).map((c) => c.y - c.r)),
+    bottom = Math.max(...Arena.solidCircles(rack, 2).map((c) => c.y + c.r));
+  assert.ok(top < 600 - 0.7 * 100, `reaches the top of the rack: ${top}`);
+  assert.ok(bottom > 600 - 0.02 * 100, `and the bottom: ${bottom}`);
+  // The explosive prop is hit anywhere on its body, high and low.
+  const barrel = Arena.generateProps(3, 0).find((q) => q.explosive);
+  const b = Arena.propBody(barrel),
+    highest = b.reduce((m, c) => (c.y - c.r < m.y - m.r ? c : m)),
+    lowest = b.reduce((m, c) => (c.y + c.r > m.y + m.r ? c : m));
+  assert.ok(Arena.propTouches(barrel, highest.x, highest.y - highest.r + 2, 0));
+  assert.ok(Arena.propTouches(barrel, lowest.x, lowest.y + lowest.r - 2, 0));
+  assert.ok(!Arena.propTouches(barrel, barrel.x + 300, barrel.y, 4));
+  // A lone bullet well outside the picture misses.
+  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 0, size: 60, flip: false }, 0).length, 0, 'the explosive blocks nothing');
+  assert.ok(Arena.solidCircles({ x: 400, y: 600, cell: 7, size: 100, flip: false }, 0).length > 0, 'the lamp is solid');
+  assert.equal(Arena.solidCircles({ x: 400, y: 600, cell: 8, size: 100, flip: false }, 0).length, 0, 'a puddle is not');
 });
 
 test('The house cannot walk through a solid prop and keeps sliding along it', () => {

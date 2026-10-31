@@ -23,52 +23,50 @@ const PROP_SIZES = [
 ];
 // Puddles, spills and glass lie flat: drawn first and never shadowed.
 const FLAT = [[8], [7], [8]];
-// The ground each standing prop takes up, measured on the art: [left, right,
-// foot, depth] as fractions of its picture (from the top left). It is the base
-// of what is drawn, so the house and walking enemies are stopped by the foot
-// and hostile bullets die on it, never by the air above or the grass below.
-// Null cells are not solid: the explosive prop (it blows up) and the puddles
-// and glass that lie flat.
-type Foot = readonly [number, number, number, number] | null;
-const FOOT: readonly (readonly Foot[])[] = [
-  // Rust: barrel, tyres, slab, cart, dumpster, bricks, crate, lamp, puddle.
-  [
-    null,
-    [0.16, 0.9, 0.93, 0.3],
-    [0.18, 0.88, 0.92, 0.3],
-    [0.16, 0.9, 0.9, 0.32],
-    [0.12, 0.88, 0.92, 0.34],
-    [0.1, 0.92, 0.88, 0.34],
-    [0.13, 0.87, 0.85, 0.36],
-    [0.08, 0.46, 0.85, 0.3],
-    null,
-  ],
-  // Green: canister, cabbage crate, roots, robot arm, crates, sunflower,
-  // rock, glass, mushrooms.
-  [
-    null,
-    [0.08, 0.9, 0.96, 0.34],
-    [0.15, 0.88, 0.94, 0.3],
-    [0.08, 0.6, 0.9, 0.28],
-    [0.1, 0.9, 0.92, 0.34],
-    [0.35, 0.93, 0.9, 0.3],
-    [0.1, 0.92, 0.88, 0.36],
-    null,
-    [0.12, 0.9, 0.9, 0.3],
-  ],
-  // Core: capacitor, server rack, cable coil, broken machine, fan unit,
-  // batteries, robot wreck, monitor stand, pool.
-  [
-    null,
-    [0.26, 0.8, 0.94, 0.26],
-    [0.1, 0.92, 0.9, 0.3],
-    [0.15, 0.92, 0.88, 0.32],
-    [0.12, 0.92, 0.96, 0.34],
-    [0.12, 0.9, 0.84, 0.32],
-    [0.1, 0.92, 0.85, 0.32],
-    [0.26, 0.84, 0.91, 0.24],
-    null,
-  ],
+// The body of each prop, fitted to the silhouette of its picture by
+// scripts/prop-bodies.py: circles [x, y, r] as fractions of the picture (from
+// its top left, before mirroring), together covering the whole object as it is
+// drawn: the house cannot overlap any part of it, walking enemies go round all
+// of it and hostile bullets stop on any part of it. Thin parts (wires, rebar,
+// glass shards) are not part of the body. Null: what lies flat (puddles, glass,
+// pools). The explosive prop (cell 0) has a body too, for the bullets that hit it.
+const BODY: readonly (readonly (readonly (readonly [number, number, number])[] | null)[])[] = [
+  // rust
+  [
+    [[0.484, 0.656, 0.255], [0.484, 0.375, 0.254], [0.484, 0.719, 0.251]],
+    [[0.438, 0.547, 0.317], [0.703, 0.703, 0.236], [0.312, 0.422, 0.185], [0.25, 0.672, 0.141]],
+    [[0.469, 0.625, 0.313], [0.641, 0.734, 0.213], [0.391, 0.5, 0.228], [0.438, 0.297, 0.062]],
+    [[0.531, 0.578, 0.319], [0.328, 0.422, 0.255], [0.578, 0.188, 0.071], [0.891, 0.75, 0.068], [0.922, 0.453, 0.068], [0.312, 0.797, 0.063], [0.172, 0.25, 0.067], [0.75, 0.703, 0.105]],
+    [[0.516, 0.453, 0.371], [0.359, 0.359, 0.289], [0.844, 0.312, 0.107], [0.594, 0.531, 0.313], [0.188, 0.719, 0.061], [0.203, 0.594, 0.089]],
+    [[0.562, 0.562, 0.314], [0.344, 0.609, 0.228], [0.719, 0.641, 0.216], [0.25, 0.688, 0.158], [0.547, 0.266, 0.081], [0.359, 0.359, 0.088], [0.125, 0.656, 0.063]],
+    [[0.484, 0.453, 0.384], [0.781, 0.609, 0.094], [0.781, 0.312, 0.102]],
+    [[0.266, 0.641, 0.187], [0.812, 0.234, 0.129], [0.344, 0.422, 0.062], [0.156, 0.656, 0.117], [0.234, 0.562, 0.131], [0.391, 0.625, 0.095], [0.734, 0.219, 0.081], [0.844, 0.141, 0.062], [0.875, 0.297, 0.07], [0.297, 0.688, 0.144]],
+    null,
+  ],
+  // green
+  [
+    [[0.469, 0.656, 0.294], [0.469, 0.344, 0.257], [0.297, 0.5, 0.149], [0.641, 0.797, 0.107], [0.656, 0.25, 0.086], [0.453, 0.719, 0.254]],
+    [[0.484, 0.531, 0.398], [0.594, 0.578, 0.38], [0.266, 0.609, 0.245], [0.266, 0.266, 0.144], [0.828, 0.344, 0.106], [0.625, 0.188, 0.078]],
+    [[0.547, 0.578, 0.282], [0.203, 0.469, 0.105], [0.453, 0.719, 0.198], [0.688, 0.688, 0.177], [0.422, 0.344, 0.105], [0.297, 0.781, 0.071], [0.688, 0.828, 0.07], [0.75, 0.703, 0.134]],
+    [[0.328, 0.703, 0.214], [0.859, 0.344, 0.093], [0.328, 0.406, 0.088], [0.531, 0.172, 0.086], [0.422, 0.312, 0.088], [0.703, 0.703, 0.075], [0.281, 0.641, 0.201], [0.547, 0.672, 0.088], [0.719, 0.25, 0.067], [0.797, 0.25, 0.068], [0.469, 0.219, 0.067], [0.172, 0.578, 0.098]],
+    [[0.438, 0.516, 0.356], [0.75, 0.734, 0.158], [0.438, 0.391, 0.313], [0.609, 0.703, 0.216], [0.297, 0.656, 0.196]],
+    [[0.453, 0.594, 0.271], [0.625, 0.594, 0.251], [0.281, 0.344, 0.124], [0.203, 0.609, 0.14], [0.125, 0.719, 0.061], [0.734, 0.766, 0.094], [0.391, 0.5, 0.223]],
+    [[0.516, 0.5, 0.396], [0.375, 0.562, 0.303], [0.625, 0.484, 0.312]],
+    null,
+    [[0.453, 0.609, 0.308], [0.703, 0.344, 0.2], [0.609, 0.188, 0.156], [0.688, 0.672, 0.192], [0.453, 0.172, 0.088], [0.359, 0.422, 0.161], [0.156, 0.641, 0.061], [0.266, 0.734, 0.114]],
+  ],
+  // core
+  [
+    [[0.578, 0.531, 0.298], [0.344, 0.484, 0.243], [0.672, 0.641, 0.27], [0.656, 0.234, 0.097], [0.5, 0.844, 0.068], [0.25, 0.703, 0.068]],
+    [[0.531, 0.422, 0.322], [0.516, 0.656, 0.305], [0.516, 0.312, 0.291], [0.734, 0.156, 0.064]],
+    [[0.484, 0.547, 0.314], [0.359, 0.594, 0.293], [0.656, 0.562, 0.263], [0.719, 0.641, 0.212], [0.406, 0.828, 0.094], [0.719, 0.797, 0.094]],
+    [[0.484, 0.641, 0.243], [0.469, 0.5, 0.193], [0.266, 0.719, 0.125], [0.656, 0.344, 0.081], [0.812, 0.656, 0.075], [0.438, 0.156, 0.063], [0.328, 0.422, 0.098], [0.734, 0.703, 0.089], [0.453, 0.203, 0.061]],
+    [[0.516, 0.438, 0.4], [0.609, 0.547, 0.329], [0.297, 0.297, 0.219], [0.188, 0.656, 0.088], [0.781, 0.297, 0.155], [0.859, 0.672, 0.088]],
+    [[0.547, 0.484, 0.364], [0.297, 0.625, 0.192], [0.828, 0.703, 0.09], [0.312, 0.25, 0.075], [0.812, 0.266, 0.062], [0.312, 0.766, 0.083]],
+    [[0.391, 0.375, 0.263], [0.234, 0.578, 0.15], [0.797, 0.406, 0.081], [0.75, 0.625, 0.078], [0.359, 0.734, 0.081], [0.516, 0.406, 0.2], [0.516, 0.781, 0.075], [0.938, 0.484, 0.074], [0.141, 0.484, 0.078], [0.188, 0.281, 0.088], [0.812, 0.625, 0.061], [0.875, 0.453, 0.075]],
+    [[0.5, 0.141, 0.235], [0.531, 0.703, 0.176], [0.531, 0.469, 0.166], [0.766, 0.75, 0.067], [0.328, 0.734, 0.061], [0.5, 0.844, 0.079], [0.703, 0.188, 0.075], [0.344, 0.078, 0.097], [0.516, 0.594, 0.161], [0.688, 0.75, 0.075]],
+    null,
+  ],
 ];
 // The house spawns in the centre; decor keeps this ellipse clear.
 const CLEAR = { rx: 340, ry: 240 };
@@ -78,6 +76,8 @@ export interface ArenaProp {
   x: number;
   y: number;
   cell: number;
+  // Which location's atlas the picture is from (0 to 2).
+  theme?: number;
   size: number;
   flip: boolean;
   flat: boolean;
@@ -98,33 +98,39 @@ export interface Footprint {
   y: number;
   r: number;
 }
-// The ground a prop takes up, as a row of overlapping circles along the foot
-// of its picture (see FOOT), so wide things such as a dumpster are as wide as
-// they look. The picture is drawn with its centre 0.36 of its size above the
-// ground point, so the ground point is 0.86 of the way down it (drawCell).
-export function solidCircles(p: ArenaProp, chapter: number): Footprint[] {
-  const foot = FOOT[themeIndex(chapter)][p.cell];
-  if (!foot) return [];
-  const [left, right, bottom, depth] = foot,
-    s = p.size,
-    r = (depth * s) / 2,
-    y = p.y + (bottom - depth / 2 - 0.86) * s;
-  // A mirrored prop reads its picture from the other side.
-  const from = p.flip ? 1 - right : left,
-    to = p.flip ? 1 - left : right,
-    x0 = p.x + (from - 0.5) * s + r,
-    x1 = p.x + (to - 0.5) * s - r;
-  if (x1 <= x0) return [{ x: (x0 + x1) / 2, y, r }];
-  const n = Math.ceil((x1 - x0) / (r * 1.4)) + 1;
-  return Array.from({ length: n }, (_, i) => ({
-    x: x0 + ((x1 - x0) * i) / (n - 1),
-    y,
-    r,
+// The circles of a prop's body in the world: its picture is drawn with the
+// ground point 0.86 of the way down it (drawCell), a mirrored prop reads the
+// picture from the other side.
+function bodyCircles(p: ArenaProp, theme: number): Footprint[] {
+  const body = BODY[theme]?.[p.cell];
+  if (!body) return [];
+  const s = p.size;
+  return body.map(([x, y, r]) => ({
+    x: p.x + ((p.flip ? 1 - x : x) - 0.5) * s,
+    y: p.y + (y - 0.86) * s,
+    r: r * s,
   }));
 }
-// Centre and radius of the part of an explosive prop that bullets hit.
+// What blocks the house, walking enemies and hostile bullets: the whole body
+// of a standing prop. What lies flat and the explosive prop block nothing.
+export function solidCircles(p: ArenaProp, chapter: number): Footprint[] {
+  return p.cell === 0 ? [] : bodyCircles(p, themeIndex(chapter));
+}
+// The body of an explosive prop, which the bullets of the house hit anywhere on.
+export function propBody(p: ArenaProp): Footprint[] {
+  return bodyCircles(p, p.theme ?? 0);
+}
+// Does a point (a bullet, with its own reach) touch the explosive prop?
+export function propTouches(p: ArenaProp, x: number, y: number, reach = 0) {
+  return propBody(p).some((c) => Math.hypot(x - c.x, y - c.y) < c.r + reach);
+}
+// The heart of an explosive prop, where its blast goes off and where a bullet
+// is aimed: the middle of its biggest circle.
 export function propTarget(p: ArenaProp) {
-  return { x: p.x, y: p.y - p.size * 0.28, r: p.size * 0.36 };
+  const body = propBody(p);
+  if (!body.length) return { x: p.x, y: p.y - p.size * 0.28, r: p.size * 0.36 };
+  const core = body.reduce((a, c) => (c.r > a.r ? c : a));
+  return { x: core.x, y: core.y, r: core.r };
 }
 
 // Same mulberry32 as model.seeded; duplicated to keep this module leaf-level.
@@ -177,11 +183,12 @@ export function generateProps(seed: number, chapter: number): ArenaProp[] {
     )
       continue;
     const max = explosive ? 32 + theme * 28 : 0;
-    const solid = !explosive && !flat && !!FOOT[theme][cell];
+    const solid = !explosive && !flat && !!BODY[theme][cell];
     props.push({
       x: Math.round(x),
       y: Math.round(y),
       cell,
+      theme,
       size: Math.round(size),
       flip,
       flat,

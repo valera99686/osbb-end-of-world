@@ -105,7 +105,9 @@ import {
   drawProps,
   generateProps,
   preloadArenaArt,
+  propBody,
   propTarget,
+  propTouches,
   solidCircles,
   type ArenaProp,
   type ArenaView,
@@ -124,6 +126,9 @@ const PAD_DEAD = 0.2;
 const PARTICLE_CAP = 500;
 const NUMBER_CAP = 40;
 const INTRO = 1.4;
+// ?hitboxes in the address draws the hitboxes over the fight (drawHitboxes).
+const SHOW_HITBOXES =
+  typeof location !== 'undefined' && /[?&]hitboxes\b/.test(location.search);
 // How long the presentation of a boss or mini-boss lasts (seconds). With a
 // canvas the fight is frozen meanwhile; a tap or key skips it.
 export const STAGE_SECONDS = { boss: 4.6, miniboss: 3.6 } as const;
@@ -4163,7 +4168,11 @@ export class Battle {
       if (b.enemy) {
         // A crate or a dumpster between the shooter and the house is cover.
         if (
-          this.solids.some((c) => Math.hypot(b.x - c.x, b.y - c.y) < c.r)
+          this.solids.some((c) => {
+            const dx = b.x - c.x,
+              dy = b.y - c.y;
+            return dx * dx + dy * dy < c.r * c.r;
+          })
         ) {
           b.life = 0;
           this.burst(b.x, b.y, '#b9a98a', 3);
@@ -4255,8 +4264,7 @@ export class Battle {
         if (b.life > 0 && !this.ended)
           for (const p of this.explosives) {
             if (p.blown) continue;
-            const t = propTarget(p);
-            if (Math.hypot(b.x - t.x, b.y - t.y) > t.r + 4) continue;
+            if (!propTouches(p, b.x, b.y, 4)) continue;
             this.hitProp(p, b.damage);
             b.life = 0;
             break;
@@ -5164,8 +5172,38 @@ export class Battle {
     this.drawParticles(c, visible);
     this.drawNumbers(c);
     c.globalAlpha = 1;
+    if (SHOW_HITBOXES) this.drawHitboxes(c, visible);
     c.restore();
     this.drawOverlay(c, w, h);
+  }
+  // ?hitboxes in the address: what blocks and what is hit, drawn over the fight
+  // (red: obstacles; orange: explosive props; blue: the house and the partner;
+  // yellow: enemies; the second yellow ring is where a walking enemy is stopped).
+  drawHitboxes(c: CanvasRenderingContext2D, visible: Visible) {
+    const ring = (x: number, y: number, r: number, color: string, dash = false) => {
+      c.strokeStyle = color;
+      c.lineWidth = 1.5;
+      c.setLineDash(dash ? [4, 3] : []);
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.stroke();
+    };
+    c.save();
+    c.globalAlpha = 0.9;
+    for (const s of this.solids)
+      if (visible(s.x, s.y, s.r)) ring(s.x, s.y, s.r, '#ff4040');
+    for (const p of this.explosives)
+      if (!p.blown)
+        for (const s of propBody(p)) ring(s.x, s.y, s.r, '#ff9a2e');
+    ring(this.x, this.y, 24, '#4aa3ff');
+    if (this.ally) ring(this.ally.x, this.ally.y, 24, '#4aa3ff', true);
+    for (const e of this.enemies) {
+      if (e.hp <= 0 || !visible(e.x, e.y, e.r)) continue;
+      ring(e.x, e.y, e.r, '#ffe14a');
+      ring(e.x, e.y, e.r * 0.7, '#ffe14a', true);
+    }
+    c.setLineDash([]);
+    c.restore();
   }
   // Culling that never hides a visible part: the whole sprite (bosses are
   // tall), a swift afterimage, or a blink drone's landing ring, which sits

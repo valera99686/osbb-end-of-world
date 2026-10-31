@@ -310,3 +310,43 @@
 .stop-raid-link:hover {
   color: #ffc9c2;
 }
+
+
+/* Two players decide an event: the pick of each is seen on the choice */
+.event-option {
+  position: relative;
+}
+.event-option.mine {
+  border-color: var(--amber);
+}
+.event-option.chosen {
+  box-shadow: 0 0 0 2px #6cbfac;
+}
+.event-votes {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  font-style: normal;
+}
+.event-votes i {
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+.event-votes .me {
+  background: var(--amber);
+  color: #161b1e;
+}
+.event-votes .mate {
+  background: #6aa7e6;
+  color: #0c141a;
+}
+.event-vote-note {
+  margin: 6px 0 12px;
+  color: var(--amber);
+  font-size: calc(13px * var(--text-scale, 1));
+}

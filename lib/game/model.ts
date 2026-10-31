@@ -904,6 +904,16 @@ export function canChooseEvent(run: Run, meta: Meta, e: EventEffect) {
     run.hp > Math.ceil(statsFor(run, meta).health * (e.damageMax ?? 0))
   );
 }
+// The choices of the current event (or rest) that can be taken now, for two
+// players to vote on: the ones the run can pay for.
+export function eventColumns(run: Run, meta: Meta): number[] {
+  if (run.kind === 'rest') return [0, 1];
+  const event = eventFor(run);
+  if (!event) return [];
+  return event.choices
+    .map((c, i) => (canChooseEvent(run, meta, c.effect) ? i : -1))
+    .filter((i) => i >= 0);
+}
 export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
   if (run.page !== 'event' || run.eventDone) return run;
   const max = statsFor(run, meta).health;

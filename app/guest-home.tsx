@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Check, Home, Plus } from 'lucide-react';
 import { ITEMS, ITEM_BY_ID, CHARACTERS } from '@/lib/game/data';
 import {
+  eventFor,
   furniturePrice,
   giveMate,
   houseOf,
@@ -24,7 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { HouseAside, PartnerHouse } from './house-aside';
 import { ItemCard, takenText } from './item-card';
-import { FurnitureCard } from './campaign-panels';
+import { EventOptions, FurnitureCard } from './campaign-panels';
 import { Currency } from './hud-parts';
 import { Residents } from './residents';
 
@@ -138,6 +139,60 @@ export function GuestPages({
         </div>
       </>
     );
+  if (view.page === 'event') {
+    // An event is decided by both: the host's picks and this guest's go on one
+    // ballot, and its outcome is seen when it is done.
+    const rest = view.kind === 'rest',
+      event = eventFor(view),
+      ballot =
+        session.ballot && session.ballot.step === view.step
+          ? session.ballot
+          : null;
+    return (
+      <>
+        <p className="eyebrow">
+          {rest ? 'ПЕРЕПОЧИНОК' : `ЗУСТРІЧ · ЛОКАЦІЯ ${view.chapter + 1}`}
+        </p>
+        <h2>{rest ? 'Тихе подвір’я' : event.title}</h2>
+        <p className="lead">
+          {rest
+            ? 'Зупини двигун на кілька хвилин: полагодь будинок або пошукай припаси.'
+            : event.text}
+        </p>
+        {view.eventDone ? (
+          <div className="mission-banner" role="status">
+            <Check size={22} />
+            <p>{view.eventResult}</p>
+          </div>
+        ) : (
+          <EventOptions
+            run={view}
+            meta={open}
+            onPick={() => {}}
+            vote={
+              ballot
+                ? {
+                    mine: ballot.guest,
+                    partner: ballot.host,
+                    partnerName: 'Господар',
+                    options: ballot.options,
+                    done: ballot.done,
+                    onVote: (col) => session.voteGuest(col),
+                  }
+                : {
+                    mine: null,
+                    partner: null,
+                    partnerName: 'Господар',
+                    options: [],
+                    note: 'Зараз відкриється вибір…',
+                    onVote: () => {},
+                  }
+            }
+          />
+        )}
+      </>
+    );
+  }
   if (view.page === 'shop')
     return (
       <>

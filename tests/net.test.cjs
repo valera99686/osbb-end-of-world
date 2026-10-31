@@ -293,6 +293,31 @@ test('The host and the guest greet each other and learn who the other one is', (
   off();
 });
 
+test('A scene that begins at the host reaches the guest, which holds it until it listens; odd ids are dropped', () => {
+  const { wire, host, guest } = rooms();
+  // Nobody listens yet: the scene is held.
+  host.sendScene('arrival-0');
+  host.sendScene('../etc/passwd');
+  host.sendScene('x'.repeat(80));
+  wire.deliver();
+  assert.deepEqual(guest.takeScenes(), ['arrival-0']);
+  assert.deepEqual(guest.takeScenes(), []);
+  // Listening: it arrives at once, in order.
+  const seen = [];
+  guest.onScene = (id) => seen.push(id);
+  host.sendScene('victory-0');
+  host.sendScene('arrival-1');
+  wire.deliver();
+  assert.deepEqual(seen, ['victory-0', 'arrival-1']);
+  // Only the host tells scenes, only the guest hears them.
+  const back = [];
+  host.onScene = (id) => back.push(id);
+  guest.sendScene('arrival-2');
+  wire.deliver();
+  assert.deepEqual(back, []);
+  assert.deepEqual(seen, ['victory-0', 'arrival-1']);
+});
+
 test('A guest with another build is refused and the host keeps waiting', () => {
   const { host, guest } = rooms('0.18.0', '0.17.0');
   assert.equal(guest.phase, 'refused');
@@ -601,6 +626,61 @@ test('The two ends vote on the map: the guest sees the map, picks travel, the ve
   assert.equal(host.ballot, null);
   assert.equal(guest.ballot, null);
   assert.equal(guest.map, null);
+});
+
+test('An event is decided by both: picks travel, the same pick acts, different ones go to a coin, only its own choices count', () => {
+  const { wire, host, guest } = rooms();
+  host.openEventVote(4, [0, 2]);
+  wire.deliver();
+  assert.deepEqual(guest.ballot, { step: 4, options: [0, 2], host: null, guest: null });
+  assert.equal(guest.map, null, 'no map goes with an event');
+  // A choice the event does not have is not a pick.
+  guest.voteGuest(1);
+  assert.equal(guest.ballot.guest, null);
+  guest.voteGuest(2);
+  wire.deliver();
+  assert.equal(host.ballot.guest, 2);
+  // The host has not picked yet: nothing is decided.
+  assert.equal(VC.ballotResult(host.ballot, 11), null);
+  host.voteHost(2);
+  const same = VC.ballotResult(host.ballot, 11);
+  assert.deepEqual(same, { col: 2, coin: false });
+  host.settle(same);
+  wire.deliver();
+  assert.deepEqual(guest.ballot.done, { col: 2, coin: false }, 'the verdict reaches the guest');
+  // Different picks go to a coin, the same one at both ends.
+  host.openEventVote(5, [0, 1]);
+  wire.deliver();
+  host.voteHost(0);
+  guest.voteGuest(1);
+  wire.deliver();
+  const coin = VC.ballotResult(host.ballot, 11);
+  assert.equal(coin.coin, true);
+  assert.deepEqual(VC.ballotResult(guest.ballot, 11), coin);
+  // A guest cannot open an event vote.
+  guest.openEventVote(6, [0]);
+  wire.deliver();
+  assert.equal(host.ballot.step, 5);
+});
+
+test('The choices of an event that a run can pay for are the ones that may be voted on', () => {
+  const run = M.makeRun(meta, 'mechanic', 0, 3, { coop: 'nina' });
+  // A rest has two choices, always open.
+  assert.deepEqual(M.eventColumns({ ...run, kind: 'rest', page: 'event' }, meta), [0, 1]);
+  for (const chapter of [0, 1, 2])
+    for (let step = 1; step < 9; step++) {
+      const r = { ...M.makeRun(meta, 'mechanic', chapter, 7, { coop: 'nina' }), kind: 'event', page: 'event', step };
+      const want = M.eventFor(r)
+        .choices.map((c, i) => (M.canChooseEvent(r, meta, c.effect) ? i : -1))
+        .filter((i) => i >= 0);
+      assert.deepEqual(M.eventColumns(r, meta), want);
+      // Without a coin or a scrap, the ones that cost them are closed.
+      const broke = { ...r, coins: 0, scrap: 0 };
+      for (const i of M.eventColumns(broke, meta)) {
+        const e = M.eventFor(broke).choices[i].effect;
+        assert.ok((e.coins ?? 0) >= 0 && (e.scrap ?? 0) >= 0, `${chapter}/${step}/${i}`);
+      }
+    }
 });
 
 test('A guest cannot vote when no vote is open, and a lost link clears the vote', () => {

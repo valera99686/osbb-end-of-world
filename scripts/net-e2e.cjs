@@ -4,6 +4,8 @@
 //   npm run dev            (in another terminal)
 //   node scripts/net-e2e.cjs [seconds] [mode]
 //   FINISH=1 VOTE=1 node scripts/net-e2e.cjs 8 host   (the map vote after a fight)
+//   SCENES=1 node scripts/net-e2e.cjs      (the guest sees the host's scene)
+//   EVENT=1 node scripts/net-e2e.cjs       (both decide an event)
 // Needs Chrome at the usual path and an internet connection (the broker).
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -197,6 +199,37 @@ async function vote(host, guest) {
   process.exitCode = ok ? 0 : 1;
 }
 
+// The host's raid is put on an event: both see its choices, each picks, the
+// same pick acts, and the outcome shows at both ends.
+async function eventTest(host, guest) {
+  await host.eval(`window.__osbbRun({ page: 'event', kind: 'event' })`);
+  const options = (p, sel) =>
+    p.eval(`document.querySelectorAll(${JSON.stringify(sel)} + ' .event-option:not([disabled])').length`);
+  await until('the choices at the host', async () => (await options(host, '.play-main')) >= 1);
+  await until('the choices at the guest', async () => (await options(guest, '.guest-room')) >= 1);
+  console.log('choices: host', await options(host, '.play-main'), 'guest', await options(guest, '.guest-room'));
+  // The guest picks the first one; the host sees the chip.
+  await guest.eval(`document.querySelector('.guest-room .event-option:not([disabled])').click()`);
+  await until("the host sees the guest's pick", () =>
+    host.eval(`document.querySelectorAll('.play-main .event-votes .mate').length === 1`),
+  );
+  console.log('host note:', await host.eval(`document.querySelector('.event-vote-note')?.innerText`));
+  // The host picks the same one: it acts, and both see the outcome.
+  await host.eval(`document.querySelector('.play-main .event-option:not([disabled])').click()`);
+  const hostSees = await until('the outcome at the host', () =>
+    host.eval(`document.querySelector('.play-main .mission-banner p')?.innerText`),
+  8000);
+  const guestSees = await until('the outcome at the guest', () =>
+    guest.eval(`document.querySelector('.guest-room .mission-banner p')?.innerText`),
+  8000);
+  console.log('outcome: host:', hostSees, '| guest:', guestSees);
+  const ok = !!hostSees && hostSees === guestSees && !host.errors.length && !guest.errors.length;
+  console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+  console.log(ok ? 'E2E OK' : 'E2E FAILED');
+  for (const p of procs) p.kill();
+  process.exit(ok ? 0 : 1);
+}
+
 (async () => {
   const [wa, wb] = [await launch(9331), await launch(9332)];
   const host = new Page('host', wa),
@@ -204,6 +237,13 @@ async function vote(host, guest) {
   await Promise.all([host.go(URL), guest.go(URL)]);
   console.log('pages loaded');
 
+  // Both profiles past the tutorial and the prologue, as real players are.
+  if (process.env.SCENES || process.env.EVENT)
+    for (const page of [host, guest])
+      for (let i = 0; i < 6; i++) {
+        await page.eval(click('Пропустити', 'button'));
+        await sleep(500);
+      }
   // The online mode is a tab of the hub's "Хто грає?" block.
   for (const page of [host, guest])
     await until('online tab', () => page.eval(click('Вдвох по мережі', 'button.play-mode')));
@@ -230,6 +270,17 @@ async function vote(host, guest) {
   // The host walks into the first fight.
   await host.eval(`document.querySelector('.start-button').click()`);
   await sleep(1200);
+  if (process.env.SCENES) {
+    // The host's arrival scene is on; the guest is shown it too.
+    const seen = await until('the host scene at the guest', () =>
+      guest.eval(`[...document.querySelectorAll('button')].some(b => /Пропустити/.test(b.innerText))`),
+    8000);
+    console.log("the guest sees the host's scene:", seen);
+    process.exitCode = seen ? 0 : 1;
+    console.log(seen ? 'E2E OK' : 'E2E FAILED');
+    for (const p of procs) p.kill();
+    process.exit(process.exitCode);
+  }
   for (let i = 0; i < 6; i++) {
     await host.eval(click('Пропустити', '[role=dialog] button'));
     await sleep(500);
@@ -241,6 +292,7 @@ async function vote(host, guest) {
     guest.eval(`document.querySelector('.guest-room .tree-vote-note')?.innerText`),
   );
   console.log('guest sees the first map:', seen);
+  if (process.env.EVENT) return eventTest(host, guest);
   await host.eval(`document.querySelector('button.tree-go').click()`);
   // A production build has no debugging hook: then only the screens are seen.
   const PROD = !!process.env.PROD;

@@ -29,6 +29,9 @@ export interface StartMsg {
 // A fight that was not answered within this many ms did not start.
 export const START_TIMEOUT = 20000;
 const HELD_MAX = 900;
+const HELD_SCENES = 8;
+// What the id of a scene may look like: letters, digits and dashes.
+const SCENE_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
 
 export class NetSession {
   phase: Phase;
@@ -69,6 +72,10 @@ export class NetSession {
     | null = null;
   // Host: the guest has voted.
   onVoted: (() => void) | null = null;
+  // Guest: a scene begins at the host. Ones that come before anyone listens
+  // are held (takeScenes).
+  onScene: ((id: string) => void) | null = null;
+  private heldScenes: string[] = [];
   // Host: the room still takes a guest after one has left.
   roomOpen = true;
   private pendingStart: StartMsg | null = null;
@@ -240,6 +247,14 @@ export class NetSession {
       case 'gift':
         if (this.role === 'guest') this.onGift?.(m);
         return;
+      case 'scene':
+        // Only the id of a scene crosses the wire: the guest plays it from its
+        // own copy of the game, and only if the id looks like one of ours.
+        if (this.role !== 'guest' || !SCENE_ID.test(String(m.id))) return;
+        if (this.onScene) this.onScene(m.id);
+        else if (this.heldScenes.length < HELD_SCENES)
+          this.heldScenes.push(m.id);
+        return;
       case 'bye':
         this.lost(this.link);
         return;
@@ -325,6 +340,14 @@ export class NetSession {
     if (this.role === 'guest' && this.phase === 'connected')
       this.link?.send({ t: 'house', house, coins, scrap });
   }
+  // Host: an event is decided by both players with the same ballot as the
+  // map's, the choices of the event being its columns; no map goes with it.
+  openEventVote(step: number, options: readonly number[]) {
+    if (this.role !== 'host' || this.phase !== 'connected') return;
+    this.ballot = newBallot(step, options);
+    this.broadcast();
+    this.change();
+  }
   // Host: the vote is over (the fight or the room is next).
   closeVote() {
     if (!this.ballot && !this.map) return;
@@ -363,6 +386,17 @@ export class NetSession {
     const m = this.pendingStart;
     this.pendingStart = null;
     return m;
+  }
+  // Host: a scene begins; the guest is shown it too.
+  sendScene(id: string) {
+    if (this.role === 'host' && this.phase === 'connected')
+      this.link?.send({ t: 'scene', id });
+  }
+  // Guest: the scenes that began before this end listened.
+  takeScenes(): string[] {
+    const held = this.heldScenes;
+    this.heldScenes = [];
+    return held;
   }
   // Host: the raid ended; the guest gets a share of what it earned.
   sendGift(cores: number, won: boolean, final: boolean) {

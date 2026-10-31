@@ -336,7 +336,9 @@ export function GuestRoom({
   // The host's run, to read the page from, and the guest's own house in it.
   const view = readView(session.view);
   const house = useGuestHouse(view);
-  const page = view && (view.page === 'reward' || view.page === 'shop');
+  const page =
+    view &&
+    (view.page === 'reward' || view.page === 'shop' || view.page === 'event');
   const card = (
       <div className={`guest-card${view ? ' wide' : ''}`}>
         <span className="micro">

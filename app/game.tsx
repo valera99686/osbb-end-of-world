@@ -179,6 +179,8 @@ import {
   priceFor,
   enterNode,
   availableColumns,
+  eventColumns,
+  resolveEvent,
   nextNode,
   equip,
   packItem,
@@ -388,7 +390,12 @@ export default function Game() {
     // at once; a few seconds in, after the first screens have settled.
     window.setTimeout(() => void import('./combat'), 3500);
     if (import.meta.env.DEV)
-      Object.assign(window, { __osbbAudioPreview: renderThemePreview });
+      Object.assign(window, {
+        __osbbAudioPreview: renderThemePreview,
+        // For scripts/net-e2e.cjs: puts the raid on another page (an event).
+        __osbbRun: (patch: Partial<Run>) =>
+          setRun((r) => (r ? { ...r, ...patch } : r)),
+      });
     const shortcut = SHORTCUT;
     if (shortcut)
       window.history.replaceState(null, '', window.location.pathname);
@@ -727,6 +734,9 @@ export default function Game() {
         if (!r || typeof r.seed !== 'number' || !Array.isArray(r.items)) return;
         setGuestResult(null);
         setGuestEarned({ fight: 0, raid: 0 });
+        // A fight does not wait for a scene: the guest is needed in it.
+        setSceneQueue([]);
+        setMeta((m) => (m.sceneProgress ? { ...m, sceneProgress: null } : m));
         setGuestFight({
           sid: m.sid,
           run: r,
@@ -748,12 +758,25 @@ export default function Game() {
         setMeta(next);
         grant(applyAchievements(next, null).unlocked);
       };
+      // A scene that begins at the host is shown here once, if it is new to
+      // this profile; one that comes while another plays waits its turn.
+      const watch = (id: string) => {
+        const now = metaRef.current;
+        if (now.scenesSeen.includes(id) || !(SCENE_BY_ID[id] || isStoryId(id)))
+          return;
+        if (now.sceneProgress)
+          setSceneQueue((q) => (q.includes(id) ? q : [...q, id]));
+        else setMeta((m) => ({ ...m, sceneProgress: { id, index: 0 } }));
+      };
+      net.onScene = watch;
+      for (const id of net.takeScenes()) watch(id);
       const early = net.takeStart();
       if (early) net.onStart(early);
     }
     return () => {
       net.onStart = null;
       net.onGift = null;
+      net.onScene = null;
     };
   }, [net]);
   useEffect(() => {
@@ -771,6 +794,11 @@ export default function Game() {
       setNotice('Напарник вийшов із кімнати: рейд триває без нього.');
     }
   }, [netPhase]);
+  // A scene that begins at the host in a raid for two is shown to the guest too.
+  const sceneId = meta.sceneProgress?.id;
+  useEffect(() => {
+    if (sceneId && livePartner && onlineRun) net?.sendScene(sceneId);
+  }, [sceneId]);
   // What the guest reads while the host is away from the fights.
   useEffect(() => {
     if (net?.role !== 'host' || net.phase !== 'connected') return;
@@ -812,6 +840,8 @@ export default function Game() {
       ? [
           run.page,
           run.step,
+          run.eventDone,
+          run.eventResult,
           Math.floor(run.coins),
           Math.floor(run.scrap),
           houseKey(run),
@@ -878,13 +908,28 @@ export default function Game() {
       net.openVote(run, run.step, availableColumns(run));
     } else net.closeVote();
   }, [voteKey, netPhase]);
+  // An event of a raid for two is decided by both, like the map: each pick
+  // travels, the same one acts, different ones go to a coin.
+  const eventOpen =
+    livePartner &&
+    onlineRun &&
+    screen === 'play' &&
+    run?.page === 'event' &&
+    !run.eventDone;
+  const eventKey = eventOpen && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
+  useEffect(() => {
+    if (net?.role !== 'host' || !eventKey || !run) return;
+    setGuestSilent(false);
+    net.openEventVote(run.step, eventColumns(run, metaRef.current));
+    return () => net.closeVote();
+  }, [eventKey, netPhase]);
   // A guest who does not answer does not hold the host up for ever.
   useEffect(() => {
-    if (!voting || !ballot || ballot.done) return;
+    if (!(voting || eventOpen) || !ballot || ballot.done) return;
     if (ballot.host === null || ballot.guest !== null) return;
     const timer = setTimeout(() => setGuestSilent(true), VOTE.silent * 1000);
     return () => clearTimeout(timer);
-  }, [voting, ballot?.step, ballot?.host, ballot?.guest]);
+  }, [voting, eventOpen, ballot?.step, ballot?.host, ballot?.guest]);
   // Both have picked (or the guest is silent): the verdict goes to both ends.
   useEffect(() => {
     if (net?.role !== 'host' || !run || !ballot || ballot.done) return;
@@ -899,9 +944,13 @@ export default function Game() {
     const timer = setTimeout(
       () =>
         setRun((r) =>
-          r && r.page === 'map' && r.step === step
-            ? enterNode(r, metaRef.current, `${step}:${done.col}`)
-            : r,
+          !r || r.step !== step
+            ? r
+            : r.page === 'map'
+              ? enterNode(r, metaRef.current, `${step}:${done.col}`)
+              : r.page === 'event' && !r.eventDone
+                ? resolveEvent(r, metaRef.current, done.col)
+                : r,
         ),
       done.coin ? 1800 : 900,
     );
@@ -2139,7 +2188,32 @@ export default function Game() {
                   </>
                 )}
                 {run.page === 'event' && (
-                  <CampaignEventPanel run={run} meta={meta} onChange={setRun} />
+                  <CampaignEventPanel
+                    run={run}
+                    meta={meta}
+                    onChange={setRun}
+                    vote={
+                      eventOpen && net
+                        ? ballot && ballot.step === run.step
+                          ? {
+                              mine: ballot.host,
+                              partner: ballot.guest,
+                              partnerName: mateName || 'Друг',
+                              options: ballot.options,
+                              done: ballot.done,
+                              onVote: (col) => net.voteHost(col),
+                            }
+                          : {
+                              mine: null,
+                              partner: null,
+                              partnerName: mateName || 'Друг',
+                              options: [],
+                              note: 'Відкриваємо вибір…',
+                              onVote: () => {},
+                            }
+                        : undefined
+                    }
+                  />
                 )}
                 {run.page === 'event' &&
                   run.rescue &&

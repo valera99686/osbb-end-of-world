@@ -906,18 +906,97 @@ export function eventFor(run: Run): CampaignEvent {
       return both[Math.floor(seeded(key + 31)() * both.length)];
   }
   const pool = CAMPAIGN_EVENTS.filter((e) => e.chapter === run.chapter);
-  return pool[
-    Math.floor(
-      seeded(run.seed + run.chapter * 100003 + run.step * 719)() * pool.length,
-    )
-  ];
+  // A location deals its meetings in a seeded order, one for each step, so the
+  // same one does not come up twice in a location (there are more of them than
+  // steps).
+  const rng = seeded(run.seed + run.chapter * 100003);
+  const order = pool
+    .map((event) => ({ event, k: rng() }))
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.event);
+  return order[run.step % order.length];
+}
+// What a house can lose: its modules, fitted and spare, or its furniture.
+const modulesOf = (house: MateHouse) =>
+  house.items.filter(Boolean).length + house.backpack.length;
+function canLose(run: Run, what: 'module' | 'furniture') {
+  const has = (h: MateHouse) =>
+    what === 'module' ? modulesOf(h) > 0 : h.furniture.length > 0;
+  return has(run) || (!!run.coop && has(mateRun(run)));
 }
 export function canChooseEvent(run: Run, meta: Meta, e: EventEffect) {
   return (
     run.coins + (e.coins ?? 0) >= 0 &&
     run.scrap + (e.scrap ?? 0) >= 0 &&
-    run.hp > Math.ceil(statsFor(run, meta).health * (e.damageMax ?? 0))
+    run.hp > Math.ceil(statsFor(run, meta).health * (e.damageMax ?? 0)) &&
+    (!e.loseModule || canLose(run, 'module')) &&
+    (!e.loseFurniture || canLose(run, 'furniture'))
   );
+}
+// Takes one module or one piece of furniture from a house (from the first one
+// that has any: with a partner, which of the two houses comes first is rolled),
+// and says what it was.
+function dropFrom(
+  house: Run,
+  meta: Meta,
+  what: 'module' | 'furniture',
+  rng: () => number,
+): { house: Run; name: string } | null {
+  if (what === 'furniture') {
+    if (!house.furniture.length) return null;
+    const gone = house.furniture[Math.floor(rng() * house.furniture.length)];
+    const next = {
+      ...house,
+      furniture: house.furniture.filter((f) => f.uid !== gone.uid),
+    };
+    next.hp =
+      (house.hp * statsFor(next, meta).health) / statsFor(house, meta).health;
+    return { house: next, name: FURNITURE_BY_ID[gone.id]?.name ?? gone.id };
+  }
+  const fitted = house.items.flatMap((id, slot) => (id ? [{ slot, id }] : []));
+  const total = fitted.length + house.backpack.length;
+  if (!total) return null;
+  const at = Math.floor(rng() * total);
+  if (at < fitted.length) {
+    const { slot, id } = fitted[at];
+    const next = { ...house, items: [...house.items] };
+    next.items[slot] = null;
+    return {
+      house: equipmentHealth(house, next, meta),
+      name: ITEM_BY_ID[id]?.name ?? id,
+    };
+  }
+  const spare = house.backpack[at - fitted.length];
+  return {
+    house: {
+      ...house,
+      backpack: house.backpack.filter((i) => i.uid !== spare.uid),
+    },
+    name: ITEM_BY_ID[spare.id]?.name ?? spare.id,
+  };
+}
+function loseOne(
+  run: Run,
+  meta: Meta,
+  what: 'module' | 'furniture',
+  rng: () => number,
+): { run: Run; name: string } | null {
+  const sides: ('host' | 'mate')[] = run.coop
+    ? rng() < 0.5
+      ? ['host', 'mate']
+      : ['mate', 'host']
+    : ['host'];
+  for (const side of sides) {
+    const out = dropFrom(side === 'host' ? run : mateRun(run), meta, what, rng);
+    if (!out) continue;
+    return side === 'host'
+      ? { run: out.house, name: out.name }
+      : {
+          run: withMateHouse(run, out.house),
+          name: `${out.name} (у другому будинку)`,
+        };
+  }
+  return null;
 }
 // The choices of the current event (or rest) that can be taken now, for two
 // players to vote on: the ones the run can pay for.
@@ -946,16 +1025,25 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
     };
   const selected = eventFor(run).choices[choice];
   if (!selected || !canChooseEvent(run, meta, selected.effect)) return run;
-  const e = selected.effect;
+  // A gamble is rolled from the seed, so the host, the guest and a reload see
+  // the same outcome; the failure is told instead of the success.
+  const rng = seeded(
+    run.seed * 31 + run.chapter * 7919 + run.step * 131 + choice * 17,
+  );
+  const failed = !!selected.risk && rng() >= selected.risk.chance;
+  const e = failed && selected.risk ? selected.risk.fail : selected.effect;
   let next: Run = {
     ...run,
     eventDone: true,
-    eventResult: selected.result,
+    eventResult: failed && selected.risk ? selected.risk.result : selected.result,
     coins: run.coins + earned(run, e.coins ?? 0),
     scrap: run.scrap + (e.scrap ?? 0),
-    hp: Math.min(
-      max,
-      run.hp - Math.ceil(max * (e.damageMax ?? 0)) + max * (e.healMax ?? 0),
+    hp: Math.max(
+      1,
+      Math.min(
+        max,
+        run.hp - Math.ceil(max * (e.damageMax ?? 0)) + max * (e.healMax ?? 0),
+      ),
     ),
   };
   if (e.rescue) {
@@ -978,6 +1066,16 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
     next.mateLoot =
       e.loot === 'module' ? mateRow(run, meta, 1, 405, next.loot, e.rare) : [];
     next.picked = {};
+  }
+  for (const [what, lost] of [
+    ['module', e.loseModule],
+    ['furniture', e.loseFurniture],
+  ] as const) {
+    if (!lost) continue;
+    const gone = loseOne(next, meta, what, rng);
+    next = gone
+      ? { ...gone.run, eventResult: `${next.eventResult} Втрачено: ${gone.name}.` }
+      : { ...next, eventResult: `${next.eventResult} Втрачати не було чого.` };
   }
   return next;
 }

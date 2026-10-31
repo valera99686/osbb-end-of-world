@@ -203,7 +203,16 @@ async function vote(host, guest) {
 // The host's raid is put on an event: both see its choices, each picks, the
 // same pick acts, and the outcome shows at both ends.
 async function eventTest(host, guest) {
-  await host.eval(`window.__osbbRun({ page: 'event', kind: 'event' })`);
+  // An ordinary meeting (not one for two) that has a choice costing nothing, so
+  // that there is something to press whatever the run has.
+  const M = require('../.test-build/model.js');
+  const free = (c) => !c.risk && !c.effect.loseModule && !c.effect.loseFurniture && !c.effect.damageMax && (c.effect.coins ?? 0) >= 0 && (c.effect.scrap ?? 0) >= 0;
+  let seed = 1;
+  for (;; seed++) {
+    const ev = M.eventFor({ seed, chapter: 0, step: 0, coop: 'nina' });
+    if (!ev.together && ev.choices.some(free)) break;
+  }
+  await host.eval(`window.__osbbRun({ page: 'event', kind: 'event', seed: ${seed} })`);
   const options = (p, sel) =>
     p.eval(`document.querySelectorAll(${JSON.stringify(sel)} + ' .event-option:not([disabled])').length`);
   await until('the choices at the host', async () => (await options(host, '.play-main')) >= 1);

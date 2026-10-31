@@ -829,6 +829,154 @@ test('Shop furniture is finite, rerolls retain sold items, repairs are once per 
   });
   assert.equal(M.nextNode({ ...event, path: [...event.path, 0] }).page, 'map');
 });
+const CE = require('../.test-build/campaign-content.js');
+const EQ = require('../.test-build/equipment.js');
+// A run standing on the meeting with this id (the order of a location's
+// meetings comes from the seed, so seeds are tried).
+function onEvent(id, extra) {
+  const chapter = CE.CAMPAIGN_EVENTS.find((e) => e.id === id).chapter;
+  for (let seed = 1; seed < 6000; seed++) {
+    const run = {
+      ...M.makeRun(M.initialMeta(), 'mechanic', chapter, seed, extra),
+      kind: 'event',
+      page: 'event',
+      step: 4,
+      eventDone: false,
+      coins: 100,
+      scrap: 20,
+    };
+    if (M.eventFor(run).id === id) return run;
+  }
+  throw new Error('no seed for ' + id);
+}
+const modulesIn = (h) => h.items.filter(Boolean).length + h.backpack.length;
+
+test('Solo meetings are many, well formed, never repeat inside a location, and every one can come up', () => {
+  const meta = M.initialMeta();
+  const events = CE.CAMPAIGN_EVENTS;
+  assert.ok(events.length >= 36, String(events.length));
+  const ids = [...events, ...CE.TOGETHER_EVENTS].map((e) => e.id);
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+  const bounded = (x) => !x || (x.damageMax ?? 0) <= 0.25 && Math.abs(x.coins ?? 0) <= 60 && Math.abs(x.scrap ?? 0) <= 6;
+  let losses = 0,
+    gambles = 0;
+  for (const ev of events) {
+    assert.ok(ev.title && ev.text.length > 40, ev.id);
+    assert.ok(ev.choices.length >= 2 && ev.choices.length <= 3, ev.id);
+    for (const c of ev.choices) {
+      assert.ok(c.label && c.detail && c.result, `${ev.id}: ${c.label}`);
+      assert.ok(bounded(c.effect), `${ev.id}: ${c.label}`);
+      if (c.effect.loseModule || c.effect.loseFurniture || c.risk?.fail.loseModule || c.risk?.fail.loseFurniture) losses++;
+      if (c.risk) {
+        gambles++;
+        assert.ok(c.risk.chance > 0.2 && c.risk.chance < 0.9, ev.id);
+        assert.ok(c.risk.result && bounded(c.risk.fail), ev.id);
+        assert.ok(/Шанс \d+%/.test(c.detail), `${ev.id}: the odds are said`);
+      }
+    }
+  }
+  assert.ok(losses >= 8 && gambles >= 7, `${losses} losses, ${gambles} gambles`);
+  for (const chapter of [0, 1, 2]) {
+    const pool = events.filter((e) => e.chapter === chapter);
+    assert.ok(pool.length >= 12, `chapter ${chapter}: ${pool.length}`);
+    assert.ok(pool.some((e) => e.choices.some((c) => c.effect.loseModule || c.effect.loseFurniture || c.risk)), 'a location has some that can cost something');
+    const seen = new Set();
+    for (let seed = 1; seed <= 80; seed++) {
+      const here = [];
+      for (let step = 1; step <= 8; step++) {
+        const id = M.eventFor({ ...M.makeRun(meta, 'mechanic', chapter, seed), step }).id;
+        here.push(id);
+        seen.add(id);
+      }
+      assert.equal(new Set(here).size, 8, `a location shows no meeting twice: ${here}`);
+    }
+    assert.equal(seen.size, pool.length, `chapter ${chapter}: every meeting can come up`);
+  }
+});
+
+test('A meeting can take a module or a piece of furniture, only when there is one, and a gamble is rolled from the seed', () => {
+  const meta = M.initialMeta();
+  // A certain loss: the pawnshop takes a module and pays for it.
+  const pawn = onEvent('rust-pawn');
+  const lost = M.resolveEvent(pawn, meta, 0);
+  assert.equal(lost.eventDone, true);
+  assert.equal(modulesIn(lost), modulesIn(pawn) - 1);
+  assert.ok(lost.eventResult.includes('Втрачено:'), lost.eventResult);
+  assert.equal(lost.coins, pawn.coins + 60);
+  assert.equal(EQ.activeEquipment(lost).length, lost.items.filter(Boolean).length);
+  assert.ok(Number.isFinite(lost.hp) && lost.hp >= 1);
+  // The same, again, from a copy: no randomness outside the seed.
+  assert.deepEqual(M.resolveEvent(JSON.parse(JSON.stringify(pawn)), meta, 0).eventResult, lost.eventResult);
+  // A spare module goes as well, and a house with nothing cannot pay.
+  const bare = { ...pawn, items: pawn.items.map(() => null), backpack: [] };
+  assert.equal(M.canChooseEvent(bare, meta, CE.CAMPAIGN_EVENTS.find((e) => e.id === 'rust-pawn').choices[0].effect), false);
+  assert.equal(M.resolveEvent(bare, meta, 0), bare);
+  assert.deepEqual(M.eventColumns(bare, meta), [1], 'the other choice is still there');
+  const spare = M.storedItem({ ...pawn, items: pawn.items.map(() => null), backpack: [] }, 'armor');
+  const gone = M.resolveEvent(spare, meta, 0);
+  assert.equal(gone.backpack.length, 0, 'the spare module is the one that goes');
+  // Furniture: green-swap takes a piece and saves a neighbour.
+  const swap = onEvent('green-swap');
+  assert.deepEqual(M.eventColumns(swap, meta), [1], 'no furniture, no swap');
+  const furnished = { ...swap, furniture: [{ uid: 1, id: 'bench', resident: null, cell: null }], nextFurnitureId: 2 };
+  assert.deepEqual(M.eventColumns(furnished, meta), [0, 1]);
+  const traded = M.resolveEvent(furnished, meta, 0);
+  assert.equal(traded.furniture.length, 0);
+  assert.ok(traded.eventResult.includes('Втрачено:'), traded.eventResult);
+  // A gamble: about the odds it states, a loss when it fails, the same on any end.
+  let failed = 0,
+    total = 0;
+  for (let seed = 1; seed < 6000 && total < 400; seed += 3) {
+    const run = {
+      ...M.makeRun(meta, 'mechanic', 0, seed),
+      kind: 'event',
+      page: 'event',
+      step: 4,
+      coins: 100,
+      scrap: 20,
+    };
+    if (M.eventFor(run).id !== 'rust-collapse') continue;
+    const done = M.resolveEvent(run, meta, 0);
+    total++;
+    const bad = modulesIn(done) < modulesIn(run);
+    if (bad) {
+      failed++;
+      assert.ok(done.eventResult.startsWith('Міст осів'), done.eventResult);
+      assert.equal(done.coins, run.coins);
+    } else assert.equal(done.coins, run.coins + 30);
+  }
+  assert.ok(total >= 100, `${total} runs on the bridge`);
+  assert.ok(failed / total > 0.28 && failed / total < 0.52, `a 60% gamble failed ${failed}/${total}`);
+  // A failed gamble cannot kill the house.
+  const hive = onEvent('green-hive');
+  for (let seed = 1; seed < 400; seed++) {
+    const r = M.resolveEvent({ ...hive, seed, hp: 3 }, meta, 0);
+    if (M.eventFor({ ...hive, seed }).id === 'green-hive') assert.ok(r.hp >= 1, `seed ${seed}: ${r.hp}`);
+  }
+  // With a partner the loss falls on either house, never from nowhere.
+  let hostHits = 0,
+    mateHits = 0;
+  for (let seed = 1; seed < 6000 && hostHits + mateHits < 80; seed += 7) {
+    const run = {
+      // Nina is a partner only once she is open in the profile.
+      ...M.makeRun({ ...meta, wins: 8 }, 'mechanic', 0, seed, { coop: 'nina' }),
+      kind: 'event',
+      page: 'event',
+      step: 4,
+      coins: 100,
+    };
+    assert.equal(run.coop, 'nina');
+    if (M.eventFor(run).id !== 'rust-pawn') continue;
+    const mate = M.mateRun(run);
+    const done = M.resolveEvent(run, meta, 0);
+    const [h0, m0, h1, m1] = [modulesIn(run), modulesIn(mate), modulesIn(done), modulesIn(M.mateRun(done))];
+    assert.equal(h0 + m0 - 1, h1 + m1, 'one module goes, from one of the houses');
+    if (h1 < h0) hostHits++;
+    else mateHits++;
+  }
+  assert.ok(hostHits > 10 && mateHits > 10, `${hostHits} host, ${mateHits} partner`);
+});
+
 test('Nine bosses have distinct attacks, warnings and escalating health, and all enemy mechanics produce finite combat state', () => {
   const signatures = new Set();
   for (let location = 0; location < 3; location++)

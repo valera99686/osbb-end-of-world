@@ -1016,7 +1016,9 @@ test('Boss encounters terminate with a win and never produce NaN state', () => {
       (x) => (result = x),
     );
     b.stats.regen = 200;
-    for (let i = 0; i < 6000 && !b.ended; i++) {
+    // Leaders have two or three times the health of before and the clock is as
+    // long as theirs (480 s): twenty thousand steps of 25 ms are 500 s.
+    for (let i = 0; i < 20000 && !b.ended; i++) {
       b.x = 800 + Math.cos(i * 0.007) * 90;
       b.y = 500 + Math.sin(i * 0.007) * 90;
       if (b.pulseCd <= 0) b.pulse();

@@ -378,8 +378,29 @@ function shadow(c: CanvasRenderingContext2D, x: number, y: number, r: number) {
   c.globalAlpha = 1;
 }
 
-// Flat decals first (flat = true), then standing props with soft shadows;
-// both passes run before hazards and actors.
+// One prop: its sprite, with its soft shadow if it stands, or its charged
+// glow and scorch if it is the explosive one.
+export function drawProp(
+  c: CanvasRenderingContext2D,
+  p: ArenaProp,
+  chapter: number,
+  time: number,
+  colorblind = false,
+) {
+  const theme = themeIndex(chapter),
+    cells = art?.props[theme];
+  if (p.explosive) {
+    drawExplosive(c, p, theme, time, cells?.[0] ?? null, colorblind);
+    return;
+  }
+  const cell = cells?.[p.cell];
+  if (!cell) return;
+  if (!p.flat) shadow(c, p.x, p.y, p.size * 0.44);
+  drawCell(c, cell.body, p, p.flat);
+}
+// The props that lie flat (flat = true) or the ones that stand (flat = false),
+// in the order given. The flat ones go under everything; the standing ones are
+// drawn by the fight among the house and the enemies, by depth (drawProp).
 export function drawProps(
   c: CanvasRenderingContext2D,
   props: ArenaProp[],
@@ -389,20 +410,11 @@ export function drawProps(
   colorblind = false,
   visible?: (x: number, y: number, margin?: number) => boolean,
 ) {
-  const theme = themeIndex(chapter),
-    cells = art?.props[theme];
   for (const p of props) {
     // Everything a prop draws (sprite, decal, shadow, scorch) lies within
     // one size of its ground point.
     if (p.flat !== flat || (visible && !visible(p.x, p.y, p.size))) continue;
-    if (p.explosive) {
-      drawExplosive(c, p, theme, time, cells?.[0] ?? null, colorblind);
-      continue;
-    }
-    const cell = cells?.[p.cell];
-    if (!cell) continue;
-    if (!flat) shadow(c, p.x, p.y, p.size * 0.44);
-    drawCell(c, cell.body, p, flat);
+    drawProp(c, p, chapter, time, colorblind);
   }
 }
 function drawCell(

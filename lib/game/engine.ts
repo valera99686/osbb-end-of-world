@@ -105,6 +105,7 @@ import {
   drawProps,
   generateProps,
   preloadArenaArt,
+  drawProp,
   propBody,
   propTarget,
   propTouches,
@@ -135,9 +136,13 @@ export const STAGE_SECONDS = { boss: 4.6, miniboss: 3.6 } as const;
 // How much tougher than their sheet the leaders of a location are, per chapter:
 // the first boss fell too fast to be remembered, the last was already hard.
 export const LEADER_TOUGHNESS = {
-  boss: [1.5, 1.25, 1],
-  miniboss: [1.3, 1.15, 1],
+  boss: [3.75, 3.1, 2.5],
+  miniboss: [3.25, 2.9, 2.5],
 } as const;
+// How long a leader fight lasts before it is lost on time. The leaders have
+// two or three times the health they had, so the clock is two and a half times
+// as long: a build that did 50 damage a second still kills the first boss.
+export const LEADER_SECONDS = { boss: 480, miniboss: 330 } as const;
 const MUZZLE = 0.07;
 // Roof turret height above the house's feet line (world px).
 const TURRET_Y = -66;
@@ -842,9 +847,9 @@ export class Battle {
     // that sends the rest home. Leaders must be killed before it runs out.
     this.duration =
       run.kind === 'boss'
-        ? 210
+        ? LEADER_SECONDS.boss
         : run.kind === 'miniboss'
-          ? 150
+          ? LEADER_SECONDS.miniboss
           : 55 +
             run.chapter * 8 +
             run.step * 0.8 +
@@ -4985,15 +4990,6 @@ export class Battle {
         heroAbility(this.ally.hero).color,
       );
     this.ambient?.draw(c);
-    drawProps(
-      c,
-      this.props,
-      this.run.chapter,
-      this.elapsed,
-      false,
-      colorblind,
-      visible,
-    );
     this.drawAuras(c, visible);
     for (const hazard of this.hazards) drawHazard(c, hazard, this.settings);
     for (const t of this.trails) {
@@ -5032,25 +5028,40 @@ export class Battle {
       c.fill();
     }
     const actors = [
+      // Where each one stands on the ground (the house's shadow is 24 below
+      // its centre, an enemy's feet are a little below its middle): what is
+      // lower on the screen is nearer and is drawn later.
       ...this.enemies.map((enemy) => ({
-        y: enemy.y,
+        y: enemy.y + enemy.r * 0.5,
         enemy,
         dying: 0,
         partner: false,
       })),
       ...this.defeated.map((enemy) => ({
-        y: enemy.y,
+        y: enemy.y + enemy.r * 0.5,
         enemy,
         dying: 1 - enemy.life / 0.48,
         partner: false,
       })),
-      { y: this.y, enemy: null, dying: 0, partner: false },
+      { y: this.y + 24, enemy: null, dying: 0, partner: false },
       ...(this.ally
-        ? [{ y: this.ally.y, enemy: null, dying: 0, partner: true }]
+        ? [{ y: this.ally.y + 24, enemy: null, dying: 0, partner: true }]
         : []),
     ].sort((a, b) => a.y - b.y);
     const wrecked = this.ended && this.run.hp <= 0;
+    // The standing props are drawn among them by depth: an object nearer to the
+    // viewer than the house hides the part of it behind, instead of the house
+    // being drawn over it.
+    const standing = this.props.filter(
+      (p) => !p.flat && visible(p.x, p.y, p.size),
+    );
+    let nextProp = 0;
+    const propsBefore = (ground: number) => {
+      while (nextProp < standing.length && standing[nextProp].y <= ground)
+        drawProp(c, standing[nextProp++], this.run.chapter, this.elapsed, colorblind);
+    };
     for (const actor of actors) {
+      propsBefore(actor.y);
       const e = actor.enemy;
       if (!e && actor.partner) {
         if (!wrecked) this.drawAlly(c);
@@ -5108,6 +5119,7 @@ export class Battle {
         }
       }
     }
+    propsBefore(Infinity);
     if (this.muzzle > 0 && !wrecked) this.drawMuzzle(c);
     for (let i = 0; i < this.stats.drones; i++) {
       const a = this.elapsed * 0.8 + (i * Math.PI * 2) / this.stats.drones;

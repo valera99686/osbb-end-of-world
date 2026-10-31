@@ -414,7 +414,9 @@ test('Minibosses live long enough for their second phase and its extra move', ()
   for (const r of runs) {
     assert.ok(r.won, 'the moving bot beats the location-1 miniboss');
     assert.ok(r.phase2 !== null, 'reaches phase two');
-    assert.ok(r.secs >= 25 && r.secs <= 60, `took ${r.secs.toFixed(1)}s`);
+    // About two and a half times the health they had (LEADER_TOUGHNESS), so
+    // about two and a half times as long, and well inside the clock.
+    assert.ok(r.secs >= 25 && r.secs <= 200, `took ${r.secs.toFixed(1)}s`);
   }
 });
 

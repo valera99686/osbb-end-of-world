@@ -160,9 +160,9 @@ export const HEAT_LEVELS: { level: number; title: string; text: string }[] = [
 // location it comes in over the first steps, so the very first fights stay as
 // gentle as they were for someone still learning the controls.
 export const BASELINE = [
-  { enemyDamage: 1.7, spawnRate: 1.3, enemyHealth: 1.35 },
-  { enemyDamage: 1.15, spawnRate: 1.1, enemyHealth: 1.05 },
-  { enemyDamage: 1.1, spawnRate: 1.05, enemyHealth: 1 },
+  { enemyDamage: 1.7, spawnRate: 1.5, enemyHealth: 1.8 },
+  { enemyDamage: 1.15, spawnRate: 1.3, enemyHealth: 1.5 },
+  { enemyDamage: 1.1, spawnRate: 1.25, enemyHealth: 1.4 },
 ] as const;
 export const BASELINE_STEPS = 7;
 export function baselineAt(chapter: number, step: number) {

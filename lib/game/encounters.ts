@@ -735,7 +735,7 @@ export function encounterFor(
 /** How many more bodies than its template a squad has at a given point of the
  * raid, as a share of them: a little more with every fight, not in jumps, and
  * a little carried over from one location to the next. */
-export const SQUAD_GROWTH = { perStep: 0.045, perLocation: 0.12, cap: 0.75 } as const;
+export const SQUAD_GROWTH = { perStep: 0.07, perLocation: 0.18, cap: 1.2 } as const;
 export function squadGrowth(chapter: number, step: number): number {
   const c = Number.isFinite(chapter) ? Math.max(0, chapter) : 0,
     s = Number.isFinite(step) ? Math.max(0, step) : 0;

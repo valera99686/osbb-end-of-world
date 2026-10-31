@@ -1,0 +1,109 @@
+/* The goal of the story and the way out of the loop: three districts, then the morning */
+.story-track {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.story-track li {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 4px 6px;
+  border-radius: 10px;
+  background: #ffffff0a;
+  text-align: center;
+}
+.story-track li::after {
+  content: '';
+  position: absolute;
+  top: 22px;
+  right: -7px;
+  width: 8px;
+  height: 2px;
+  background: #ffffff33;
+}
+.story-track li:last-child::after {
+  display: none;
+}
+.story-track .dot {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #ffffff33;
+  border-radius: 99px;
+  color: #9db1c4;
+  font-size: 12px;
+  font-weight: 800;
+}
+.story-track b {
+  color: #9db1c4;
+  font-size: calc(12px * var(--text-scale, 1));
+  line-height: 1.25;
+}
+.story-track li.done .dot {
+  border-color: #6cbfac;
+  background: #6cbfac;
+  color: #0c141a;
+}
+.story-track li.done b {
+  color: #b8dccf;
+}
+.story-track li.now {
+  background: #f0b76422;
+  box-shadow: inset 0 0 0 1px #f0b76488;
+}
+.story-track li.now .dot {
+  border-color: var(--amber);
+  background: var(--amber);
+  color: #161b1e;
+}
+.story-track li.now b {
+  color: #fff3d6;
+}
+.story-track li.end .dot {
+  border-color: #f0b764aa;
+  color: var(--amber);
+}
+.story-track li.end b {
+  color: #d9c293;
+}
+
+.story-goal {
+  margin: 18px 0 8px;
+  padding: 16px 18px;
+  border: 1px solid #f0b76440;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #2c2312e6, #111f27f2);
+}
+.story-goal .micro {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--amber);
+}
+.story-goal h3 {
+  margin: 8px 0 4px;
+  font-size: calc(22px * var(--text-scale, 1));
+  color: #fff3d6;
+}
+.story-goal p {
+  margin: 0;
+  color: #c2cfd4;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: 1.5;
+}
+
+@media (max-width: 650px) {
+  .story-track {
+    grid-template-columns: 1fr 1fr;
+  }
+  .story-track li::after {
+    display: none;
+  }
+}

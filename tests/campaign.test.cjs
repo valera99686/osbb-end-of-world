@@ -851,6 +851,14 @@ function onEvent(id, extra) {
 }
 const modulesIn = (h) => h.items.filter(Boolean).length + h.backpack.length;
 
+test('The goal of the story is told: out of the loop, through every district, to the morning', () => {
+  const G = CE.STORY_GOAL;
+  assert.ok(G.title.includes('петл') && G.text.length > 30 && G.end === '04:18' && G.endName, JSON.stringify(G));
+  assert.equal(CE.CAMPAIGN_MISSIONS.length, C.LOCATIONS.length, 'a mission for every district');
+  assert.equal(C.LOCATIONS.length, 3);
+  for (const m of CE.CAMPAIGN_MISSIONS) assert.ok(m.length > 30, m);
+});
+
 test('Solo meetings are many, well formed, never repeat inside a location, and every one can come up', () => {
   const meta = M.initialMeta();
   const events = CE.CAMPAIGN_EVENTS;

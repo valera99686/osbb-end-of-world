@@ -1114,3 +1114,12 @@ export const TOGETHER_EVENTS: CampaignEvent[] = [
 ];
 export const CAMPAIGN_SCENES = content.cutscenes;
 export const CAMPAIGN_MISSIONS = content.mission;
+// The goal of the whole story, as the player is told it: the way out of the
+// loop that sends the city back to 04:17, through the three districts, to the
+// morning after.
+export const STORY_GOAL = {
+  title: 'Вийти з петлі 04:17',
+  text: 'Дійди до диспетчерської й вивези ядро «Світанку»: тоді годинник нарешті піде далі.',
+  end: '04:18',
+  endName: 'Ранок',
+};

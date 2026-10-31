@@ -418,3 +418,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* The hub's mission now holds a paragraph and the way out of the loop */
+.hub-mission p {
+  margin: 0;
+}

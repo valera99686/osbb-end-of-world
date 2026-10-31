@@ -28,6 +28,7 @@ import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
 import type { Meta } from '@/lib/game/model';
 import { GuestAside, GuestPages, useGuestHouse } from './guest-home';
+import { StoryTrack } from './story-goal';
 
 const RouteTree = lazy(() =>
   import('./route-tree').then((m) => ({ default: m.RouteTree })),
@@ -351,6 +352,7 @@ export function GuestRoom({
               ? 'Карта рейду'
               : 'Куди йти — вирішуєте вдвох'}
         </h2>
+        {view && <StoryTrack chapter={view.chapter} />}
         <p className="guest-status">
           {session.status || 'Чекаємо, поки господар дійде до бою.'}
         </p>

@@ -113,6 +113,7 @@ import {
 import { NoticeBoard } from './notice-board';
 import { CoopSelect } from './coop-select';
 import { PlayModes, type PlayMode } from './play-modes';
+import { StoryGoal, StoryTrack } from './story-goal';
 import { GuestRoom, OnlinePanel, useNet } from './online';
 import { HOST_IN_FIGHT, NetSession } from '@/lib/game/session';
 import type { ShareMode } from '@/lib/game/net';
@@ -1529,11 +1530,14 @@ export default function Game() {
               )}
             </PlayModes>
             <section className="hub-brief">
-              <p className="hub-mission">
+              <div className="hub-mission">
                 <span className="micro">ТВОЯ МІСІЯ</span>
-                <b>Ти — голова ОСББ.</b> Рятуй мешканців будинку №17 і зупини
-                петлю 04:17.
-              </p>
+                <p>
+                  <b>Ти — голова ОСББ.</b> Виведи будинок №17 з петлі 04:17:
+                  дійди до диспетчерської й вивези ядро «Світанку».
+                </p>
+                <StoryTrack chapter={run?.chapter ?? 0} />
+              </div>
               <ol className="hub-howto">
                 <li>
                   <Route size={22} />
@@ -1808,6 +1812,7 @@ export default function Game() {
                     </p>
                     <h2>{LOCATIONS[run.chapter].name}</h2>
                     <p className="lead">{LOCATIONS[run.chapter].desc}</p>
+                    <StoryGoal chapter={run.chapter} attempt={meta.runs + 1} />
                     <div className="mission-banner">
                       <Target size={22} />
                       <div>

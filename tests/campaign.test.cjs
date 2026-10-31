@@ -5,7 +5,7 @@ const M = require('../.test-build/model.js'),
   C = require('../.test-build/encounters.js'),
   B = require('../.test-build/bosses.js'),
   S = require('../.test-build/cutscenes.js');
-const { Battle, AudioEngine } = require('../.test-build/engine.js');
+const { Battle, AudioEngine, LEADER_TOUGHNESS } = require('../.test-build/engine.js');
 const Mini = require('../.test-build/minibosses.js');
 
 function isolatedBattle(chapter = 0) {
@@ -720,7 +720,7 @@ test('Miniboss fights have distinct telegraphed attacks, require a kill and awar
         engine.enemies.some((e) => e.type === 99),
         false,
       );
-      assert.equal(hud.bossMax, def.health);
+      assert.equal(hud.bossMax, def.health * LEADER_TOUGHNESS.miniboss[chapter]);
       engine.stats.damage = 0;
       engine.invincible = 200;
       for (let i = 0; i < 600; i++) engine.update(0.025);

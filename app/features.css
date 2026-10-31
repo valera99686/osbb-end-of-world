@@ -1000,9 +1000,31 @@
 .online-actions .secondary {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  flex: 1 1 150px;
-  justify-content: center;
+  gap: 10px;
+  flex: 1 1 190px;
+  justify-content: flex-start;
+  min-height: 58px;
+  text-align: left;
+}
+.online-actions .secondary span {
+  display: grid;
+  gap: 2px;
+}
+.online-actions .secondary small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #9db1c4;
+}
+.online-more {
+  margin-top: 8px;
+}
+.online-more > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  color: #8fbdf0;
+  font-size: 12px;
+  cursor: pointer;
 }
 .online-join {
   display: flex;

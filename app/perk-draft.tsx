@@ -16,11 +16,14 @@ export function PerkDraft({
   run,
   offers,
   level,
+  waiting,
   onPick,
 }: {
   run: Run;
   offers: PerkId[];
   level: number;
+  // Online: seconds left before the first card is taken for the pair.
+  waiting?: number;
   onPick: (id: PerkId) => void;
 }) {
   useEffect(() => {
@@ -54,6 +57,9 @@ export function PerkDraft({
       <header>
         <small>РІВЕНЬ {level}</small>
         <h2>Сусіди пропонують</h2>
+        {waiting !== undefined && (
+          <small className="perk-wait">Друг чекає · {waiting} с</small>
+        )}
       </header>
       <div className="perk-cards">
         {offers.map((id, i) => {

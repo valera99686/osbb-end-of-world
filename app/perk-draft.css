@@ -181,3 +181,9 @@
     animation: none;
   }
 }
+.perk-wait {
+  display: block;
+  margin-top: 4px;
+  color: #f0c060;
+  font-variant-numeric: tabular-nums;
+}

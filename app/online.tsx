@@ -138,6 +138,7 @@ export function OnlinePanel({
   session,
   build,
   mode,
+  hasRun,
   onMode,
   onHost,
   onJoin,
@@ -146,6 +147,8 @@ export function OnlinePanel({
   session: NetSession | null;
   build: string;
   mode: ShareMode;
+  // A raid of this player is unfinished: a room is for a new one.
+  hasRun: boolean;
   onMode: (mode: ShareMode) => void;
   onHost: () => void;
   onJoin: (code: string) => void;
@@ -171,21 +174,25 @@ export function OnlinePanel({
   }
   return (
     <div className={`online-panel${session ? ' on' : ''}`}>
-      <div className="online-head">
-        <span className="micro">
-          <Globe size={14} /> ГРА ПО МЕРЕЖІ
-        </span>
-        {session && (
+      {session && (
+        <div className="online-head">
+          <span className="micro">
+            <Globe size={14} /> КІМНАТА
+          </span>
           <button type="button" className="coop-switch" onClick={onClose}>
             <LogOut size={13} /> Закрити
           </button>
-        )}
-      </div>
+        </div>
+      )}
       {!session && (
         <>
           <div className="online-actions">
             <button type="button" className="secondary" onClick={onHost}>
-              <Users size={16} /> Створити кімнату
+              <Users size={18} />
+              <span>
+                <b>Створити кімнату</b>
+                <small>Отримаєш код для друга</small>
+              </span>
             </button>
             <button
               type="button"
@@ -193,7 +200,11 @@ export function OnlinePanel({
               onClick={() => setJoining((v) => !v)}
               aria-expanded={joining}
             >
-              <LogIn size={16} /> Приєднатися
+              <LogIn size={18} />
+              <span>
+                <b>Приєднатися</b>
+                <small>У мене є код</small>
+              </span>
             </button>
           </div>
           {joining && (
@@ -206,6 +217,7 @@ export function OnlinePanel({
                 autoCapitalize="characters"
                 autoComplete="off"
                 spellCheck={false}
+                autoFocus
                 aria-label="Код кімнати"
               />
               <button className="primary" disabled={!code}>
@@ -213,32 +225,41 @@ export function OnlinePanel({
               </button>
             </form>
           )}
-          <div className="share-mode" role="radiogroup" aria-label="Як ділити бій">
-            {(
-              [
-                ['sync', 'Обидва рахують', 'Найточніше й найлегше для мережі. Потрібна однакова версія гри, слабкий пристрій гальмує обох.'],
-                ['host', 'Хост рахує', 'Господар рахує бій, гість керує й дивиться. Гість відчуває затримку зв’язку, зате розсинхрону немає.'],
-              ] as const
-            ).map(([id, name, text]) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={mode === id}
-                className={`share-option${mode === id ? ' active' : ''}`}
-                onClick={() => onMode(id)}
-                title={text}
-              >
-                <b>{name}</b>
-                <small>{text}</small>
-              </button>
-            ))}
-          </div>
-          <p>
-            Двоє на різних пристроях: ПК і ПК, ПК і телефон, телефон і телефон.
-            Господар веде рейд, гість у боях веде другий будинок. Потрібні інтернет
-            і однакова версія гри (v{build}).
-          </p>
+          {hasRun && (
+            <p>
+              <b>Рейд уже триває.</b> Приєднатися до друга можна будь-коли, а
+              щоб створити кімнату, поточний рейд доведеться завершити.
+            </p>
+          )}
+          <p>Потрібні інтернет і однакова версія гри (v{build}).</p>
+          <details className="online-more">
+            <summary>Як ділити бій</summary>
+            <div
+              className="share-mode"
+              role="radiogroup"
+              aria-label="Як ділити бій"
+            >
+              {(
+                [
+                  ['sync', 'Обидва рахують', 'Найточніше й найлегше для мережі. Слабкий пристрій гальмує обох.'],
+                  ['host', 'Хост рахує', 'Господар рахує бій, гість керує й дивиться. Гість відчуває затримку зв’язку, зате розсинхрону немає.'],
+                ] as const
+              ).map(([id, name, text]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === id}
+                  className={`share-option${mode === id ? ' active' : ''}`}
+                  onClick={() => onMode(id)}
+                  title={text}
+                >
+                  <b>{name}</b>
+                  <small>{text}</small>
+                </button>
+              ))}
+            </div>
+          </details>
         </>
       )}
       {session?.role === 'host' && session.phase === 'waiting' && (
@@ -262,8 +283,7 @@ export function OnlinePanel({
           )}
           {session.code && (
             <p>
-              Скажи цей код другові: у нього в «Приєднатися». Кімната відкрита,
-              чекаємо.
+              Скажи цей код другові: він вводить його в «Приєднатися». Чекаємо.
             </p>
           )}
         </>
@@ -273,8 +293,7 @@ export function OnlinePanel({
           <b>
             Напарник підключений: {heroName(session.partner?.hero ?? '')}.
           </b>{' '}
-          Вирушай у рейд: він бачитиме й проходитиме бої разом із тобою.
-          Карту, магазин і події веде господар.
+          Тисни «Вирушити в рейд»: друг буде поруч у кожному бою.
           {session.via === 'relay' &&
             ' З’єднання йде через резервний канал: затримка більша, а бій рахуєш лише ти.'}
         </p>

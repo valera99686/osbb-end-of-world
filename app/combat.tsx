@@ -69,6 +69,9 @@ const ABILITY_ICONS: Record<HeroAbility['id'], LucideIcon> = {
   express: Wind,
   jam: Radio,
 };
+// Online both ends stand still while the pick is made: it may take this long,
+// then the first card is taken, so that nobody waits for ever.
+const DRAFT_SECONDS = 12;
 const SECOND_HINT: Record<'dash' | 'pulse', string> = {
   dash: '/',
   pulse: '.',
@@ -173,6 +176,9 @@ export function Combat({
     [netNote, setNetNote] = useState<'' | 'wait' | 'lost' | 'drift'>('');
   const alive = useRef(true),
     opened = useRef(false);
+  const [draftLeft, setDraftLeft] = useState(DRAFT_SECONDS);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   useEffect(() => {
     // The host asks the guest to build the very same fight and waits for it.
     alive.current = true;
@@ -495,12 +501,40 @@ export function Combat({
     setStick2({ x: 0, y: 0 });
     if (engine.current) engine.current.stick2 = { x: 0, y: 0 };
   }
+  // The fight is shared with a partner who is really there.
+  const shared = !!net && sid !== null && sid > 0 && !!net.link;
+  function takePerk(id: PerkId) {
+    audio.play('ui');
+    setDraft(null);
+    // Online both ends take the pick at the same moment.
+    engine.current?.sync?.choose(id);
+    engine.current?.choosePerk(id);
+  }
+  const drafting = !!draft || hud.drafting,
+    draftKey = draft?.level ?? hud.level;
+  useEffect(() => {
+    if (!shared || !drafting || paused || hold) {
+      setDraftLeft(DRAFT_SECONDS);
+      return;
+    }
+    const start = performance.now();
+    setDraftLeft(DRAFT_SECONDS);
+    const timer = window.setInterval(() => {
+      const left = DRAFT_SECONDS - (performance.now() - start) / 1000;
+      setDraftLeft(Math.max(0, Math.ceil(left)));
+      if (left > 0) return;
+      window.clearInterval(timer);
+      const open = draftRef.current;
+      if (open && net?.role !== 'guest') takePerk(open.offers[0]);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [shared, drafting, paused, hold, draftKey]);
   const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
   return (
     <section className="battle-screen">
       {(draft || hud.drafting) && !paused && !hold && net?.role === 'guest' && (
         <div className="net-note" role="status">
-          Господар обирає покращення…
+          Друг обирає покращення… ще {draftLeft} с
         </div>
       )}
       {draft && !paused && !hold && net?.role !== 'guest' && (
@@ -508,13 +542,8 @@ export function Combat({
           run={engine.current?.run ?? run}
           offers={draft.offers}
           level={draft.level}
-          onPick={(id) => {
-            audio.play('ui');
-            setDraft(null);
-            // Online both ends take the pick at the same moment.
-            engine.current?.sync?.choose(id);
-            engine.current?.choosePerk(id);
-          }}
+          waiting={shared ? draftLeft : undefined}
+          onPick={takePerk}
         />
       )}
       {(sid === null || netNote) && (

@@ -1,0 +1,287 @@
+/* The hub's first block: who plays. Three big choices, one panel under them. */
+.play-modes {
+  max-width: 560px;
+  margin: 0 0 22px;
+}
+.play-modes-title {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--amber);
+}
+.play-modes-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.play-mode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 112px;
+  padding: 14px;
+  border: 1px solid #ffffff22;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #18272fdd, #0d171ee8);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #b7c6cd;
+  text-align: left;
+  transition:
+    transform 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.play-mode-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: #ffffff14;
+  color: #b7c6cd;
+}
+.play-mode-text {
+  display: grid;
+  gap: 2px;
+}
+.play-mode b {
+  font-size: calc(15px * var(--text-scale, 1));
+  color: #eef4f0;
+}
+.play-mode small {
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #8fa2ac;
+}
+.play-mode:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #f0b76488;
+}
+.play-mode.active {
+  border-color: var(--amber);
+  background: linear-gradient(160deg, #3b2e15ee, #1a1409f2);
+  box-shadow:
+    0 12px 30px -14px #f0b764bb,
+    inset 0 0 0 1px #f0b76466;
+}
+.play-mode.active .play-mode-icon {
+  background: var(--amber);
+  color: #161b1e;
+}
+.play-mode.active small {
+  color: #d9c293;
+}
+.play-mode.active::after {
+  content: '✓';
+  position: absolute;
+  top: 10px;
+  right: 13px;
+  color: var(--amber);
+  font-weight: 800;
+}
+.play-mode:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.play-modes .coop-select,
+.play-modes .online-panel {
+  margin: 10px 0 0;
+  max-width: none;
+  border-radius: 12px;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* The mission and the three steps under the mode choice */
+.hub-brief {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 0 22px;
+}
+.hub-mission {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #f0b76440;
+  border-left: 4px solid var(--amber);
+  border-radius: 12px;
+  background: linear-gradient(90deg, #2c2312e6, #12191fcc);
+  color: #e6eee9;
+  font-size: calc(18px * var(--text-scale, 1));
+  line-height: 1.5;
+}
+.hub-mission .micro {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--amber);
+}
+.hub-mission b {
+  color: #fff3d6;
+}
+.hub-howto {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: howto;
+}
+.hub-howto li {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  padding: 13px 12px 12px;
+  border: 1px solid #ffffff1c;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #15232bd9, #0d171ee6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  counter-increment: howto;
+}
+.hub-howto li::after {
+  content: counter(howto);
+  position: absolute;
+  top: 9px;
+  right: 11px;
+  color: #ffffff30;
+  font-size: 22px;
+  font-weight: 800;
+}
+.hub-howto svg {
+  color: var(--teal);
+}
+.hub-howto b {
+  color: #eef4f0;
+  font-size: calc(14px * var(--text-scale, 1));
+}
+.hub-howto span {
+  color: #a3b5bd;
+  font-size: calc(12.5px * var(--text-scale, 1));
+  line-height: 1.45;
+}
+
+/* The way in: the biggest thing on the page */
+.hub-copy .start-button {
+  min-width: 320px;
+  padding: 19px 26px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffcb7c, #eba34b);
+  box-shadow:
+    0 14px 34px -12px #f0b764cc,
+    inset 0 1px 0 #fff4;
+  font-size: 15px;
+  animation: start-glow 2.8s ease-in-out infinite;
+}
+.hub-copy .start-button:hover {
+  background: linear-gradient(180deg, #ffd690, #f2ac55);
+}
+@keyframes start-glow {
+  50% {
+    box-shadow:
+      0 14px 44px -6px #f0b764ff,
+      inset 0 1px 0 #fff4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub-copy .start-button {
+    animation: none;
+  }
+  .play-mode {
+    transition: none;
+  }
+}
+
+/* What is not needed for a first raid waits in a fold */
+.hub-setup {
+  max-width: 560px;
+  margin: 16px 0 0;
+  padding: 0 14px;
+  border: 1px solid #ffffff1c;
+  border-radius: 12px;
+  background: #0f1a21b3;
+}
+.hub-setup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: #b7c6cd;
+  font-size: calc(14px * var(--text-scale, 1));
+  cursor: pointer;
+  list-style: none;
+}
+.hub-setup > summary::-webkit-details-marker {
+  display: none;
+}
+.hub-setup > summary::after {
+  content: '▾';
+  margin-left: auto;
+  color: var(--amber);
+}
+.hub-setup[open] > summary::after {
+  content: '▴';
+}
+.hub-setup > summary b {
+  color: #e9f0ec;
+}
+
+/* The unfinished raid, said once and plainly */
+.hub-resume {
+  max-width: 520px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #5a4a2a;
+  border-left: 3px solid var(--amber);
+  border-radius: 5px;
+  background: #221c10cc;
+  color: #d7cdb8;
+  font-size: calc(13px * var(--text-scale, 1));
+  line-height: 1.5;
+}
+.hub-resume b {
+  color: var(--amber);
+}
+.hub-resume .secondary {
+  margin-top: 8px;
+}
+
+@media (max-width: 650px) {
+  .play-modes-tabs {
+    grid-template-columns: 1fr;
+  }
+  .play-mode {
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+  }
+  .hub-howto {
+    grid-template-columns: 1fr;
+  }
+  .hub-howto li {
+    grid-template-columns: 22px 1fr;
+    column-gap: 10px;
+    align-items: center;
+  }
+  .hub-howto li span {
+    grid-column: 2;
+  }
+  .hub-howto svg {
+    grid-row: 1 / 3;
+  }
+  .hub-copy .start-button {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* The title gives the mode choice room to be seen without scrolling */
+.hub-copy h1 {
+  margin: 18px 0 18px;
+  font-size: clamp(56px, 6.2vw, 96px);
+  letter-spacing: -4px;
+}

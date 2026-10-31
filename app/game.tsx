@@ -78,6 +78,8 @@ import {
   Flame,
   Infinity as InfinityIcon,
   MonitorDown,
+  Route,
+  Users,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import {
@@ -109,12 +111,14 @@ import {
 } from './modes-panel';
 import { NoticeBoard } from './notice-board';
 import { CoopSelect } from './coop-select';
+import { PlayModes, type PlayMode } from './play-modes';
 import { GuestRoom, OnlinePanel, useNet } from './online';
 import { HOST_IN_FIGHT, NetSession } from '@/lib/game/session';
 import type { ShareMode } from '@/lib/game/net';
 import {
   ballotResult,
   coopHero,
+  coopPartners,
   guestFightCores,
   guestRunCores,
   VOTE,
@@ -285,6 +289,10 @@ export default function Game() {
     [heat, setHeat] = useState(0),
     // Hero of the second player; '' when the next raid is played alone.
     [coopPick, setCoopPick] = useState(''),
+    // The hub's first choice: alone, two on one device, or two over the net.
+    [playMode, setPlayMode] = useState<PlayMode>('solo'),
+    // A room waits for the unfinished raid to be closed first.
+    [hostAfter, setHostAfter] = useState(false),
     // Online co-op: the room, the fight the host opened for a guest, how the
     // last one ended, and whether the current raid was begun with a partner.
     [net, setNet] = useState<NetSession | null>(null),
@@ -428,7 +436,9 @@ export default function Game() {
       setChapter(0);
       const stored = Number(localStorage.getItem('osbb.heat'));
       if (Number.isFinite(stored)) setHeat(Math.max(0, Math.floor(stored)));
-      setCoopPick(coopHero(loaded.wins, localStorage.getItem('osbb.coop')));
+      const savedCoop = coopHero(loaded.wins, localStorage.getItem('osbb.coop'));
+      setCoopPick(savedCoop);
+      if (savedCoop) setPlayMode('local');
       if (s.error) setNotice('Збереження пошкоджено. Створено новий профіль.');
       else if (s.refund)
         setNotice(
@@ -974,6 +984,25 @@ export default function Game() {
       // Only a convenience: the second player is off again next time.
     }
   }
+  function pickMode(next: PlayMode) {
+    setPlayMode(next);
+    // Only "Вдвох тут" starts the next raid with a second player on the device;
+    // online the partner comes with the room.
+    pickCoop(
+      next === 'local'
+        ? coopChoice || (coopPartners(meta.wins)[0]?.id ?? '')
+        : '',
+    );
+  }
+  // A room is for a new raid: an unfinished one is closed first, with a say.
+  function askHost() {
+    if (!run) return void hostOnline();
+    setQueued(null);
+    setHostAfter(true);
+    setAbandon(true);
+  }
+  // What the next hub is built for: the extras wait for a finished first raid.
+  const veteran = ready && meta.tutorialDone && meta.runs > 0;
   function start() {
     if (!ready) return;
     audio.current!.unlock();
@@ -1402,73 +1431,78 @@ export default function Game() {
               <br />
               <em>кінця світу</em>
             </h1>
-            <p className="intro">
-              Україна, 2086 рік. Врятуй мешканців будинку №17 і зупини систему,
-              яка щоразу повертає місто до початку катастрофи о 04:17.
-            </p>
-            <div className="crew-select" aria-label="Голова ОСББ для рейду">
-              {CHARACTERS.map((c) => (
-                <button
-                  key={c.id}
-                  className={`crew-option ${(run?.character ?? character) === c.id ? 'active' : ''}`}
-                  disabled={c.win > meta.wins || !!run}
-                  onClick={() => setCharacter(c.id)}
-                  title={
-                    c.win > meta.wins
-                      ? `Заверши ${c.win} повних експедицій`
-                      : c.desc
-                  }
-                >
-                  {c.win > meta.wins ? (
-                    <Lock size={17} />
-                  ) : (
-                    <Glyph name={c.icon} size={19} />
-                  )}
-                  <span>{c.name}</span>
-                </button>
-              ))}
-            </div>
-            <p className="crew-description">
-              {run
-                ? `Голова ОСББ: ${RESIDENT_BY_ID[run.character].name}. На борту — ${run.residents.length}. Урятовані в цій експедиції: ${run.rescued.length}.`
-                : CHARACTERS.find((c) => c.id === character)?.desc}
-              {!run && (
+            <PlayModes mode={playMode} onMode={pickMode} roomOpen={!!net}>
+              {playMode === 'local' && (
                 <>
-                  <br />
-                  <b>E — {heroAbility(character).name}.</b>{' '}
-                  {heroAbility(character).text}
-                </>
-              )}
-            </p>
-            {run ? (
-              <RunBadge run={run} />
-            ) : (
-              <>
-                <HeatSelect
-                  max={heatChoices(meta.heatUnlocked)}
-                  value={heatChoice}
-                  onChange={pickHeat}
-                />
-                {!livePartner && (
                   <CoopSelect
                     wins={meta.wins}
                     value={coopChoice}
                     onChange={pickCoop}
                   />
-                )}
+                  {run && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        requestLaunch({
+                          mode: 'campaign',
+                          character,
+                          heat: heatChoice,
+                          coop: coopChoice,
+                        })
+                      }
+                    >
+                      Почати новий рейд вдвох
+                    </button>
+                  )}
+                </>
+              )}
+              {playMode === 'online' && (
                 <OnlinePanel
                   session={net}
                   build={APP_VERSION}
                   mode={shareMode}
+                  hasRun={!!run}
                   onMode={(m) => {
                     setShareMode(m);
                     if (net?.role === 'host') net.mode = m;
                   }}
-                  onHost={hostOnline}
+                  onHost={askHost}
                   onJoin={joinOnline}
                   onClose={closeOnline}
                 />
-              </>
+              )}
+            </PlayModes>
+            <section className="hub-brief">
+              <p className="hub-mission">
+                <span className="micro">ТВОЯ МІСІЯ</span>
+                <b>Ти — голова ОСББ.</b> Рятуй мешканців будинку №17 і зупини
+                петлю 04:17.
+              </p>
+              <ol className="hub-howto">
+                <li>
+                  <Route size={22} />
+                  <b>Обери маршрут</b>
+                  <span>На карті: бій, магазин чи подія.</span>
+                </li>
+                <li>
+                  <Crosshair size={22} />
+                  <b>Виживай у бою</b>
+                  <span>WASD чи джойстик, пробіл — ривок, E — вміння.</span>
+                </li>
+                <li>
+                  <Users size={22} />
+                  <b>Рятуй сусідів</b>
+                  <span>Розселяй їх: вони посилюють дім.</span>
+                </li>
+              </ol>
+            </section>
+            {run && (
+              <div className="hub-resume">
+                <b>Рейд триває:</b> {LOCATIONS[run.chapter].name}, крок{' '}
+                {run.step + 1}. Голова ОСББ: {RESIDENT_BY_ID[run.character].name},
+                врятовано {run.rescued.length}. <RunBadge run={run} />
+              </div>
             )}
             <button
               className="primary start-button"
@@ -1478,7 +1512,55 @@ export default function Game() {
               {run ? 'ПРОДОВЖИТИ РЕЙД' : 'ВИРУШИТИ В РЕЙД'}{' '}
               <ArrowUpRight size={22} />
             </button>
-            {ready && meta.tutorialDone && (
+            {!run && (
+              <details className="hub-setup">
+                <summary>
+                  Голова:{' '}
+                  <b>{CHARACTERS.find((c) => c.id === character)?.name}</b>
+                  {heatChoice > 0 && (
+                    <>
+                      {' '}
+                      · складність <b>{heatChoice}</b>
+                    </>
+                  )}
+                  <span className="muted"> — змінити</span>
+                </summary>
+                <div className="crew-select" aria-label="Голова ОСББ для рейду">
+                  {CHARACTERS.map((c) => (
+                    <button
+                      key={c.id}
+                      className={`crew-option ${character === c.id ? 'active' : ''}`}
+                      disabled={c.win > meta.wins}
+                      onClick={() => setCharacter(c.id)}
+                      title={
+                        c.win > meta.wins
+                          ? `Заверши ${c.win} повних експедицій`
+                          : c.desc
+                      }
+                    >
+                      {c.win > meta.wins ? (
+                        <Lock size={17} />
+                      ) : (
+                        <Glyph name={c.icon} size={17} />
+                      )}
+                      <span>{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="crew-description">
+                  {CHARACTERS.find((c) => c.id === character)?.desc}
+                  <br />
+                  <b>E — {heroAbility(character).name}.</b>{' '}
+                  {heroAbility(character).text}
+                </p>
+                <HeatSelect
+                  max={heatChoices(meta.heatUnlocked)}
+                  value={heatChoice}
+                  onChange={pickHeat}
+                />
+              </details>
+            )}
+            {veteran && (
               <div className="hub-goal">
                 {(run || meta.bestDepth > 0) && (
                   <RunProgress
@@ -1493,14 +1575,17 @@ export default function Game() {
                 <NextGoal meta={meta} />
               </div>
             )}
-            <HubModes
-              meta={meta}
-              run={run}
-              heat={heatChoice}
-              onLaunch={requestLaunch}
-              onContinue={start}
-            />
-            {ready && meta.tutorialDone && <NoticeBoard />}
+            {veteran && (
+              <HubModes
+                meta={meta}
+                run={run}
+                heat={heatChoice}
+                onLaunch={requestLaunch}
+                onContinue={start}
+              />
+            )}
+            {veteran && <NoticeBoard />}
+            {veteran && (
             <div className="hub-links">
               <button
                 className="text-button"
@@ -1549,6 +1634,7 @@ export default function Game() {
                 <ChartColumn size={18} /> Статистика
               </button>
             </div>
+            )}
             {(run || install.canInstall) && (
               <div className="hub-secondary">
                 {run && (
@@ -2475,14 +2561,14 @@ export default function Game() {
               джойстик ліворуч. Стрільба автоматична.
             </p>
             <p>
-              <b>По мережі.</b> У Притулку «Гра по мережі»: господар створює
+              <b>По мережі.</b> У Притулку «Хто грає?» → «Вдвох по мережі»: господар створює
               кімнату й каже другові код із п’яти символів, той вводить його в
               «Приєднатися». Господар веде рейд, гість у боях веде другий будинок
               і отримує ядра у свій профіль. Працює між ПК і телефонами; потрібні
               інтернет і однакова версія гри.
             </p>
             <p>
-              <b>Вдвох.</b> У Притулку можна ввімкнути другого гравця на тому ж
+              <b>Вдвох.</b> У Притулку («Хто грає?» → «Вдвох тут») можна ввімкнути другого гравця на тому ж
               пристрої. Перший веде будинок (WASD, пробіл, E), другий — другий
               будинок на ногах зі стрілками (/ — ривок, . — вміння свого
               героя) або з другим геймпадом чи джойстиком на екрані. Якщо він
@@ -2589,12 +2675,20 @@ export default function Game() {
           </button>
         </DialogContent>
       </Dialog>
-      <Dialog open={abandon} onOpenChange={setAbandon}>
+      <Dialog
+        open={abandon}
+        onOpenChange={(open) => {
+          setAbandon(open);
+          if (!open) setHostAfter(false);
+        }}
+      >
         <DialogContent className="game-modal">
           <DialogTitle>Завершити цей рейд?</DialogTitle>
           <DialogDescription>
             {queued &&
               `Щоб почати ${MODE_NAMES[queued.mode]}, спершу треба завершити поточний рейд. `}
+            {hostAfter &&
+              'Кімната створюється для нового рейду, тож поточний спершу треба завершити. '}
             Поточний будинок і монети зникнуть. Зароблені ядра та умови
             відкриття предметів буде враховано.
           </DialogDescription>
@@ -2617,12 +2711,26 @@ export default function Game() {
                 }
                 ping(`Попередній рейд завершено: +${f.cores} ядер.`);
               } else if (run) ended({ run, won: false, boss: false });
+              if (hostAfter) {
+                setHostAfter(false);
+                void hostOnline();
+              }
               setAbandon(false);
             }}
           >
-            {queued ? 'Завершити й почати' : 'Завершити й повернутися'}
+            {queued
+              ? 'Завершити й почати'
+              : hostAfter
+                ? 'Завершити й створити кімнату'
+                : 'Завершити й повернутися'}
           </button>
-          <button className="secondary" onClick={() => setAbandon(false)}>
+          <button
+            className="secondary"
+            onClick={() => {
+              setHostAfter(false);
+              setAbandon(false);
+            }}
+          >
             Залишитися в рейді
           </button>
         </DialogContent>

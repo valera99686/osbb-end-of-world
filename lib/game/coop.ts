@@ -28,7 +28,7 @@ export const COOP = {
   leaders: 2,
   // Two leaders attack at once, and their patterns are made for one target:
   // each one is a little weaker and swings a little less often.
-  leaderHealth: 0.8,
+  leaderHealth: 0.9,
   bossTime: 1.35,
   // Revive: the house stands next to the fallen one for this long. Alone the
   // partner gets up after `autoRise` seconds with a part of their health.

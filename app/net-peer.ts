@@ -16,6 +16,10 @@ const PREFIX = 'osbb17-';
 const DIRECT_WAIT = 7000;
 const JOIN_TIMEOUT = 32000;
 const OPEN_TIMEOUT = 15000;
+// How often a room that lost its name on the broker asks for it back, and how
+// long a guest keeps looking for a room the broker does not know.
+const REVIVE_EVERY = 3000;
+const NOT_FOUND_WAIT = 14000;
 // The default servers of PeerJS include a free relay that no longer exists, so
 // the list is our own: public STUN, and the player's relay if they set one up.
 const options = () => ({
@@ -124,6 +128,38 @@ export async function createRoom(
       on.code(code);
       listen(code);
     });
+    // The broker lets go of a room's name when the connection to it drops (a
+    // phone that slept, a tab in the background, a network hiccup), and then a
+    // friend who types the code is told there is no such room. The room takes
+    // its name back as soon as it can, for as long as it is open.
+    let revive = 0;
+    const keepName = () => {
+      if (closed || p.destroyed || !p.disconnected) return;
+      try {
+        p.reconnect();
+      } catch {
+        // Tried again below.
+      }
+      revive = window.setTimeout(keepName, REVIVE_EVERY);
+    };
+    p.on('disconnected', () => {
+      if (closed || !p.open) return;
+      window.clearTimeout(revive);
+      revive = window.setTimeout(keepName, 600);
+    });
+    const wake = () => {
+      if (document.visibilityState === 'visible' && p.disconnected && !closed) {
+        window.clearTimeout(revive);
+        keepName();
+      }
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    p.on('close', () => {
+      window.clearTimeout(revive);
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', wake);
+    });
     p.on('error', (e) => {
       clearTimeout(timer);
       if (closed) return;
@@ -132,7 +168,11 @@ export async function createRoom(
         p.destroy();
         attempt(tries + 1);
       } else if (!p.open && type !== 'peer-unavailable') offline();
-      else on.error(describeError(type));
+      // A lost connection to the broker is not the room's end: it is
+      // taken back (above), and the relay carries the room meanwhile.
+      else if (p.open && (type === 'network' || type === 'socket-closed' || type === 'socket-error' || type === 'server-error')) {
+        if (p.disconnected) keepName();
+      } else on.error(describeError(type));
     });
     p.on('connection', (conn) => {
       if (taken()) {
@@ -188,10 +228,12 @@ export async function joinRoom(
     clearTimeout(timer);
     clearTimeout(wait);
   };
+  // The broker did not know the room: the relay still gets a short try.
+  let notFound = false;
   const lose = (why: string) => {
     if (finished) return;
     end();
-    on.error(why);
+    on.error(notFound && why === FAILED ? describeError('peer-unavailable') : why);
     peer?.destroy();
     relay?.close();
   };
@@ -205,7 +247,11 @@ export async function joinRoom(
   };
   const startRelay = () => {
     if (relay || finished) return;
-    on.note?.('Пряме з’єднання не виходить, пробуємо резервний канал…');
+    on.note?.(
+      notFound
+        ? 'Кімнату не видно на сервері, шукаємо ще й резервним каналом…'
+        : 'Пряме з’єднання не виходить, пробуємо резервний канал…',
+    );
     relay = joinRelay(code, {
       link: win,
       busy: () => lose('busy'),
@@ -220,16 +266,22 @@ export async function joinRoom(
     startRelay();
     if (relayDone) lose(FAILED);
   };
-  const timer = setTimeout(() => lose(FAILED), JOIN_TIMEOUT);
+  let timer = setTimeout(() => lose(FAILED), JOIN_TIMEOUT);
   if (!peer) startRelay();
   else {
     const p = peer;
     wait = window.setTimeout(startRelay, DIRECT_WAIT);
     p.on('error', (e) => {
       const type = (e as { type?: string }).type;
-      // A room that does not exist is not for the relay to find either.
-      if (type === 'peer-unavailable') lose(describeError(type));
-      else directFailed();
+      // The broker does not know the room: it may have lost the host's name
+      // while the host is still there, so the relay gets a short try before the
+      // answer is "not found".
+      if (type === 'peer-unavailable') {
+        notFound = true;
+        clearTimeout(timer);
+        timer = setTimeout(() => lose(FAILED), NOT_FOUND_WAIT);
+        directFailed();
+      } else directFailed();
     });
     p.on('open', () => {
       const conn = p.connect(PREFIX + code, {

@@ -204,8 +204,13 @@ async function vote(host, guest) {
   await Promise.all([host.go(URL), guest.go(URL)]);
   console.log('pages loaded');
 
-  if (MODE === 'host')
+  // The online mode is a tab of the hub's "Хто грає?" block.
+  for (const page of [host, guest])
+    await until('online tab', () => page.eval(click('Вдвох по мережі', 'button.play-mode')));
+  if (MODE === 'host') {
+    await host.eval(`document.querySelector('.online-more')?.setAttribute('open', '')`);
     await host.eval(click('Хост рахує', '.share-option'));
+  }
   await until('room button', () => host.eval(click('Створити кімнату')));
   const code = await until('room code', () =>
     host.eval(`document.querySelector('.room-code b')?.textContent`),

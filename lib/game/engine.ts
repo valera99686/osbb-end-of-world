@@ -123,7 +123,13 @@ const NUMBER_CAP = 40;
 const INTRO = 1.4;
 // How long the presentation of a boss or mini-boss lasts (seconds). With a
 // canvas the fight is frozen meanwhile; a tap or key skips it.
-export const STAGE_SECONDS = { boss: 3, miniboss: 2.6 } as const;
+export const STAGE_SECONDS = { boss: 4.6, miniboss: 3.6 } as const;
+// How much tougher than their sheet the leaders of a location are, per chapter:
+// the first boss fell too fast to be remembered, the last was already hard.
+export const LEADER_TOUGHNESS = {
+  boss: [1.5, 1.25, 1],
+  miniboss: [1.3, 1.15, 1],
+} as const;
 const MUZZLE = 0.07;
 // Roof turret height above the house's feet line (world px).
 const TURRET_Y = -66;
@@ -1994,7 +2000,9 @@ export class Battle {
     let hp =
       def.health *
       (boss || mini
-        ? 1
+        ? LEADER_TOUGHNESS[boss ? 'boss' : 'miniboss'][
+            Math.min(2, this.run.chapter)
+          ]
         : (1 + this.run.step * 0.025) * (this.run.kind === 'elite' ? 1.2 : 1)) *
       this.heat.enemyHealth *
       (this.ally && (boss || mini) ? COOP.leaderHealth : 1);

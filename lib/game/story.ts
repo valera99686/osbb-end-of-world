@@ -154,9 +154,6 @@ export interface Scene {
   clues?: string[];
   // Listed in the story library for replays.
   library?: boolean;
-  // Has no recorded voices (the voice generator needs a GPU, see
-  // scripts/voice): read as text, and left out of the lines to record.
-  unvoiced?: boolean;
 }
 
 export interface Clue {
@@ -337,7 +334,6 @@ export const SCENES: Record<string, Scene> = {
     id: 'goal',
     title: 'Єдиний вихід із петлі',
     library: true,
-    unvoiced: true,
     lines: [
       L(
         'galyna',
@@ -393,7 +389,6 @@ export const SCENES: Record<string, Scene> = {
     id: 'road-1',
     title: 'Шлях із петлі: 1 із 3',
     library: true,
-    unvoiced: true,
     lines: [
       L(
         'spark',
@@ -428,7 +423,6 @@ export const SCENES: Record<string, Scene> = {
     id: 'road-2',
     title: 'Шлях із петлі: 2 із 3',
     library: true,
-    unvoiced: true,
     lines: [
       L(
         'spark',
@@ -1739,7 +1733,6 @@ export function voiceLines(): VoiceLine[] {
     else add(voiceKeyFor(l.who, ''), l.text);
   };
   for (const scene of [...Object.values(SCENES), ...HUB_SCENES]) {
-    if (scene.unvoiced) continue;
     scene.lines.forEach(fromLine);
     for (const c of scene.choices ?? []) if (c.reply) fromLine(c.reply);
   }

@@ -856,17 +856,18 @@ test('The goal of the story is told in the same dialogue scenes as the rest: out
   const Sc = require('../.test-build/cutscenes.js');
   const fs = require('node:fs');
   assert.equal(CE.CAMPAIGN_MISSIONS.length, C.LOCATIONS.length, 'a mission for every district');
-  const spoken = new Set(St.voiceLines().map((l) => l.text));
+  const { VOICE_IDS } = require('../.test-build/voice-manifest.js');
+  const spoken = new Map(St.voiceLines().map((l) => [l.text, l]));
   for (const id of ['goal', 'road-1', 'road-2']) {
     const scene = St.SCENES[id];
     assert.ok(scene && scene.library && scene.lines.length >= 1, id);
     assert.ok(St.isStoryId(id) && St.storyScene(id, M.initialMeta()) === scene, id);
     assert.equal(Sc.SCENE_BY_ID[id], undefined, `${id}: not a cinema frame, a dialogue scene like the others`);
-    assert.equal(scene.unvoiced, true, `${id}: no recordings, so none are asked for`);
     for (const line of scene.lines) {
       assert.ok(line.text.length > 40 && line.text.length < 260, `${id}: ${line.text.length} characters`);
       assert.ok(line.time && line.art !== undefined, id);
-      assert.ok(!spoken.has(line.text), `${id}: not among the lines to record`);
+      assert.ok(spoken.has(line.text), `${id}: spoken like the rest`);
+      assert.ok(VOICE_IDS.has(spoken.get(line.text).id), `${id}: recorded: ${line.text.slice(0, 40)}`);
       const file = Sc.SCENE_IMAGE_BY_ART[line.art];
       assert.ok(file, `${id}: a picture for art ${line.art}`);
       assert.ok(fs.existsSync('public/' + file.replace(/^\/(osbb-end-of-world\/)?/, '')), `${id}: ${file} exists`);

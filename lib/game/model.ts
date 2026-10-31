@@ -8,7 +8,12 @@ import {
   runDepth,
   unlockReady,
 } from './progression';
-import { CAMPAIGN_EVENTS, type EventEffect } from './campaign-content';
+import {
+  CAMPAIGN_EVENTS,
+  TOGETHER_EVENTS,
+  type CampaignEvent,
+  type EventEffect,
+} from './campaign-content';
 import {
   apartmentEffects,
   linkedIds,
@@ -889,7 +894,17 @@ export function advanceLocation(run: Run, meta: Meta): Run {
     ),
   };
 }
-export function eventFor(run: Run) {
+// In a raid for two about every other meeting is one that needs both players
+// (campaign-content.ts TOGETHER_EVENTS); the same one at both ends, since it
+// comes from the seed. Alone there are none.
+export const TOGETHER_SHARE = 0.5;
+export function eventFor(run: Run): CampaignEvent {
+  const key = run.seed + run.chapter * 100003 + run.step * 719;
+  if (run.coop) {
+    const both = TOGETHER_EVENTS.filter((e) => e.chapter === run.chapter);
+    if (both.length && seeded(key + 17)() < TOGETHER_SHARE)
+      return both[Math.floor(seeded(key + 31)() * both.length)];
+  }
   const pool = CAMPAIGN_EVENTS.filter((e) => e.chapter === run.chapter);
   return pool[
     Math.floor(

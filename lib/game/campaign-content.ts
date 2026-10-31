@@ -12,6 +12,10 @@ export interface CampaignEvent {
   chapter: number;
   title: string;
   text: string;
+  // A meeting for two players only (a raid with a partner): each takes one of
+  // the two roles, and nothing happens until both have done their part. It has
+  // one choice, the joint action, and no price.
+  together?: { roles: [string, string] };
   choices: {
     label: string;
     detail: string;
@@ -341,5 +345,102 @@ const content = {
 };
 export const CAMPAIGN_EVENTS: CampaignEvent[] =
   content.events as CampaignEvent[];
+// Meetings that need both players of a raid for two; they never come up alone.
+export const TOGETHER_EVENTS: CampaignEvent[] = [
+  {
+    id: 'rust-hatch',
+    chapter: 0,
+    title: 'Люк, який не піддається',
+    text: 'Люк у підвал заклинило, а за ним ящик із рідкісним обладнанням. Одному його не відчинити: поки один тримає важіль, другий підважує плиту ломом.',
+    together: { roles: ['Тримати важіль', 'Підважити плиту'] },
+    choices: [
+      {
+        label: 'Відчинити разом',
+        detail: 'Рідкісне обладнання, кожному будинку своє',
+        effect: { loot: 'module', rare: true },
+        result:
+          'Люк піддався. У ящику лежав посилений модуль, і його вистачило обом.',
+      },
+    ],
+  },
+  {
+    id: 'rust-bridge',
+    chapter: 0,
+    title: 'Розвідний міст',
+    text: 'Привід розвідного моста розвалився, а з того боку чекають люди. Міст піднімуть лише вдвох: один крутить рукоятку, другий утримує ланцюг, щоб міст не впав.',
+    together: { roles: ['Крутити рукоятку', 'Тримати ланцюг'] },
+    choices: [
+      {
+        label: 'Звести міст разом',
+        detail: 'Урятувати двох сусідів: по одному в кожен будинок',
+        effect: { rescue: true },
+        result: 'Міст став на місце, і люди перейшли до будинку.',
+      },
+    ],
+  },
+  {
+    id: 'green-valve',
+    chapter: 1,
+    title: 'Вентиль під тиском',
+    text: 'Теплицю затопило живильною сумішшю. Закрити магістраль і відчинити шлюз треба одночасно, на різних кінцях галереї, інакше тиск зірве трубу.',
+    together: { roles: ['Закрити магістраль', 'Відчинити шлюз'] },
+    choices: [
+      {
+        label: 'Діяти одночасно',
+        detail: '+35% максимальної міцності · +10 монет',
+        effect: { healMax: 0.35, coins: 10 },
+        result:
+          'Тиск спав, а залишки суміші затягнули пробоїни в обшивці. На дні шлюзу блищали монети.',
+      },
+    ],
+  },
+  {
+    id: 'green-cage',
+    chapter: 1,
+    title: 'Клітка зі шмелями-охоронцями',
+    text: 'У клітці під куполом сидить поранений садівник. Поки один відволікає шмелів, другий має зрізати замок.',
+    together: { roles: ['Відволікти шмелів', 'Зрізати замок'] },
+    choices: [
+      {
+        label: 'Витягнути садівника',
+        detail: 'Врятувати мешканця · +3 брухту',
+        effect: { rescue: true, scrap: 3 },
+        result:
+          'Шмелі кинулися за приманкою, замок упав. Садівник вибрався з клітки.',
+      },
+    ],
+  },
+  {
+    id: 'core-keys',
+    chapter: 2,
+    title: 'Склад із двома ключами',
+    text: 'Армійський склад відчиняється, лише коли два ключі повертають одночасно: замки стоять на різних кінцях зали, і дістати їх одній людині не вийде.',
+    together: { roles: ['Повернути перший ключ', 'Повернути другий ключ'] },
+    choices: [
+      {
+        label: 'Повернути одночасно',
+        detail: 'Рідкісне обладнання · +30 монет',
+        effect: { loot: 'module', rare: true, coins: 30 },
+        result:
+          'Замки клацнули в один момент. Склад віддав посилений модуль і касу.',
+      },
+    ],
+  },
+  {
+    id: 'core-platform',
+    chapter: 2,
+    title: 'Вантажна платформа',
+    text: 'Платформа з ящиками вища, ніж дістає лебідка. Один утримує її на домкраті, другий вантажить ящики на борт, і за хвилину охорона це помітить.',
+    together: { roles: ['Тримати домкрат', 'Вантажити ящики'] },
+    choices: [
+      {
+        label: 'Вантажити разом',
+        detail: '+45 монет · випадкові меблі',
+        effect: { coins: 45, loot: 'furniture' },
+        result: 'Домкрат витримав рівно стільки, скільки треба. Ящики вже в трюмі.',
+      },
+    ],
+  },
+];
 export const CAMPAIGN_SCENES = content.cutscenes;
 export const CAMPAIGN_MISSIONS = content.mission;

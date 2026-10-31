@@ -25,7 +25,11 @@ import {
 } from '@/components/ui/dialog';
 import { HouseAside, PartnerHouse } from './house-aside';
 import { ItemCard, takenText } from './item-card';
-import { EventOptions, FurnitureCard } from './campaign-panels';
+import {
+  EventOptions,
+  FurnitureCard,
+  TogetherRoles,
+} from './campaign-panels';
 import { Currency } from './hud-parts';
 import { Residents } from './residents';
 
@@ -144,6 +148,7 @@ export function GuestPages({
     // ballot, and its outcome is seen when it is done.
     const rest = view.kind === 'rest',
       event = eventFor(view),
+      together = rest ? undefined : event.together,
       ballot =
         session.ballot && session.ballot.step === view.step
           ? session.ballot
@@ -151,7 +156,9 @@ export function GuestPages({
     return (
       <>
         <p className="eyebrow">
-          {rest ? 'ПЕРЕПОЧИНОК' : `ЗУСТРІЧ · ЛОКАЦІЯ ${view.chapter + 1}`}
+          {rest
+            ? 'ПЕРЕПОЧИНОК'
+            : `${together ? 'СПІЛЬНА ЗУСТРІЧ' : 'ЗУСТРІЧ'} · ЛОКАЦІЯ ${view.chapter + 1}`}
         </p>
         <h2>{rest ? 'Тихе подвір’я' : event.title}</h2>
         <p className="lead">
@@ -164,6 +171,18 @@ export function GuestPages({
             <Check size={22} />
             <p>{view.eventResult}</p>
           </div>
+        ) : together ? (
+          <TogetherRoles
+            roles={together.roles}
+            names={['Господар', 'Ти']}
+            prize={event.choices[0].detail}
+            done={[ballot?.host != null, ballot?.guest != null]}
+            mine={1}
+            open={!!ballot && ballot.options.includes(0)}
+            finished={!!ballot?.done}
+            note={ballot ? undefined : 'Зараз відкриється вибір…'}
+            onAct={() => session.voteGuest(0)}
+          />
         ) : (
           <EventOptions
             run={view}

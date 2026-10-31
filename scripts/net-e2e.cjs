@@ -6,6 +6,7 @@
 //   FINISH=1 VOTE=1 node scripts/net-e2e.cjs 8 host   (the map vote after a fight)
 //   SCENES=1 node scripts/net-e2e.cjs      (the guest sees the host's scene)
 //   EVENT=1 node scripts/net-e2e.cjs       (both decide an event)
+//   TOGETHER=1 node scripts/net-e2e.cjs    (a meeting that needs both)
 // Needs Chrome at the usual path and an internet connection (the broker).
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -230,6 +231,43 @@ async function eventTest(host, guest) {
   process.exit(ok ? 0 : 1);
 }
 
+// A meeting that needs both players: the host does its part and waits; a silent
+// partner does not let it pass (20 seconds and more); when the guest does its
+// part the outcome shows at both ends.
+async function togetherTest(host, guest) {
+  const M = require('../.test-build/model.js');
+  let seed = 1;
+  while (!M.eventFor({ seed, chapter: 0, step: 0, coop: 'nina' }).together) seed++;
+  await host.eval(`window.__osbbRun({ page: 'event', kind: 'event', seed: ${seed} })`);
+  const roles = (p, root) =>
+    p.eval(`[...document.querySelectorAll(${JSON.stringify(root + ' .together-role')})].map(b => (b.disabled ? '-' : '+') + (b.classList.contains('done') ? 'done' : 'open'))`);
+  await until('the roles at the host', async () => (await roles(host, '.play-main')).includes('+open'));
+  await until('the roles at the guest', async () => (await roles(guest, '.guest-room')).includes('+open'));
+  console.log('roles: host', await roles(host, '.play-main'), 'guest', await roles(guest, '.guest-room'));
+  console.log('guest sees:', await guest.eval(`document.querySelector('.guest-room h2')?.innerText`), '|', await guest.eval(`document.querySelector('.guest-room .eyebrow')?.innerText`));
+  // The host does its part and waits; the guest is silent.
+  await host.eval(`document.querySelector('.play-main .together-role.mine:not(:disabled)').click()`);
+  await until("the guest sees the host's part done", async () => (await roles(guest, '.guest-room'))[0].endsWith('done'));
+  console.log('waiting 23 s for a silent guest…');
+  await sleep(23000);
+  const early = await host.eval(`!!document.querySelector('.play-main .mission-banner')`);
+  console.log('decided without the guest:', early);
+  // The guest does its part: now it goes.
+  await guest.eval(`document.querySelector('.guest-room .together-role.mine:not(:disabled)').click()`);
+  const hostSees = await until('the outcome at the host', () =>
+    host.eval(`document.querySelector('.play-main .mission-banner p')?.innerText`),
+  8000);
+  const guestSees = await until('the outcome at the guest', () =>
+    guest.eval(`document.querySelector('.guest-room .mission-banner p')?.innerText`),
+  8000);
+  console.log('outcome: host:', hostSees, '| guest:', guestSees);
+  const ok = !early && !!hostSees && hostSees === guestSees && !host.errors.length && !guest.errors.length;
+  console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+  console.log(ok ? 'E2E OK' : 'E2E FAILED');
+  for (const p of procs) p.kill();
+  process.exit(ok ? 0 : 1);
+}
+
 (async () => {
   const [wa, wb] = [await launch(9331), await launch(9332)];
   const host = new Page('host', wa),
@@ -238,7 +276,7 @@ async function eventTest(host, guest) {
   console.log('pages loaded');
 
   // Both profiles past the tutorial and the prologue, as real players are.
-  if (process.env.SCENES || process.env.EVENT)
+  if (process.env.SCENES || process.env.EVENT || process.env.TOGETHER)
     for (const page of [host, guest])
       for (let i = 0; i < 6; i++) {
         await page.eval(click('Пропустити', 'button'));
@@ -293,6 +331,7 @@ async function eventTest(host, guest) {
   );
   console.log('guest sees the first map:', seen);
   if (process.env.EVENT) return eventTest(host, guest);
+  if (process.env.TOGETHER) return togetherTest(host, guest);
   await host.eval(`document.querySelector('button.tree-go').click()`);
   // A production build has no debugging hook: then only the screens are seen.
   const PROD = !!process.env.PROD;

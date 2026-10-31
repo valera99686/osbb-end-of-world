@@ -180,6 +180,7 @@ import {
   enterNode,
   availableColumns,
   eventColumns,
+  eventFor,
   resolveEvent,
   nextNode,
   equip,
@@ -810,7 +811,9 @@ export default function Game() {
           : run.page === 'shop'
             ? 'Господар у магазині' + shopNote(run)
             : run.page === 'event'
-              ? 'Господар на події'
+              ? run.kind !== 'rest' && run.coop && eventFor(run).together
+                ? 'Господар на спільній події: потрібні обоє'
+                : 'Господар на події'
               : run.page === 'reward'
                 ? 'Господар вибирає нагороду' + rewardNote(run)
                 : HOST_IN_FIGHT,
@@ -926,6 +929,8 @@ export default function Game() {
   // A guest who does not answer does not hold the host up for ever.
   useEffect(() => {
     if (!(voting || eventOpen) || !ballot || ballot.done) return;
+    // A meeting for two is not decided for a partner who is silent.
+    if (eventOpen && run && eventFor(run).together) return;
     if (ballot.host === null || ballot.guest !== null) return;
     const timer = setTimeout(() => setGuestSilent(true), VOTE.silent * 1000);
     return () => clearTimeout(timer);
@@ -2189,9 +2194,14 @@ export default function Game() {
                 )}
                 {run.page === 'event' && (
                   <CampaignEventPanel
+                    key={`${run.seed}-${run.chapter}-${run.step}`}
                     run={run}
                     meta={meta}
                     onChange={setRun}
+                    names={[
+                      'Перший гравець',
+                      mateName || 'Другий гравець',
+                    ]}
                     vote={
                       eventOpen && net
                         ? ballot && ballot.step === run.step

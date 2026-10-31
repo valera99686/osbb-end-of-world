@@ -350,3 +350,71 @@
   color: var(--amber);
   font-size: calc(13px * var(--text-scale, 1));
 }
+
+/* A meeting that needs both players: two roles, nothing until both are done */
+.together-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: #1f3a33;
+  color: #8fd8c2;
+  font-size: calc(12px * var(--text-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.together-roles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.together-role {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 14px;
+  border: 1px solid #ffffff22;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #15232bd9, #0d171ee6);
+  color: #b7c6cd;
+  text-align: left;
+}
+.together-role small {
+  color: #8fa2ac;
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.together-role b {
+  color: #eef4f0;
+  font-size: calc(16px * var(--text-scale, 1));
+}
+.together-role span {
+  font-size: calc(13px * var(--text-scale, 1));
+  color: #9db1c4;
+}
+.together-role.mine:not(:disabled) {
+  border-color: var(--amber);
+  background: linear-gradient(160deg, #3b2e15ee, #1a1409f2);
+}
+.together-role.mine:not(:disabled) span {
+  color: var(--amber);
+}
+.together-role.done {
+  border-color: #6cbfac;
+  background: linear-gradient(160deg, #173229ee, #0d1d18f2);
+}
+.together-role.done span {
+  color: #8fd8c2;
+  font-weight: 700;
+}
+.together-prize {
+  margin: 10px 0 0;
+  color: #d9c293;
+  font-size: calc(14px * var(--text-scale, 1));
+}
+@media (max-width: 650px) {
+  .together-roles {
+    grid-template-columns: 1fr;
+  }
+}

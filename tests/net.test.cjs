@@ -683,6 +683,62 @@ test('The choices of an event that a run can pay for are the ones that may be vo
     }
 });
 
+test('Meetings for two: only in a raid with a partner, the same one at both ends, one joint action, and nothing happens until both have done their part', () => {
+  const TOGETHER = require('../.test-build/campaign-content.js').TOGETHER_EVENTS;
+  assert.equal(TOGETHER.length, 6);
+  for (const ev of TOGETHER) {
+    assert.ok(ev.together && ev.together.roles.length === 2 && ev.together.roles.every((r) => r.length > 3), ev.id);
+    assert.equal(ev.choices.length, 1, `${ev.id}: one joint action`);
+    const e = ev.choices[0].effect;
+    assert.ok((e.coins ?? 0) >= 0 && (e.scrap ?? 0) >= 0 && !e.damageMax, `${ev.id}: no price`);
+  }
+  assert.deepEqual([0, 1, 2].map((c) => TOGETHER.filter((e) => e.chapter === c).length), [2, 2, 2]);
+  let seen = 0,
+    total = 0;
+  for (let seed = 1; seed <= 200; seed++)
+    for (const chapter of [0, 1, 2]) {
+      const alone = { ...M.makeRun(meta, 'mechanic', chapter, seed), step: 4 };
+      const two = { ...M.makeRun(meta, 'mechanic', chapter, seed, { coop: 'nina' }), step: 4 };
+      assert.equal(M.eventFor(alone).together, undefined, 'alone there are none');
+      const a = M.eventFor(two),
+        b = M.eventFor(JSON.parse(JSON.stringify(two)));
+      assert.equal(a.id, b.id, 'the same at both ends');
+      assert.equal(a.chapter, chapter);
+      total++;
+      if (a.together) seen++;
+    }
+  assert.ok(seen / total > 0.35 && seen / total < 0.65, `about half: ${seen}/${total}`);
+  // Alone the meetings are what they were.
+  const solo = { ...M.makeRun(meta, 'mechanic', 0, 5), step: 3 };
+  assert.ok(!M.eventFor(solo).together);
+  // The joint action can always be done, and it pays out.
+  for (const ev of TOGETHER) {
+    const run = {
+      ...M.makeRun(meta, 'mechanic', ev.chapter, 5, { coop: 'nina' }),
+      kind: 'event',
+      page: 'event',
+      step: 4,
+      coins: 0,
+      scrap: 0,
+    };
+    // Make this meeting the one that comes up.
+    for (let seed = 1; seed < 4000; seed++) {
+      const r = { ...run, seed };
+      if (M.eventFor(r).id !== ev.id) continue;
+      assert.deepEqual(M.eventColumns(r, meta), [0], ev.id);
+      const done = M.resolveEvent(r, meta, 0);
+      assert.equal(done.eventDone, true, ev.id);
+      assert.ok(done.eventResult.startsWith(ev.choices[0].result), ev.id);
+      break;
+    }
+  }
+  // Nothing is decided until both have picked: the ballot has one column.
+  const b0 = VC.newBallot(4, [0]);
+  assert.equal(VC.ballotResult(VC.castVote(b0, 'host', 0), 3), null, 'the host alone is not enough');
+  assert.equal(VC.ballotResult(VC.castVote(VC.castVote(b0, 'guest', 0), 'host', 0), 3).col, 0);
+  assert.equal(VC.ballotResult(VC.castVote(b0, 'guest', 0), 3), null, 'nor is the guest alone');
+});
+
 test('A guest cannot vote when no vote is open, and a lost link clears the vote', () => {
   const { wire, host, guest } = rooms();
   guest.voteGuest(0);

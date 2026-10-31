@@ -261,13 +261,27 @@ export function readSave(raw: string | null): {
       : [];
     base.endings = Array.isArray(m.endings)
       ? [
-          ...new Set<'a' | 'b' | 'c'>(
+          ...new Set<'a' | 'b' | 'c' | 'd'>(
             m.endings.filter(
-              (id: unknown): id is 'a' | 'b' | 'c' =>
-                id === 'a' || id === 'b' || id === 'c',
+              (id: unknown): id is 'a' | 'b' | 'c' | 'd' =>
+                id === 'a' || id === 'b' || id === 'c' || id === 'd',
             ),
           ),
         ]
+      : [];
+    // The choices of the story: a topic with a tone, each topic once.
+    base.marks = Array.isArray(m.marks)
+      ? [
+          ...new Map<string, string>(
+            m.marks
+              .filter(
+                (mark: unknown): mark is string =>
+                  typeof mark === 'string' &&
+                  /^[a-z0-9]{1,16}:(warm|cool)$/.test(mark),
+              )
+              .map((mark: string) => [mark.split(':')[0], mark]),
+          ).values(),
+        ].slice(0, 200)
       : [];
     base.secrets = Array.isArray(m.secrets)
       ? [...new Set<string>(m.secrets.filter(isSecret))]

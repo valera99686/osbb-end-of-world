@@ -1,0 +1,22 @@
+{
+  "model": "GPT Image 2 (mage.space), 1K, 16:9",
+  "used_in": "public/art/{ending-d,house-*,arc-*}.webp (resized to 1344 px wide, WebP q82); sources in docs/art-source/",
+  "negative": "text, letters, numbers, clock face digits, watermark, logo, UI, panel, border, collage, photo, photorealistic, cartoon, anime, gore",
+  "common": "Cinematic painted video game concept art, single full-bleed widescreen frame. Muted blue-teal night palette, warm amber light, soft film grain, tactile detailed painterly style. Main subject centered and upper-middle, bottom quarter quiet dark ground, upper-right corner quiet. No text, no letters, no numbers, no UI, no border, no watermark, no gore.",
+  "images": [
+    { "file": "public/art/ending-d.webp", "art": 24, "scene": "ending-d", "subject": "The whole street of walking apartment blocks gathered in a city square at dusk, residents in slippers with lanterns and folding chairs walking to a long table with many tea cups and a small glowing intercom." },
+    { "file": "public/art/house-rust.webp", "art": 25, "scene": "raid-0-a", "subject": "A tired block house with a radio antenna walking alone along a ring road worn into a groove in an abandoned industrial quarter (house no. 12)." },
+    { "file": "public/art/house-green.webp", "art": 26, "scene": "raid-1-a", "subject": "A block house standing calmly in a glass greenhouse district, wheat on the roof, vines, children's laundry (house no. 23)." },
+    { "file": "public/art/house-core.webp", "art": 27, "scene": "raid-2-a", "subject": "A block house curled up wrapped in cables in pale cyan light near the dispatch tower, as if asleep (house no. 4)." },
+    { "file": "public/art/arc-nina.webp", "art": 28, "scene": "arc-nina", "subject": "Kitchen at night: nine tea cups on the table and a tenth set on the floor before the glowing wall intercom; a woman at the window, a ginger cat." },
+    { "file": "public/art/arc-lev.webp", "art": 29, "scene": "arc-lev", "subject": "An empty watchman's booth by a rusty gate, a whistle on a hook, the road leading to a broken iron bridge in the mist." },
+    { "file": "public/art/arc-mechanic.webp", "art": 30, "scene": "arc-mechanic", "subject": "A mechanic with an angle grinder hesitating beside an intercom panel welded to a stairwell wall, sparks hanging." },
+    { "file": "public/art/arc-spark.webp", "art": 31, "scene": "arc-spark", "subject": "An engineer at a radio desk watching cyan sparks arrange into dots and dashes." },
+    { "file": "public/art/arc-flora.webp", "art": 32, "scene": "arc-flora", "subject": "A pot with a bare mint bush and a single green leaf under a lamp on a rainy windowsill, scissors nearby." },
+    { "file": "public/art/arc-boris.webp", "art": 33, "scene": "arc-boris", "subject": "An accountant at a desk with a ledger, abacus, and a small envelope with a single coin, green banker's lamp." },
+    { "file": "public/art/arc-marta.webp", "art": 34, "scene": "arc-marta", "subject": "A woman on the edge of her bed holding a complaint form while glowing musical notes drift out of the wall." },
+    { "file": "public/art/arc-danilo.webp", "art": 35, "scene": "arc-danilo", "subject": "A young inventor grinning as a tiny intercom on microwave-oven legs takes its first step on a workbench." },
+    { "file": "public/art/arc-solomia.webp", "art": 36, "scene": "arc-solomia", "subject": "A violinist in a corridor; amber sound waves from the violin and teal ones from the wall intercom weave into a duet." }
+  ],
+  "note": "The same model and the same style paragraph as the goal pictures (goal-prompts.json), so the scenes look like one set. The pictures of the bosses' last words reuse the district backdrops (ORIGIN_ART)."
+}

@@ -49,3 +49,4 @@ next-env.d.ts
 /scripts/voice/refs/
 /scripts/voice/lines.json
 /.pages/
+/scripts/voice/lines-eleven.json

@@ -8,7 +8,7 @@ import {
   restoreProfile,
 } from '@/lib/game/profile';
 import { blueprintInfo, runDepth } from '@/lib/game/progression';
-import { LOCATIONS } from '@/lib/game/encounters';
+import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
 import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
 import { FURNITURE_BY_ID } from '@/lib/game/furniture';
 import {
@@ -150,6 +150,7 @@ import {
   LIBRARY_IDS,
   isStoryId,
   leaveScene,
+  raidBeat,
   raidEnd,
   victoryChain,
   rescueQuote as storyRescueQuote,
@@ -1132,11 +1133,15 @@ export default function Game() {
         ? { ...result, run: { ...result.run, coop: '' } }
         : result;
     const gate = b.boss && b.run.step === b.run.nodes.length - 1;
+    // The boss met at the end of this location: it has last words of its own.
+    const bossId = b.run.bossVariants
+      ? campaignBoss(b.run.chapter, b.run.bossVariants[b.run.chapter] ?? 0).id
+      : '';
     if (b.won && gate && !isFinalVictory(b.run)) {
       const next = advanceLocation(b.run, meta),
         looped = next.loop > b.run.loop;
       // The boss's last word, then the new location; each only the first time.
-      const chain = victoryChain(meta, b.run.chapter, looped);
+      const chain = victoryChain(meta, b.run.chapter, looped, bossId);
       setRun(next);
       setSceneQueue(chain.slice(1));
       setMeta((m) => ({
@@ -1160,8 +1165,8 @@ export default function Game() {
       // The partner in the room gets a share of the cores of this raid.
       if (livePartner && b.run.coop) net?.sendGift(f.cores, b.won, final);
       // After a raid: the next story beat as a scene, else a short protocol.
-      const after = raidEnd(f.meta, b.won, final);
-      setSceneQueue([]);
+      const after = raidEnd(f.meta, b.won, final, b.won && gate ? bossId : '');
+      setSceneQueue(after.then ?? []);
       setMeta({
         ...f.meta,
         sceneProgress: after.scene ? { id: after.scene, index: 0 } : null,
@@ -1191,6 +1196,15 @@ export default function Game() {
       const next = battleRewards(b.run, meta);
       setRun(next);
       grant(applyAchievements(meta, next).unlocked);
+      // Somewhere on the way a story beat can find the crew (the radio of
+      // another house, a sign by the road); it is told once and the raid goes on.
+      const beat = meta.sceneProgress
+        ? null
+        : raidBeat(meta, b.run.chapter, b.run.step);
+      if (beat) {
+        setSceneQueue([]);
+        setMeta((m) => ({ ...m, sceneProgress: { id: beat, index: 0 } }));
+      }
     }
   }
   // Swaps the whole profile for an exported code, backing up the current one.

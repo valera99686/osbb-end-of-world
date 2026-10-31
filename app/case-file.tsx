@@ -1,5 +1,11 @@
 import { ArrowLeft, Lock, Search } from 'lucide-react';
-import { CLUES, ENDINGS, canEndingB, canEndingC } from '@/lib/game/story';
+import {
+  CLUES,
+  ENDINGS,
+  canEndingB,
+  canEndingC,
+  canEndingD,
+} from '@/lib/game/story';
 import type { Meta } from '@/lib/game/model';
 import './dialogue.css';
 
@@ -11,6 +17,7 @@ export function CasePage({ meta, onBack }: { meta: Meta; onBack: () => void }) {
     a: true,
     b: canEndingB(meta),
     c: canEndingC(meta),
+    d: canEndingD(meta),
   };
   return (
     <section className="collection-page">

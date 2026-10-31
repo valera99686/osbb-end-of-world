@@ -65,16 +65,17 @@ test('The Shelter tells one new story beat per raid, in order, then protocols', 
   assert.equal(S.hubScene(meta, false).id, 'hub-boris-ledger');
   // Play a whole career: every beat is offered exactly once.
   const offered = [];
-  meta = { ...M.initialMeta(), deaths: 1, runs: 0, totalRescues: 0, totalBosses: 0 };
-  for (let i = 0; i < 40; i++) {
+  meta = { ...M.initialMeta(), deaths: 1, runs: 0, totalRescues: 0, totalBosses: 0, residents: [...HEADS] };
+  for (let i = 0; i < 60; i++) {
     meta.runs++;
     meta.totalRescues += 1;
     meta.totalBosses = Math.floor(meta.runs / 4);
     if (meta.runs > 12) meta.endings = ['a'];
     if (meta.runs > 16) meta.endings = ['a', 'b'];
     if (meta.runs > 20) meta.endings = ['a', 'b', 'c'];
+    if (meta.runs > 24) meta.endings = ['a', 'b', 'c', 'd'];
     // From here every head of ОСББ has won once (their epilogues open).
-    if (meta.runs > 22) meta.winsByCharacter = Object.fromEntries(HEADS.map((id) => [id, 1]));
+    if (meta.runs > 26) meta.winsByCharacter = Object.fromEntries(HEADS.map((id) => [id, 1]));
     const scene = S.hubScene(meta, false);
     if (!/^hub-protocol/.test(scene.id)) {
       offered.push(scene.id);
@@ -221,13 +222,24 @@ test('Every backdrop in the story exists, and each ending has its own picture', 
           line.art <= 6 || C.SCENE_IMAGE_BY_ART[line.art],
           `${scene.id}: unknown art ${line.art}`,
         );
-  for (const key of ['a', 'b', 'c']) {
+  // Every picture a scene names is a file of its own.
+  for (const scene of allScenes())
+    for (const line of scene.lines)
+      if (line.art > 6)
+        assert.ok(fs.existsSync('public' + C.SCENE_IMAGE_BY_ART[line.art]), `${scene.id}: art ${line.art} has a file`);
+  assert.equal(new Set(Object.values(C.SCENE_IMAGE_BY_ART)).size, Object.keys(C.SCENE_IMAGE_BY_ART).length, 'no picture serves two slots');
+  // Each resident's story and each house on the radio opens with its own picture.
+  for (const id of ['nina', 'lev', 'mechanic', 'spark', 'flora', 'boris', 'marta', 'danilo', 'solomia'])
+    assert.equal(S.HUB_SCENES.find((s) => s.id === `arc-${id}`).lines[0].art, C.ARC_ART[id], `arc ${id}`);
+  for (const [id, art] of [['raid-0-a', C.HOUSE_ART.rust], ['raid-1-a', C.HOUSE_ART.green], ['raid-2-a', C.HOUSE_ART.core]])
+    assert.equal(S.SCENES[id].lines[0].art, art, id);
+  for (const key of ['a', 'b', 'c', 'd']) {
     const art = C.ENDING_ART[key],
       file = C.SCENE_IMAGE_BY_ART[art];
     assert.ok(file && fs.existsSync('public' + file), `ending ${key} picture`);
     const scene = S.SCENES['ending-' + key];
     assert.ok(scene.lines.some((l) => l.art === art), `ending ${key} uses its picture`);
-    for (const other of ['a', 'b', 'c'].filter((k) => k !== key))
+    for (const other of ['a', 'b', 'c', 'd'].filter((k) => k !== key))
       assert.ok(
         !scene.lines.some((l) => l.art === C.ENDING_ART[other]),
         `ending ${key} must not show the picture of ${other}`,
@@ -313,4 +325,141 @@ test('Each head has an epilogue that opens only after a raid won with them, once
     assert.ok(!S.hubScene(seen, true).id.startsWith('hub-epilogue-'), 'told once');
     assert.ok(S.isStoryId(scene.id));
   }
+});
+
+const arcOwners = ['nina', 'lev', 'mechanic', 'spark', 'flora', 'boris', 'marta', 'danilo', 'solomia'];
+
+test('Every boss of the campaign is a character: its own intro, last words and an answer', () => {
+  const { BOSS_VARIANTS } = require('../.test-build/encounters.js');
+  const B = require('../.test-build/story-bosses.js');
+  assert.equal(BOSS_VARIANTS.length, 9);
+  const intros = new Set();
+  for (const boss of BOSS_VARIANTS) {
+    const first = B.bossIntro(boss.id, false),
+      again = B.bossIntro(boss.id, true);
+    assert.ok(first && again && first !== again, `${boss.id}: intro`);
+    intros.add(first);
+    intros.add(again);
+    const end = S.SCENES[B.bossEndId(boss.id)];
+    assert.ok(end, `${boss.id}: last words`);
+    assert.equal(end.lines[0].who, 'boss');
+    assert.equal(end.lines[0].boss, boss.id);
+    assert.notEqual(end.lines[1].who, 'boss', `${boss.id}: someone answers`);
+    assert.ok(S.isStoryId(end.id) && end.library);
+  }
+  assert.equal(intros.size, 18, 'no two bosses share a line');
+  // The intro card quotes the boss of the run; a miniboss keeps the district's voice.
+  const meta = M.initialMeta();
+  for (const boss of BOSS_VARIANTS) {
+    const run = { chapter: boss.location, kind: 'boss', bossVariants: [0, 1, 2].map((n) => (n === boss.location ? boss.variant : 0)) };
+    assert.equal(S.bossQuote(run, meta), B.bossIntro(boss.id, false));
+    assert.equal(S.bossQuote(run, { ...meta, runs: 5 }), B.bossIntro(boss.id, true), 'the crew came back');
+  }
+  const mini = S.bossQuote({ chapter: 1, kind: 'miniboss', bossVariants: [0, 0, 0] }, meta);
+  assert.equal(mini, S.bossQuote({ chapter: 1 }, meta));
+});
+
+test('A boss that falls says its last words first, once; the last boss before the finale', () => {
+  const fresh = M.initialMeta();
+  assert.deepEqual(S.victoryChain(fresh, 0, false, 'commandant'), ['boss-end-commandant', 'victory-0', 'road-1', 'arrival-1']);
+  const met = { ...fresh, scenesSeen: ['boss-end-commandant'] };
+  assert.deepEqual(S.victoryChain(met, 0, false, 'commandant'), ['victory-0', 'road-1', 'arrival-1']);
+  assert.deepEqual(S.victoryChain(fresh, 0, false, 'scrap-press')[0], 'boss-end-scrap-press', 'each boss of the district has its own words');
+  assert.deepEqual(S.victoryChain(fresh, 0, false), ['victory-0', 'road-1', 'arrival-1'], 'no boss given: as before');
+  assert.deepEqual(S.victoryChain(fresh, 0, true, 'commandant'), [], 'an endless circuit skips the recap');
+  assert.deepEqual(S.raidEnd(fresh, true, true, 'chronarch'), { scene: 'boss-end-chronarch', then: ['finale'] });
+  assert.deepEqual(S.raidEnd({ ...fresh, scenesSeen: ['boss-end-chronarch'] }, true, true, 'chronarch'), { scene: 'finale' });
+  assert.deepEqual(S.raidEnd(fresh, true, true), { scene: 'finale' });
+});
+
+test('Choices are remembered by topic and warmth opens the ending of the whole street', () => {
+  const at = (id) => ({ ...M.initialMeta(), sceneProgress: { id, index: 0 }, residents: [...arcOwners] });
+  const nina = S.HUB_SCENES.find((s) => s.id === 'arc-nina');
+  const [warm, cool] = nina.choices;
+  assert.equal(warm.mark, 'nina:warm');
+  assert.equal(cool.mark, 'nina:cool');
+  const picked = S.leaveScene(at('arc-nina'), [], warm).meta;
+  assert.deepEqual(picked.marks, ['nina:warm']);
+  assert.ok(picked.scenesSeen.includes('arc-nina'));
+  // Replaying the story and answering otherwise changes the answer, not adds one.
+  const changed = S.leaveScene({ ...picked, sceneProgress: { id: 'arc-nina', index: 0 } }, [], cool).meta;
+  assert.deepEqual(changed.marks, ['nina:cool']);
+  assert.deepEqual(S.leaveScene(at('arc-nina'), []).meta.marks, [], 'skipping leaves no mark');
+  assert.equal(S.warmth(picked), 1);
+  assert.equal(S.warmth(changed), 0);
+  // The ending of the street: six warm choices, two answered houses, the evidence.
+  let meta = { ...M.initialMeta(), marks: ['nina:warm', 'lev:warm', 'spark:warm', 'flora:warm', 'boris:warm', 'marta:warm'], clues: S.CLUES.slice(0, 8).map((c) => c.id) };
+  assert.ok(!S.canEndingD(meta), 'no house was answered');
+  meta = { ...meta, marks: [...meta.marks, 'house12:warm', 'house23:cool'] };
+  assert.ok(!S.canEndingD(meta), 'one house is not a street');
+  meta = { ...meta, marks: [...meta.marks, 'house4:warm'] };
+  assert.equal(S.neighbours(meta), 2);
+  assert.ok(S.canEndingD(meta));
+  assert.ok(!S.canEndingD({ ...meta, clues: meta.clues.slice(0, 7) }), 'the evidence is needed');
+  assert.ok(!S.canEndingD({ ...meta, marks: meta.marks.filter((m) => m !== 'nina:warm' && m !== 'lev:warm' && m !== 'spark:warm') }), 'and the warmth');
+  const open = (m) => S.SCENES.finale.choices.filter((c) => !c.requires || c.requires(m)).map((c) => c.ending);
+  assert.ok(open(meta).includes('d') && !open(M.initialMeta()).includes('d'));
+  const end = S.leaveScene({ ...meta, sceneProgress: { id: 'finale', index: 0 } }, [], S.SCENES.finale.choices.find((c) => c.ending === 'd'));
+  assert.deepEqual(end.meta.sceneProgress, { id: 'ending-d', index: 0 });
+  assert.ok(end.meta.endings.includes('d'));
+  // A profile keeps its marks through a save; junk and repeats are dropped.
+  const raw = JSON.parse(M.saveData({ ...M.initialMeta(), marks: ['nina:warm'] }, null));
+  raw.meta.marks = ['nina:warm', 'nina:cool', 'lev:warm', 'bad', 7, 'x:y', 'a b:warm'];
+  assert.deepEqual(M.readSave(JSON.stringify(raw)).meta.marks, ['nina:cool', 'lev:warm']);
+  delete raw.meta.marks;
+  assert.deepEqual(M.readSave(JSON.stringify(raw)).meta.marks, [], 'an old profile has none');
+});
+
+test('Each resident has a story in the Shelter, told once the resident is aboard and the raids add up', () => {
+  const arcs = S.HUB_SCENES.filter((s) => s.id.startsWith('arc-'));
+  assert.deepEqual(arcs.map((s) => s.id.slice(4)).sort(), [...arcOwners].sort());
+  const base = { ...M.initialMeta(), deaths: 1, runs: 40, totalRescues: 9, totalBosses: 5, endings: ['a', 'b', 'c'], winsByCharacter: {}, scenesSeen: S.HUB_SCENES.map((s) => s.id).filter((id) => !id.startsWith('arc-') && !id.startsWith('hub-epilogue-')) };
+  for (const id of arcOwners) {
+    const scene = arcs.find((s) => s.id === `arc-${id}`);
+    assert.equal(scene.choices.length, 2);
+    assert.ok(scene.choices[0].mark.endsWith(':warm') && scene.choices[1].mark.endsWith(':cool'));
+    assert.ok(scene.lines.some((l) => l.who === id), `${id} tells it`);
+    assert.ok(scene.choices.every((c) => c.reply.who === id));
+    // Waits for the resident to be in the Shelter.
+    assert.ok(!S.hubScene({ ...base, residents: arcOwners.filter((r) => r !== id) }, false).id.startsWith(`arc-${id}`));
+  }
+  // The story does not come before the raids it needs.
+  assert.ok(!S.hubScene({ ...base, runs: 1, residents: [...arcOwners] }, false).id.startsWith('arc-'));
+  // Hub beats of the main plot go first.
+  assert.equal(S.hubScene({ ...base, scenesSeen: [], runs: 4, residents: [...arcOwners] }, false).id, 'hub-first-death');
+});
+
+test('Radio of other houses and signs on the road come once, at their step, after a won battle', () => {
+  const meta = { ...M.initialMeta(), tutorialDone: true };
+  assert.equal(S.raidBeat({ ...meta, tutorialDone: false }, 0, 3), null, 'not during the tutorial');
+  assert.equal(S.raidBeat(meta, 0, 1), null);
+  assert.equal(S.raidBeat(meta, 0, 3), 'raid-0-a');
+  assert.equal(S.raidBeat(meta, 0, 4), 'raid-0-a', 'a missed step is told at the next win');
+  assert.equal(S.raidBeat({ ...meta, scenesSeen: ['raid-0-a'] }, 0, 5), null);
+  assert.equal(S.raidBeat({ ...meta, scenesSeen: ['raid-0-a'] }, 0, 6), 'raid-0-b');
+  assert.equal(S.raidBeat(meta, 1, 3), 'raid-1-a');
+  assert.equal(S.raidBeat(meta, 2, 3), 'raid-2-a');
+  assert.equal(S.raidBeat({ ...meta, scenesSeen: ['raid-2-a'] }, 2, 9), null);
+  for (const id of ['raid-0-a', 'raid-0-b', 'raid-1-a', 'raid-1-b', 'raid-2-a']) assert.ok(S.isStoryId(id), id);
+  // The answers to the houses count for the street; the signs only hand over a clue.
+  for (const id of ['raid-0-a', 'raid-1-a', 'raid-2-a'])
+    assert.ok(S.SCENES[id].choices[0].mark.startsWith('house') && S.SCENES[id].choices[0].mark.endsWith(':warm'));
+  assert.deepEqual(S.leaveScene({ ...meta, sceneProgress: { id: 'raid-0-b', index: 0 } }, []).meta.clues, ['bridge']);
+});
+
+test('The endings that end well seat the residents the player answered at the table', () => {
+  const lines = (id, m) => S.storyScene(id, m).lines.map((l) => l.text);
+  const none = M.initialMeta(),
+    warm = { ...none, marks: ['nina:warm', 'boris:warm'] },
+    cool = { ...none, marks: ['lev:cool'] };
+  for (const id of ['ending-b', 'ending-d']) {
+    const plain = lines(id, none).length;
+    assert.equal(lines(id, warm).length, plain + 2, `${id}: two warm words`);
+    assert.equal(lines(id, cool).length, plain + 1, `${id}: one cool word`);
+  }
+  assert.ok(lines('ending-b', warm).some((t) => t.includes('десяту чашку')));
+  assert.equal(lines('ending-a', warm).length, lines('ending-a', none).length, 'the cold ending has no table');
+  // The scene itself is the same for everyone: only the telling changes.
+  assert.ok(S.SCENES['ending-b'].lines.length >= lines('ending-b', none).length + 18);
+  assert.ok(S.storyScene('ending-d', none).lines.length > 10);
 });

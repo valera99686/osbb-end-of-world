@@ -38,7 +38,7 @@ function veteran() {
     heatUnlocked: 10,
     endlessBest: 3,
     clues: CLUES.map((c) => c.id),
-    endings: ['a', 'b', 'c'],
+    endings: ['a', 'b', 'c', 'd'],
     secrets: ['konami', 'night'],
     coopWins: 2,
     coopRevives: 9,

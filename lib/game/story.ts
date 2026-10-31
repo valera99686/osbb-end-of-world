@@ -1,7 +1,25 @@
 import type { Meta, Run } from './model';
 import { ENDING_ART, GOAL_ART, ORIGIN_ART, SHELTER_ART } from './cutscenes';
 import { OFFER_LINES } from './barks';
+import { campaignBoss } from './encounters';
 import { HEAD_VOICES, voiceId, voiceKeyFor, type VoiceKey } from './voice';
+import {
+  addMark,
+  ARCS,
+  canEndingD,
+  ENDING_D_LINES,
+  RAID_SCENES,
+  raidBeat,
+  tableLines,
+} from './story-arcs';
+import {
+  bossEndId,
+  bossEndScenes,
+  bossIntro,
+  bossIntroLines,
+} from './story-bosses';
+export { addMark, canEndingD, hasMark, neighbours, raidBeat, warmth } from './story-arcs';
+export { bossName } from './story-bosses';
 
 // «Справа 04:17»: the story is told in short dialogue scenes with portraits.
 // Layers the player peels off across runs:
@@ -131,6 +149,10 @@ export const CAPTAINS: Record<string, { name: string; voc: string }> = {
 export interface Line {
   who: SpeakerId;
   text: string;
+  // A boss speaking (its id): the portrait and the name of that boss.
+  boss?: string;
+  // Told only when this holds for the profile (the table in the endings).
+  when?: (meta: Meta) => boolean;
   // Background art (cutscenes.ts art index) and the clock in the corner.
   art?: number;
   time?: string;
@@ -140,7 +162,9 @@ export interface Choice {
   text: string;
   // The reply after picking; the scene's clues are granted either way.
   reply?: Line;
-  ending?: 'a' | 'b' | 'c';
+  ending?: 'a' | 'b' | 'c' | 'd';
+  // Remembered in the profile as «тема:warm» or «тема:cool» (story-arcs.ts).
+  mark?: string;
   // Hidden unless true; 'locked' shows the choice greyed with a hint.
   requires?: (meta: Meta) => boolean;
   locked?: string;
@@ -229,7 +253,7 @@ export const CLUE_BY_ID = Object.fromEntries(
 ) as Record<string, Clue>;
 
 export interface Ending {
-  id: 'a' | 'b' | 'c';
+  id: 'a' | 'b' | 'c' | 'd';
   title: string;
   hint: string;
 }
@@ -244,6 +268,11 @@ export const ENDINGS: readonly Ending[] = [
     id: 'c',
     title: '04:16',
     hint: 'Після будь-якої кінцівки: хто насправді веде будинок?',
+  },
+  {
+    id: 'd',
+    title: 'Загальні збори',
+    hint: 'Шість теплих рішень, відповіді двом сусіднім будинкам і докази.',
   },
 ];
 
@@ -532,6 +561,12 @@ export const SCENES: Record<string, Scene> = {
         locked: 'Бракує доказів: реєстр, кворум, міст, Марта, роз’єм Б',
       },
       {
+        text: 'Скликати збори всієї вулиці',
+        ending: 'd',
+        requires: canEndingD,
+        locked: 'Потрібні шість теплих рішень і відповіді двом сусіднім будинкам',
+      },
+      {
         text: 'Сісти в крісло Світанку',
         ending: 'c',
         requires: canEndingC,
@@ -715,6 +750,19 @@ export const SCENES: Record<string, Scene> = {
     ],
   },
 };
+
+// The scenes of the other modules: the last words of the bosses, the radio of
+// the other houses, the ending of the whole street. Whoever the player's choices
+// touched has a word at the table in the endings that end well.
+Object.assign(SCENES, bossEndScenes(), RAID_SCENES, {
+  'ending-d': {
+    id: 'ending-d',
+    title: 'Загальні збори',
+    library: true,
+    lines: [...ENDING_D_LINES, ...tableLines()],
+  } satisfies Scene,
+});
+SCENES['ending-b'].lines.push(...tableLines());
 
 // Hub scenes after a run: story beats first (in order, once each), then
 // short protocols from Галина that differ run to run.
@@ -1235,9 +1283,46 @@ const HUB_BEATS: HubBeat[] = [
       ],
     ),
   },
+  {
+    when: (m) => (m.endings ?? []).includes('d'),
+    scene: hub(
+      'hub-after-d',
+      [
+        L(
+          'galyna',
+          'Збори тривають і досі. Хтось на третьому подвір’ї розповідає про дах уже четверту годину.',
+        ),
+        L(
+          'intercom',
+          'Мені дзвонять з усього міста. Просто щоб почути, що хтось відповів.',
+        ),
+      ],
+      undefined,
+      [
+        {
+          text: 'Відповідай усім',
+          reply: L('intercom', 'Відповідаю. Це найкраща робота в моєму житті.'),
+        },
+        {
+          text: 'Дай собі відпочити',
+          reply: L(
+            'galyna',
+            'Правильно. Навіть домофону потрібна тиша. Хоча б раз на добу.',
+          ),
+        },
+      ],
+    ),
+  },
+  // The stories of the residents come after the main beats, one per raid.
+  ...ARCS.map(
+    (a): HubBeat => ({
+      scene: a.scene,
+      when: (m) => m.runs >= a.runs && (m.residents ?? []).includes(a.resident),
+    }),
+  ),
 ];
 // Short protocols that only appear after an ending has been seen.
-const AFTER_ENDING: Record<'a' | 'b' | 'c', Line[][]> = {
+const AFTER_ENDING: Record<'a' | 'b' | 'c' | 'd', Line[][]> = {
   a: [
     [L('nina', 'Ставлю десяту чашку, а потім прибираю. Руки не слухаються.')],
     [
@@ -1272,6 +1357,16 @@ const AFTER_ENDING: Record<'a' | 'b' | 'c', Line[][]> = {
         'Нова скарга: домофон нарешті ходить, а підлогу не витирає. Реєструю.',
       ),
     ],
+  ],
+  d: [
+    [
+      L(
+        'svitanok',
+        'Журнал. Загальноміських зборів проведено: одні. Скарг: усі. Це підозріло гарно.',
+        { glitch: true },
+      ),
+    ],
+    [L('nina', 'Чашок тепер стільки, що я збилась із ліку. Ставлю й ставлю.')],
   ],
   c: [
     [
@@ -1403,11 +1498,24 @@ const BOSS_TAUNTS = [
     'Спроба {attempt}. Ви ще не зрозуміли? Я не тримаю вас тут. Вас тримає хтось зі своїх.',
   ],
 ];
-// The machine's line on the boss intro card; it remembers the attempt.
-export function bossQuote(run: Pick<Run, 'chapter'>, meta: Meta) {
+// The machine's line on the boss intro card. A boss speaks in its own words,
+// the first time and when the crew comes back to it; a miniboss (or a run with
+// no boss on record) speaks with the voice of its district, and it remembers
+// the attempt.
+export function bossQuote(
+  run: Pick<Run, 'chapter'> & Partial<Pick<Run, 'kind' | 'bossVariants'>>,
+  meta: Meta,
+) {
   const chapter = Math.min(2, Math.max(0, run.chapter)),
     repeat = (meta.totalBosses ?? 0) > chapter || (meta.runs ?? 0) > 2;
-  return fillLine(BOSS_TAUNTS[chapter][repeat ? 1 : 0], meta, '');
+  const own =
+    run.kind === 'boss'
+      ? bossIntro(
+          campaignBoss(chapter, run.bossVariants?.[chapter] ?? 0).id,
+          repeat,
+        )
+      : null;
+  return fillLine(own ?? BOSS_TAUNTS[chapter][repeat ? 1 : 0], meta, '');
 }
 
 // Rescue card quotes: the first meeting, then short "our own" greetings.
@@ -1631,18 +1739,28 @@ export function leaveScene(
     sceneProgress: nextId ? { id: nextId, index: 0 } : null,
   };
   if (scene?.clues) next = addClues(next, scene.clues);
+  if (choice?.mark) next = addMark(next, choice.mark);
   if (ending) next = addEnding(next, ending);
   return { meta: next, queue: ending ? [] : queue.slice(1) };
 }
 
 // After a non-final boss win: this boss's last word, then the new location,
 // each only the first time (an endless circuit starts without a recap).
-export function victoryChain(meta: Meta, chapter: number, looped: boolean) {
+// The boss's own last words come first, once for each boss met.
+export function victoryChain(
+  meta: Meta,
+  chapter: number,
+  looped: boolean,
+  boss = '',
+) {
   return looped
     ? []
-    : [`victory-${chapter}`, `road-${chapter + 1}`, `arrival-${chapter + 1}`].filter(
-        (id) => !meta.scenesSeen.includes(id),
-      );
+    : [
+        ...(boss ? [bossEndId(boss)] : []),
+        `victory-${chapter}`,
+        `road-${chapter + 1}`,
+        `arrival-${chapter + 1}`,
+      ].filter((id) => !meta.scenesSeen.includes(id) && isStoryId(id));
 }
 
 // After a raid: the final win opens the finale; otherwise the next Shelter
@@ -1651,8 +1769,15 @@ export function raidEnd(
   meta: Meta,
   won: boolean,
   final: boolean,
-): { scene: string | null; protocol?: Line[] } {
-  if (final) return { scene: 'finale' };
+  boss = '',
+): { scene: string | null; protocol?: Line[]; then?: string[] } {
+  if (final) {
+    // The last boss says its last words, then the finale opens.
+    const last = boss ? bossEndId(boss) : '';
+    return last && !meta.scenesSeen.includes(last) && isStoryId(last)
+      ? { scene: last, then: ['finale'] }
+      : { scene: 'finale' };
+  }
   const beat = hubScene(meta, won);
   return PROTOCOL_SCENE.test(beat.id)
     ? { scene: null, protocol: beat.lines }
@@ -1667,7 +1792,7 @@ export function addClues(meta: Meta, ids: readonly string[] = []): Meta {
     ? { ...meta, clues: [...(meta.clues ?? []), ...fresh] }
     : meta;
 }
-export function addEnding(meta: Meta, id: 'a' | 'b' | 'c'): Meta {
+export function addEnding(meta: Meta, id: 'a' | 'b' | 'c' | 'd'): Meta {
   return (meta.endings ?? []).includes(id)
     ? meta
     : { ...meta, endings: [...(meta.endings ?? []), id] };
@@ -1688,9 +1813,16 @@ export const isStoryId = (id: unknown): id is string =>
   (Object.hasOwn(SCENES, id) ||
     Object.hasOwn(HUB_BY_ID, id) ||
     PROTOCOL_ID.test(id));
+// A scene as this profile tells it: the lines that depend on the choices made
+// (the table in the endings) are kept or dropped.
+function told(scene: Scene, meta: Meta): Scene {
+  return scene.lines.some((l) => l.when)
+    ? { ...scene, lines: scene.lines.filter((l) => !l.when || l.when(meta)) }
+    : scene;
+}
 export function storyScene(id: string, meta: Meta): Scene | null {
-  if (Object.hasOwn(SCENES, id)) return SCENES[id];
-  if (Object.hasOwn(HUB_BY_ID, id)) return HUB_BY_ID[id];
+  if (Object.hasOwn(SCENES, id)) return told(SCENES[id], meta);
+  if (Object.hasOwn(HUB_BY_ID, id)) return told(HUB_BY_ID[id], meta);
   const m = PROTOCOL_ID.exec(id);
   if (!m) return null;
   const pool = protocolPool(meta, m[1] === 'victory'),
@@ -1744,6 +1876,7 @@ export function voiceLines(): VoiceLine[] {
     lines.forEach(fromLine);
   for (const texts of BOSS_TAUNTS)
     for (const text of texts) add(BOSS_VOICE, text);
+  for (const text of bossIntroLines()) add(BOSS_VOICE, text);
   for (const [id, text] of Object.entries(RESCUE_FIRST)) add(id, text);
   for (const [id, texts] of Object.entries(RESCUE_AGAIN))
     for (const text of texts) add(id, text);

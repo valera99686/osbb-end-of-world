@@ -51,8 +51,10 @@ export function hash53(text: string, seed = 0) {
 export const voiceId = (key: string, text: string) =>
   hash53(`${key}|${text}`).toString(36);
 
-// The voice for a speaker id from the story ('captain' = the chosen head).
+// The voice for a speaker id from the story ('captain' = the chosen head). The
+// bosses are machines of the city and speak with the voice of the Світанок system.
 export function voiceKeyFor(who: string, captain: string): VoiceKey | null {
+  if (who === 'boss') return 'svitanok';
   const id = who === 'captain' ? captain : who;
   return (VOICE_KEYS as readonly string[]).includes(id)
     ? (id as VoiceKey)

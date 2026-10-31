@@ -58,7 +58,7 @@ const clues =
   (meta) =>
     (meta.clues ?? []).length >= target;
 const ending =
-  (id: 'a' | 'b' | 'c'): Check =>
+  (id: 'a' | 'b' | 'c' | 'd'): Check =>
   (meta) =>
     (meta.endings ?? []).includes(id);
 const DEFINITIONS: (Achievement & { check: Check })[] = [
@@ -356,6 +356,13 @@ const DEFINITIONS: (Achievement & { check: Check })[] = [
     text: 'Побачи кінцівку «04:16».',
     icon: 'Moon',
     check: ending('c'),
+  },
+  {
+    id: 'ending_d',
+    title: 'Двері всієї вулиці',
+    text: 'Побачи кінцівку «Загальні збори».',
+    icon: 'HeartHandshake',
+    check: ending('d'),
   },
   {
     id: 'endings_all',

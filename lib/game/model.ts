@@ -125,7 +125,9 @@ export interface Meta {
   // «Справа 04:17»: evidence found so far (story.ts CLUES) and the
   // endings the player has reached.
   clues: string[];
-  endings: ('a' | 'b' | 'c')[];
+  endings: ('a' | 'b' | 'c' | 'd')[];
+  // Choices made in the story, as «тема:warm» or «тема:cool» (story-arcs.ts).
+  marks: string[];
   // Hidden achievements found so far (see secrets.ts).
   secrets: string[];
   // Local co-op (coop.ts): expeditions finished by two players and how many
@@ -1168,6 +1170,7 @@ export function initialMeta(): Meta {
     eliteWins: 0,
     clues: [],
     endings: [],
+    marks: [],
     secrets: [],
     coopWins: 0,
     coopRevives: 0,
@@ -2497,6 +2500,7 @@ export function finishRun(
     achievements: [...(meta.achievements ?? [])],
     clues: [...(meta.clues ?? [])],
     endings: [...(meta.endings ?? [])],
+    marks: [...(meta.marks ?? [])],
     secrets: [...(meta.secrets ?? [])],
     coopWins: meta.coopWins ?? 0,
     coopRevives: meta.coopRevives ?? 0,

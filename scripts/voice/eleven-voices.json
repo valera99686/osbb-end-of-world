@@ -1,0 +1,27 @@
+{
+ "mechanic": { "voice": "Caleb: trusted guide (male)", "stability": 0.45 },
+ "spark": { "voice": "Jade: upbeat and natural (female)", "stability": 0.4 },
+ "flora": { "voice": "Talia: warm, soft guide (female)", "stability": 0.5 },
+ "boris": { "voice": "Lawrence: bright and informative (male)", "stability": 0.5 },
+ "nina": { "voice": "Maisie: friendly, casual neighbor (female)", "stability": 0.45 },
+ "lev": { "voice": "Wyatt: seasoned mentor (male)", "stability": 0.5 },
+ "marta": { "voice": "Elowen: upbeat modern narrator (female)", "stability": 0.35 },
+ "danilo": { "voice": "Kaelen: amateur warrior (male)", "stability": 0.35 },
+ "solomia": { "voice": "Florence: atmospheric British storyteller (female)", "stability": 0.45 },
+ "galyna": { "voice": "Elara: crisp narrator (female)", "stability": 0.5 },
+ "intercom": {
+  "voice": "Baxter: dry, calm Australian (male)",
+  "stability": 0.75,
+  "fx": "highpass=f=320,lowpass=f=3300,acompressor=threshold=-20dB:ratio=5:attack=5:release=80,volume=1.3"
+ },
+ "svitanok": {
+  "voice": "Alicia: polished British anchor (female)",
+  "stability": 0.7,
+  "fx": "aecho=0.85:0.5:55|90:0.22|0.12"
+ },
+ "narrator": {
+  "voice": "Sawyer: midnight storyteller (male)",
+  "stability": 0.5,
+  "fx": "aecho=0.8:0.5:130:0.12"
+ }
+}

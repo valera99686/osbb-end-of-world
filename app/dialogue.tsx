@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Bot, FastForward, Lock } from 'lucide-react';
 import {
   CAPTAINS,
   SPEAKERS,
+  bossName,
   fillLine,
   type Choice,
   type Line,
@@ -30,10 +31,13 @@ const CITY_ART = 6;
 export function SpeakerPortrait({
   who,
   captain,
+  boss,
   size = 72,
 }: {
   who: SpeakerId;
   captain: string;
+  // A boss speaking: its own portrait instead of the machine icon.
+  boss?: string;
   size?: number;
 }) {
   const id = who === 'captain' ? captain : who;
@@ -48,6 +52,8 @@ export function SpeakerPortrait({
     inner = <img src={asset('art/portrait-intercom.webp')} alt="" />;
   else if (speaker?.portrait === 'svitanok')
     inner = <img src={asset('art/portrait-svitanok.webp')} alt="" />;
+  else if (speaker?.portrait === 'boss' && boss)
+    inner = <img src={asset(`art/boss-${boss}.webp`)} alt="" />;
   else
     inner = (
       <span className="portrait-icon">
@@ -121,7 +127,8 @@ export function DialoguePlayer({
       if (src) new Image().src = src;
     }
   }, [scene, at, last]);
-  const who = speakerName(line.who, captain),
+  const named = speakerName(line.who, captain),
+    who = line.boss ? { name: bossName(line.boss), role: 'машина міста' } : named,
     text = fillLine(line.text, meta, captain),
     speaker = SPEAKERS[line.who as keyof typeof SPEAKERS];
   // Each line is spoken when it appears; leaving the scene stops the voice.
@@ -194,7 +201,12 @@ export function DialoguePlayer({
         className={`dlg-card ${line.glitch ? 'dlg-glitch' : ''}`}
         key={`${scene.id}-${at}-${reply ? 'r' : ''}`}
       >
-        <SpeakerPortrait who={line.who} captain={captain} size={76} />
+        <SpeakerPortrait
+          who={line.who}
+          captain={captain}
+          boss={line.boss}
+          size={76}
+        />
         <div className="dlg-body">
           {who.name && (
             <span

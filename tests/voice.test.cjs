@@ -21,7 +21,7 @@ test('Speakers map to voices; the chosen head speaks as themselves', () => {
   assert.equal(V.voiceKeyFor('captain', 'spark'), 'spark');
   assert.equal(V.voiceKeyFor('captain', 'flora'), 'flora');
   assert.equal(V.voiceKeyFor('narrator', 'spark'), 'narrator', 'the narrator has a voice of their own');
-  assert.equal(V.voiceKeyFor('boss', 'spark'), null);
+  assert.equal(V.voiceKeyFor('boss', 'spark'), 'svitanok', 'the bosses are machines of the city');
   assert.equal(V.voiceKeyFor('captain', 'nobody'), null);
   for (const key of V.VOICE_KEYS) assert.ok(voices[key], `${key} has a voice in voices.json`);
   for (const key of Object.keys(voices)) assert.ok(V.VOICE_KEYS.includes(key), key);

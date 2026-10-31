@@ -25,8 +25,24 @@ export const ORIGIN_ART = {
   loop: 12,
 } as const;
 // One illustration per ending (story.ts): the first sunrise, the residents'
-// meeting and the night all intercoms rang.
-export const ENDING_ART = { a: 13, b: 14, c: 15 } as const;
+// meeting, the night all intercoms rang and the meeting of the whole street.
+export const ENDING_ART = { a: 13, b: 14, c: 15, d: 24 } as const;
+// The other houses that answer on the radio during a raid (story-arcs.ts): the
+// one walking the same ring road, the one with wheat on its roof, the one asleep
+// in its own light by the dispatch tower.
+export const HOUSE_ART = { rust: 25, green: 26, core: 27 } as const;
+// The story of each resident in the Shelter (story-arcs.ts), one picture each.
+export const ARC_ART = {
+  nina: 28,
+  lev: 29,
+  mechanic: 30,
+  spark: 31,
+  flora: 32,
+  boris: 33,
+  marta: 34,
+  danilo: 35,
+  solomia: 36,
+} as const;
 // The way out of the loop (cutscene 'goal' and the two stops of the road):
 // the loop itself, the core in the dispatch tower, the three districts on one
 // road, the neighbours at the table, the first sunrise.
@@ -57,6 +73,13 @@ export const SCENE_IMAGE_BY_ART: Record<number, string> = {
   [ENDING_ART.a]: asset('art/ending-a.webp'),
   [ENDING_ART.b]: asset('art/ending-b.webp'),
   [ENDING_ART.c]: asset('art/ending-c.webp'),
+  [ENDING_ART.d]: asset('art/ending-d.webp'),
+  [HOUSE_ART.rust]: asset('art/house-rust.webp'),
+  [HOUSE_ART.green]: asset('art/house-green.webp'),
+  [HOUSE_ART.core]: asset('art/house-core.webp'),
+  ...Object.fromEntries(
+    Object.entries(ARC_ART).map(([id, art]) => [art, asset(`art/arc-${id}.webp`)]),
+  ),
   [GOAL_ART.loop]: asset('art/goal-loop.webp'),
   [GOAL_ART.core]: asset('art/goal-core.webp'),
   [GOAL_ART.road]: asset('art/goal-road.webp'),

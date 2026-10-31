@@ -32,6 +32,8 @@ const modules = [
   'notices',
   'secrets',
   'story',
+  'story-arcs',
+  'story-bosses',
   'achievements',
   'model',
   'save',

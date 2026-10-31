@@ -51,9 +51,11 @@ test('Heat 0 leaves enemy stats exact; higher heat makes enemies tougher', () =>
   const cold = battle({ heat: 0 }).b,
     hot = battle({ heat: 5 }).b,
     max = battle({ heat: 10 }).b;
-  assert.deepEqual(cold.heat, Modes.heatEffects(0));
+  // Heat 0 is the baseline of the step and nothing else (see modes.ts).
+  assert.deepEqual(cold.heat, Modes.withBaseline(Modes.heatEffects(0), 0, 4));
   const def = ENEMY_DEFS[0],
-    base = def.health * (1 + 4 * 0.025);
+    b4 = Modes.baselineAt(0, 4),
+    base = def.health * (1 + 4 * Modes.STEP_HEALTH) * b4.enemyHealth;
   const a = dummy(cold),
     h = dummy(hot),
     m = dummy(max);
@@ -62,8 +64,9 @@ test('Heat 0 leaves enemy stats exact; higher heat makes enemies tougher', () =>
   assert.ok(close(h.max, base * 1.25));
   assert.ok(close(m.max, base * 1.55));
   assert.ok(max.spawn(0, { affix: null, force: true }).speed > def.speed);
-  assert.equal(cold.threat(10), 10);
-  assert.ok(close(hot.threat(10), 13.5));
+  // (the heat effects are kept to four decimals, so a hair of tolerance)
+  assert.ok(close(cold.threat(10), 10 * b4.enemyDamage, 1e-2));
+  assert.ok(close(hot.threat(10), 13.5 * b4.enemyDamage, 1e-2));
   // Contact damage under heat: the same touch costs more hull.
   const touch = (b) => {
     const e = dummy(b, 0, null, b.x + 5, b.y);
@@ -75,7 +78,10 @@ test('Heat 0 leaves enemy stats exact; higher heat makes enemies tougher', () =>
   };
   const coldHit = touch(battle({ heat: 0 }).b),
     hotHit = touch(battle({ heat: 5 }).b);
-  assert.equal(coldHit, Math.max(2, def.contactDamage - cold.stats.armor));
+  assert.ok(
+    close(coldHit, Math.max(2, def.contactDamage * b4.enemyDamage - cold.stats.armor), 1e-2),
+    `${coldHit}`,
+  );
   assert.ok(hotHit > coldHit);
   // Spawn frequency: heat 6 spawns 30% more often.
   const spawnGap = (b) => {

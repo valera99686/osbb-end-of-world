@@ -851,12 +851,35 @@ function onEvent(id, extra) {
 }
 const modulesIn = (h) => h.items.filter(Boolean).length + h.backpack.length;
 
-test('The goal of the story is told: out of the loop, through every district, to the morning', () => {
-  const G = CE.STORY_GOAL;
-  assert.ok(G.title.includes('петл') && G.text.length > 30 && G.end === '04:18' && G.endName, JSON.stringify(G));
+test('The goal of the story is told in the same dialogue scenes as the rest: out of the loop, a stop on the road after each boss, a picture for every line', () => {
+  const St = require('../.test-build/story.js');
+  const Sc = require('../.test-build/cutscenes.js');
+  const fs = require('node:fs');
   assert.equal(CE.CAMPAIGN_MISSIONS.length, C.LOCATIONS.length, 'a mission for every district');
-  assert.equal(C.LOCATIONS.length, 3);
-  for (const m of CE.CAMPAIGN_MISSIONS) assert.ok(m.length > 30, m);
+  const spoken = new Set(St.voiceLines().map((l) => l.text));
+  for (const id of ['goal', 'road-1', 'road-2']) {
+    const scene = St.SCENES[id];
+    assert.ok(scene && scene.library && scene.lines.length >= 1, id);
+    assert.ok(St.isStoryId(id) && St.storyScene(id, M.initialMeta()) === scene, id);
+    assert.equal(Sc.SCENE_BY_ID[id], undefined, `${id}: not a cinema frame, a dialogue scene like the others`);
+    assert.equal(scene.unvoiced, true, `${id}: no recordings, so none are asked for`);
+    for (const line of scene.lines) {
+      assert.ok(line.text.length > 40 && line.text.length < 260, `${id}: ${line.text.length} characters`);
+      assert.ok(line.time && line.art !== undefined, id);
+      assert.ok(!spoken.has(line.text), `${id}: not among the lines to record`);
+      const file = Sc.SCENE_IMAGE_BY_ART[line.art];
+      assert.ok(file, `${id}: a picture for art ${line.art}`);
+      assert.ok(fs.existsSync('public/' + file.replace(/^\/(osbb-end-of-world\/)?/, '')), `${id}: ${file} exists`);
+    }
+  }
+  const goal = St.SCENES.goal;
+  assert.equal(goal.lines.length, 5);
+  assert.ok(/петл/i.test(goal.lines[0].text), 'the rule of the loop comes first');
+  assert.ok(goal.lines.some((l) => l.text.includes('диспетчерська')), 'the way out is named');
+  assert.ok(goal.lines.some((l) => l.text.includes('три райони')), 'the road is named');
+  assert.ok(goal.lines[4].text.includes('04:18'), 'and where it ends');
+  // The first raid opens with it; it is in the library like the other scenes.
+  assert.ok(St.LIBRARY_IDS.includes('goal') && St.LIBRARY_IDS.includes('road-1') && St.LIBRARY_IDS.includes('road-2'));
 });
 
 test('Solo meetings are many, well formed, never repeat inside a location, and every one can come up', () => {

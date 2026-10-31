@@ -160,6 +160,7 @@ export function CutscenePlayer({
 // A card's kicker by scene id.
 function kicker(id: string) {
   if (id === 'prologue') return 'ПРОЛОГ';
+  if (id === 'goal' || id.startsWith('road-')) return 'ШЛЯХ ІЗ ПЕТЛІ';
   if (id.startsWith('ending')) return 'КІНЦІВКА';
   if (id.startsWith('victory')) return 'ПІСЛЯ БОСА';
   return 'ПРИБУТТЯ';

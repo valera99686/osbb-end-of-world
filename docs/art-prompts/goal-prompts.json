@@ -1,0 +1,39 @@
+{
+  "model": "GPT Image 2 (mage.space), 1K, 16:9",
+  "used_in": "public/art/goal-*.webp (resized to 1344 px wide, WebP q82); scenes 'goal', 'road-1', 'road-2' in lib/game/story.ts",
+  "negative": "text, letters, numbers, clock face digits, watermark, logo, UI, panel, border, collage, photo, photorealistic, cartoon, anime, gore",
+  "common": "Cinematic painted video game concept art, single full-bleed widescreen frame. Muted blue-teal night palette, warm amber windows, soft film grain, tactile detailed painterly style. Main subject centered and upper-middle, bottom quarter quiet dark ground, upper-right corner quiet empty sky. No text, no letters, no numbers, no UI, no border, no watermark, no gore.",
+  "images": [
+    {
+      "file": "public/art/goal-loop.webp",
+      "source": "docs/art-source/goal-loop.jpg",
+      "art": 19,
+      "subject": "The house walks a circular road under a huge glowing cyan ring of light; translucent ghost copies of the house repeat along the ring (the time loop)."
+    },
+    {
+      "file": "public/art/goal-core.webp",
+      "source": "docs/art-source/goal-core.jpg",
+      "art": 20,
+      "subject": "The house from behind at the end of a long ruined road, looking at the far dispatch tower whose top holds a glowing white-cyan core; a faint pink line of dawn on the horizon."
+    },
+    {
+      "file": "public/art/goal-road.webp",
+      "source": "docs/art-source/goal-road.jpg",
+      "art": 21,
+      "subject": "Panorama from a height: one road through three districts, orange rusty quarter, green glowing greenhouse domes, cyan network towers; the tiny house walks along it."
+    },
+    {
+      "file": "public/art/goal-people.webp",
+      "source": "docs/art-source/goal-people.jpg",
+      "art": 22,
+      "subject": "Nine neighbours at a long table on the roof garden under lanterns, tea cups and one extra empty tenth cup, a ginger cat on a chair."
+    },
+    {
+      "file": "public/art/goal-dawn.webp",
+      "source": "docs/art-source/goal-dawn.jpg",
+      "art": 23,
+      "subject": "The first real sunrise: the resting house on a flowering hilltop, neighbours opening windows, the cyan ring fading in the golden clouds, the dark calm tower far behind."
+    }
+  ],
+  "note": "The prompts were written in English for the model; each starts with the 'common' paragraph's style words and then names the subject above in detail (the house is the old Soviet concrete block on mechanical legs with plants, laundry, a blue-and-yellow flag, solar panels and small cannons)."
+}

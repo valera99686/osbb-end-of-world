@@ -113,7 +113,6 @@ import {
 import { NoticeBoard } from './notice-board';
 import { CoopSelect } from './coop-select';
 import { PlayModes, type PlayMode } from './play-modes';
-import { StoryGoal, StoryTrack } from './story-goal';
 import { GuestRoom, OnlinePanel, useNet } from './online';
 import { HOST_IN_FIGHT, NetSession } from '@/lib/game/session';
 import type { ShareMode } from '@/lib/game/net';
@@ -1072,6 +1071,14 @@ export default function Game() {
   }
   function launch(spec: Launch, base: Meta = meta) {
     audio.current!.unlock();
+    // The first raid opens with the way out of the loop (cutscene 'goal'), then
+    // with the district; each only the first time.
+    const opening = chapter === 0 ? firstScene(base, 'goal') : null;
+    setSceneQueue(
+      opening && !base.scenesSeen.includes(`arrival-${chapter}`)
+        ? [`arrival-${chapter}`]
+        : [],
+    );
     let started = makeRun(
       base,
       spec.character || character,
@@ -1100,7 +1107,7 @@ export default function Game() {
       // The new run carries the 'НОВЕ' items into its first reward.
       fresh: [],
       lore: loreForProgress(base.lore, base.wins, chapter),
-      sceneProgress: firstScene(base, `arrival-${chapter}`),
+      sceneProgress: opening ?? firstScene(base, `arrival-${chapter}`),
     });
     setScreen('play');
     setResult(null);
@@ -1536,7 +1543,6 @@ export default function Game() {
                   <b>Ти — голова ОСББ.</b> Виведи будинок №17 з петлі 04:17:
                   дійди до диспетчерської й вивези ядро «Світанку».
                 </p>
-                <StoryTrack chapter={run?.chapter ?? 0} />
               </div>
               <ol className="hub-howto">
                 <li>
@@ -1812,7 +1818,6 @@ export default function Game() {
                     </p>
                     <h2>{LOCATIONS[run.chapter].name}</h2>
                     <p className="lead">{LOCATIONS[run.chapter].desc}</p>
-                    <StoryGoal chapter={run.chapter} attempt={meta.runs + 1} />
                     <div className="mission-banner">
                       <Target size={22} />
                       <div>

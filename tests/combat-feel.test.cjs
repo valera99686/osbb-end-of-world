@@ -473,7 +473,7 @@ test('Heat still scales squads: more bodies, quicker packs; heat 0 exact', () =>
   assert.ok(hot.squadTotal > cold.squadTotal);
   assert.deepEqual(
     cold.plan,
-    C.encounterWaves(cold.encounter, 4, false, 1),
-    'heat 0 adds nothing',
+    C.encounterWaves(cold.encounter, 4, false, require('../.test-build/modes.js').baselineAt(0, 4).spawnRate),
+    'heat 0 adds nothing but the baseline of the step',
   );
 });

@@ -87,6 +87,9 @@ import {
   COMBO_CAP,
   comboMultiplier,
   heatForRun,
+  withBaseline,
+  baselineAt,
+  STEP_HEALTH,
   rollAffix,
   rollBattleEvent,
   type AffixId,
@@ -843,7 +846,7 @@ export class Battle {
             (run.kind === 'elite' ? 10 : 0);
     this.run.hp = Math.min(this.run.hp, this.stats.health);
     this.run.battleDamage = 0;
-    this.heat = heatForRun(run);
+    this.heat = withBaseline(heatForRun(run), run.chapter, run.step);
     if (run.coop && (run.kind === 'boss' || run.kind === 'miniboss'))
       this.duration *= COOP.leaderTime;
     if (run.coop) {
@@ -2003,7 +2006,9 @@ export class Battle {
         ? LEADER_TOUGHNESS[boss ? 'boss' : 'miniboss'][
             Math.min(2, this.run.chapter)
           ]
-        : (1 + this.run.step * 0.025) * (this.run.kind === 'elite' ? 1.2 : 1)) *
+        : (1 + this.run.step * STEP_HEALTH) *
+          (this.run.kind === 'elite' ? 1.2 : 1) *
+          baselineAt(this.run.chapter, this.run.step).enemyHealth) *
       this.heat.enemyHealth *
       (this.ally && (boss || mini) ? COOP.leaderHealth : 1);
     let speed = def.speed * this.heat.enemySpeed;

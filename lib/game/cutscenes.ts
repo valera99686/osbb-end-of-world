@@ -27,6 +27,10 @@ export const ORIGIN_ART = {
 // One illustration per ending (story.ts): the first sunrise, the residents'
 // meeting and the night all intercoms rang.
 export const ENDING_ART = { a: 13, b: 14, c: 15 } as const;
+// The way out of the loop (cutscene 'goal' and the two stops of the road):
+// the loop itself, the core in the dispatch tower, the three districts on one
+// road, the neighbours at the table, the first sunrise.
+export const GOAL_ART = { loop: 19, core: 20, road: 21, people: 22, dawn: 23 } as const;
 // The Shelter after a defeat: the fallen house, the meeting hall with the
 // protocols, the neighbours raising the house again.
 export const SHELTER_ART = { fallen: 16, hall: 17, rising: 18 } as const;
@@ -53,6 +57,11 @@ export const SCENE_IMAGE_BY_ART: Record<number, string> = {
   [ENDING_ART.a]: asset('art/ending-a.webp'),
   [ENDING_ART.b]: asset('art/ending-b.webp'),
   [ENDING_ART.c]: asset('art/ending-c.webp'),
+  [GOAL_ART.loop]: asset('art/goal-loop.webp'),
+  [GOAL_ART.core]: asset('art/goal-core.webp'),
+  [GOAL_ART.road]: asset('art/goal-road.webp'),
+  [GOAL_ART.people]: asset('art/goal-people.webp'),
+  [GOAL_ART.dawn]: asset('art/goal-dawn.webp'),
 };
 export const MISSIONS = CAMPAIGN_MISSIONS;
 const shot = (

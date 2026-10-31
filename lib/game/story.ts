@@ -1,5 +1,5 @@
 import type { Meta, Run } from './model';
-import { ENDING_ART, ORIGIN_ART, SHELTER_ART } from './cutscenes';
+import { ENDING_ART, GOAL_ART, ORIGIN_ART, SHELTER_ART } from './cutscenes';
 import { OFFER_LINES } from './barks';
 import { HEAD_VOICES, voiceId, voiceKeyFor, type VoiceKey } from './voice';
 
@@ -154,6 +154,9 @@ export interface Scene {
   clues?: string[];
   // Listed in the story library for replays.
   library?: boolean;
+  // Has no recorded voices (the voice generator needs a GPU, see
+  // scripts/voice): read as text, and left out of the lines to record.
+  unvoiced?: boolean;
 }
 
 export interface Clue {
@@ -330,6 +333,39 @@ export const SCENES: Record<string, Scene> = {
       L('intercom', '…Дякую за чай.', { art: LOOP, glitch: true }),
     ],
   },
+  goal: {
+    id: 'goal',
+    title: 'Єдиний вихід із петлі',
+    library: true,
+    unvoiced: true,
+    lines: [
+      L(
+        'galyna',
+        'Слухай уважно, голово. Петля не випускає нас, доки евакуація не завершена. Щоразу, коли будинок падає, годинник вертає нас на 04:17.',
+        { art: GOAL_ART.loop, time: 'ПРАВИЛО ПЕТЛІ' },
+      ),
+      L(
+        'spark',
+        'Вихід один: центральна диспетчерська в Серці мережі. Там стоїть ядро «Світанку». Вивеземо його за межу часового поля, і петля скінчиться.',
+        { art: GOAL_ART.core, time: 'ЄДИНИЙ ВИХІД' },
+      ),
+      L(
+        'mechanic',
+        'Дорога веде через три райони: Іржавий квартал, Зелені куполи й Серце мережі. У кожному свій бос. Поки його не здолаємо, далі не пустять.',
+        { art: GOAL_ART.road, time: 'ДОРОГА · ТРИ РАЙОНИ' },
+      ),
+      L(
+        'nina',
+        'Кого врятуєш по дорозі, той оселиться в будинку й посилить його. Самі ми не дійдемо.',
+        { art: GOAL_ART.people, time: 'ЛЮДИ' },
+      ),
+      L(
+        'galyna',
+        'Програш не кінець: будинок підніметься, а дорогу ми вже знатимемо. Дійди до ядра, і годинник нарешті покаже 04:18.',
+        { art: GOAL_ART.dawn, time: '04:18 · МЕТА' },
+      ),
+    ],
+  },
   'arrival-0': {
     id: 'arrival-0',
     title: 'Іржавий квартал',
@@ -353,6 +389,19 @@ export const SCENES: Record<string, Scene> = {
       L('captain', 'Значить, без перепустки. Вперед.'),
     ],
   },
+  'road-1': {
+    id: 'road-1',
+    title: 'Шлях із петлі: 1 із 3',
+    library: true,
+    unvoiced: true,
+    lines: [
+      L(
+        'spark',
+        'Перший район позаду, ворота відчинено. Це третина шляху з петлі. Далі Зелені куполи.',
+        { art: GOAL_ART.road, time: 'ШЛЯХ ІЗ ПЕТЛІ · 1 З 3' },
+      ),
+    ],
+  },
   'arrival-1': {
     id: 'arrival-1',
     title: 'Зелені куполи',
@@ -372,6 +421,24 @@ export const SCENES: Record<string, Scene> = {
         'intercom',
         'Шановні мешканці, у теплицях заборонено… (шурхіт) …ні, дозволено. Усе дозволено. Тільки не помирайте.',
         { art: ORIGIN_ART.greenhouse },
+      ),
+    ],
+  },
+  'road-2': {
+    id: 'road-2',
+    title: 'Шлях із петлі: 2 із 3',
+    library: true,
+    unvoiced: true,
+    lines: [
+      L(
+        'spark',
+        'Теплиці вільні, пройдено дві третини. Попереду Серце мережі: диспетчерська, ядро «Світанку» і вся його охорона.',
+        { art: GOAL_ART.core, time: 'ШЛЯХ ІЗ ПЕТЛІ · 2 З 3' },
+      ),
+      L(
+        'galyna',
+        'Ще один район, і годинник піде далі. Або ще одна спроба. Чайник я вже поставила.',
+        { art: GOAL_ART.people, time: 'ШЛЯХ ІЗ ПЕТЛІ · 2 З 3' },
       ),
     ],
   },
@@ -1579,7 +1646,7 @@ export function leaveScene(
 export function victoryChain(meta: Meta, chapter: number, looped: boolean) {
   return looped
     ? []
-    : [`victory-${chapter}`, `arrival-${chapter + 1}`].filter(
+    : [`victory-${chapter}`, `road-${chapter + 1}`, `arrival-${chapter + 1}`].filter(
         (id) => !meta.scenesSeen.includes(id),
       );
 }
@@ -1672,6 +1739,7 @@ export function voiceLines(): VoiceLine[] {
     else add(voiceKeyFor(l.who, ''), l.text);
   };
   for (const scene of [...Object.values(SCENES), ...HUB_SCENES]) {
+    if (scene.unvoiced) continue;
     scene.lines.forEach(fromLine);
     for (const c of scene.choices ?? []) if (c.reply) fromLine(c.reply);
   }

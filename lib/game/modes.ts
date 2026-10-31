@@ -150,6 +150,34 @@ export const HEAT_LEVELS: { level: number; title: string; text: string }[] = [
 ];
 // Levels 1-3 are open from the first run so the difficulty can be felt at once;
 // the rest open one by one with each finished expedition.
+// What every fight is before any heat level: the game was too easy at heat 0
+// (the first fights cost no health at all), so the whole ladder stands on this.
+// Enemies hit harder and come in greater numbers, and the ordinary ones, never
+// the leaders (their toughness is LEADER_TOUGHNESS in engine.ts), are tougher.
+// It is steepest in the first location, where a starting house meets starting
+// enemies and a human at the controls loses nothing; the later locations only
+// get a little more, because by then the house has grown. In the first
+// location it comes in over the first steps, so the very first fights stay as
+// gentle as they were for someone still learning the controls.
+export const BASELINE = [
+  { enemyDamage: 1.7, spawnRate: 1.3, enemyHealth: 1.35 },
+  { enemyDamage: 1.15, spawnRate: 1.1, enemyHealth: 1.05 },
+  { enemyDamage: 1.1, spawnRate: 1.05, enemyHealth: 1 },
+] as const;
+export const BASELINE_STEPS = 7;
+export function baselineAt(chapter: number, step: number) {
+  const full = BASELINE[Math.min(BASELINE.length - 1, Math.max(0, chapter))];
+  const n =
+    chapter > 0 ? 1 : Math.min(1, Math.max(0, step) / BASELINE_STEPS);
+  const part = (x: number) => 1 + (x - 1) * n;
+  return {
+    enemyDamage: part(full.enemyDamage),
+    spawnRate: part(full.spawnRate),
+    enemyHealth: part(full.enemyHealth),
+  };
+}
+// How much more health an ordinary enemy has for each step along the map.
+export const STEP_HEALTH = 0.04;
 export const FREE_HEAT = 3;
 export function heatChoices(unlocked?: number): number {
   const u = Number.isFinite(unlocked) ? Math.floor(unlocked as number) : 0;
@@ -163,6 +191,19 @@ export function heatName(heat: number): string {
   return 'Кінець світу';
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
+// The heat of a raid with the baseline on it, as a fight uses it.
+export function withBaseline(
+  e: HeatEffects,
+  chapter: number,
+  step: number,
+): HeatEffects {
+  const b = baselineAt(chapter, step);
+  return {
+    ...e,
+    enemyDamage: round(e.enemyDamage * b.enemyDamage),
+    spawnRate: round(e.spawnRate * b.spawnRate),
+  };
+}
 // Each level adds one rule from HEAT_LEVELS and +10% cores. Heat 0 is neutral.
 export function heatEffects(heat: number, modifier?: string): HeatEffects {
   const h = Number.isFinite(heat) ? Math.max(0, Math.floor(heat)) : 0;

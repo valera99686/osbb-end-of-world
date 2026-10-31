@@ -198,8 +198,9 @@ test('Leaving a scene keeps its clues, follows the chain and never loses the fin
 
 test('After a boss or a raid the right scenes follow, each only once', () => {
   const fresh = M.initialMeta();
-  assert.deepEqual(S.victoryChain(fresh, 0, false), ['victory-0', 'arrival-1']);
-  assert.deepEqual(S.victoryChain({ ...fresh, scenesSeen: ['victory-0'] }, 0, false), ['arrival-1']);
+  assert.deepEqual(S.victoryChain(fresh, 0, false), ['victory-0', 'road-1', 'arrival-1']);
+  assert.deepEqual(S.victoryChain({ ...fresh, scenesSeen: ['victory-0'] }, 0, false), ['road-1', 'arrival-1']);
+  assert.deepEqual(S.victoryChain({ ...fresh, scenesSeen: ['victory-0', 'road-1', 'arrival-1'] }, 0, false), []);
   assert.deepEqual(S.victoryChain(fresh, 1, true), [], 'endless circuits skip the recap');
   assert.deepEqual(S.raidEnd(fresh, true, true), { scene: 'finale' });
   const died = { ...fresh, runs: 1, deaths: 1 };

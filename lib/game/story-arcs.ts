@@ -24,10 +24,18 @@ export function addMark(meta: Meta, mark: string): Meta {
   const marks = [...known.filter((m) => m !== opposite && m !== mark), mark];
   return marks.length > 200 ? meta : { ...meta, marks };
 }
+// A meeting on the road leaves a «road-<id>:warm|cool» mark of its own
+// (campaign-content.ts). They count for the heart, but only two of the six, so
+// that the last ending still needs the residents' stories from the shelter.
+export const ROAD_WARMTH_CAP = 2;
+const isRoad = (mark: string) => mark.startsWith('road-');
 // How many choices were made by the heart, and how many of those answered
 // another house on the radio.
-export const warmth = (meta: Pick<Meta, 'marks'>) =>
-  (meta.marks ?? []).filter((m) => m.endsWith(':warm')).length;
+export const warmth = (meta: Pick<Meta, 'marks'>) => {
+  const warm = (meta.marks ?? []).filter((m) => m.endsWith(':warm')),
+    road = warm.filter(isRoad).length;
+  return warm.length - road + Math.min(road, ROAD_WARMTH_CAP);
+};
 export const neighbours = (meta: Pick<Meta, 'marks'>) =>
   (meta.marks ?? []).filter((m) => /^house\d+:warm$/.test(m)).length;
 // The last ending: the whole street votes. It needs a heart (six warm choices),

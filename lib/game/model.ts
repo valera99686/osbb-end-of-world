@@ -256,6 +256,9 @@ export interface Run {
   rerolls: number;
   reward: string[];
   eventDone: boolean;
+  // The mark of the choice just made in a meeting (campaign-content.ts), until
+  // the screen has put it in the profile.
+  eventMark?: string;
   mode: RunMode;
   heat: number;
   // Local 'YYYY-MM-DD' of a daily run, otherwise empty.
@@ -1017,6 +1020,7 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
     return {
       ...run,
       eventDone: true,
+      eventMark: undefined,
       eventResult:
         choice === 0
           ? 'Відновлено 35% міцності.'
@@ -1037,6 +1041,7 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
   let next: Run = {
     ...run,
     eventDone: true,
+    eventMark: selected.mark,
     eventResult: failed && selected.risk ? selected.risk.result : selected.result,
     coins: run.coins + earned(run, e.coins ?? 0),
     scrap: run.scrap + (e.scrap ?? 0),

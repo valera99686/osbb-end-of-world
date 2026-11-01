@@ -463,3 +463,24 @@ test('The endings that end well seat the residents the player answered at the ta
   assert.ok(S.SCENES['ending-b'].lines.length >= lines('ending-b', none).length + 18);
   assert.ok(S.storyScene('ending-d', none).lines.length > 10);
 });
+
+test('Meetings on the road count for the heart, but only two of the six, and the profile keeps them', () => {
+  const road = ['road-rust-meeting:warm', 'road-green-roots:warm', 'road-core-lift:warm', 'road-core-patrol:warm', 'road-green-beekeeper:warm'];
+  assert.equal(S.warmth({ marks: road }), 2, 'five warm meetings count as two');
+  assert.equal(S.warmth({ marks: road.slice(0, 1) }), 1);
+  assert.equal(S.warmth({ marks: ['road-rust-meeting:cool', 'road-core-lift:cool'] }), 0, 'cool ones are not warm');
+  assert.equal(S.warmth({ marks: ['nina:warm', 'lev:warm', ...road] }), 4, 'the stories at the shelter add up in full');
+  // The street's ending still needs the shelter. The two houses on the radio count
+  // for the heart too: with two stories and two meetings it is six, with one story
+  // and five meetings it would be eight but for the cap, and is five.
+  const base = { ...M.initialMeta(), clues: S.CLUES.slice(0, 8).map((c) => c.id) };
+  const houses = ['house12:warm', 'house4:warm'];
+  assert.ok(S.canEndingD({ ...base, marks: ['nina:warm', 'lev:warm', ...houses, ...road.slice(0, 2)] }));
+  assert.ok(!S.canEndingD({ ...base, marks: ['nina:warm', ...houses, ...road] }), 'a meeting is not a substitute for a story');
+  // Replaying a meeting and choosing otherwise changes the answer; the profile keeps the mark through a save.
+  assert.deepEqual(S.addMark({ ...base, marks: ['road-rust-meeting:warm'] }, 'road-rust-meeting:cool').marks, ['road-rust-meeting:cool']);
+  const raw = JSON.parse(M.saveData({ ...M.initialMeta(), marks: ['road-green-roots:warm'] }, null));
+  assert.deepEqual(M.readSave(JSON.stringify(raw)).meta.marks, ['road-green-roots:warm']);
+  raw.meta.marks = ['road-core-lift:cool', 'road core:warm', 'ROAD:warm', `road-${'x'.repeat(40)}:warm`];
+  assert.deepEqual(M.readSave(JSON.stringify(raw)).meta.marks, ['road-core-lift:cool'], 'spaces, capitals and runaway names are dropped');
+});

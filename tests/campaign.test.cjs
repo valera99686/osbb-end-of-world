@@ -1092,3 +1092,26 @@ test('Nine bosses have distinct attacks, warnings and escalating health, and all
     assert.ok(e.hazards.every((h) => Number.isFinite(h.radius)));
   }
 });
+
+test('A meeting with a moral side leaves a mark for the profile, and most meetings leave none', () => {
+  const meta = M.initialMeta();
+  const marked = CE.CAMPAIGN_EVENTS.filter((e) => e.choices.some((c) => c.mark)).map((e) => e.id);
+  assert.deepEqual(marked.sort(), ['core-lift', 'core-patrol', 'green-beekeeper', 'green-roots', 'rust-meeting']);
+  for (const e of CE.CAMPAIGN_EVENTS)
+    for (const c of e.choices)
+      if (c.mark) assert.match(c.mark, new RegExp(`^road-${e.id}:(warm|cool)$`), e.id);
+  // The one who helps at a cost is warm, the one who takes the gain and goes on is cool.
+  const meeting = onEvent('rust-meeting');
+  assert.equal(M.resolveEvent(meeting, meta, 0).eventMark, 'road-rust-meeting:warm');
+  assert.equal(M.resolveEvent(meeting, meta, 1).eventMark, 'road-rust-meeting:cool');
+  assert.equal(M.resolveEvent(onEvent('green-beekeeper'), meta, 0).eventMark, 'road-green-beekeeper:warm');
+  assert.equal(M.resolveEvent(onEvent('green-beekeeper'), meta, 1).eventMark, undefined, 'buying honey is neither');
+  // A mark of the last meeting does not stay on the next: the rest stop and an
+  // unmarked meeting reset it.
+  const rested = M.resolveEvent({ ...meeting, kind: 'rest', eventMark: 'road-rust-meeting:warm' }, meta, 0);
+  assert.equal(rested.eventMark, undefined);
+  const plain = onEvent('rust-scrapyard');
+  assert.equal(M.resolveEvent({ ...plain, eventMark: 'road-rust-meeting:warm' }, meta, 1).eventMark, undefined);
+  // A gamble keeps the mark of what was chosen, not of how it turned out.
+  assert.equal(M.resolveEvent(onEvent('rust-pawn'), meta, 0).eventMark, undefined);
+});

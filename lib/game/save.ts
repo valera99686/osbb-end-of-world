@@ -277,7 +277,7 @@ export function readSave(raw: string | null): {
               .filter(
                 (mark: unknown): mark is string =>
                   typeof mark === 'string' &&
-                  /^[a-z0-9]{1,16}:(warm|cool)$/.test(mark),
+                  /^[a-z0-9-]{1,32}:(warm|cool)$/.test(mark),
               )
               .map((mark: string) => [mark.split(':')[0], mark]),
           ).values(),

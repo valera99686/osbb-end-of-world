@@ -148,6 +148,7 @@ import { CasePage } from './case-file';
 import {
   CLUES,
   LIBRARY_IDS,
+  addMark,
   isStoryId,
   leaveScene,
   raidBeat,
@@ -927,6 +928,13 @@ export default function Game() {
     net.openEventVote(run.step, eventColumns(run, metaRef.current));
     return () => net.closeVote();
   }, [eventKey, netPhase]);
+  // A meeting with a moral side leaves its mark in the profile at both ends
+  // (each end resolves the same choice); the same meeting met again replaces
+  // the earlier answer.
+  useEffect(() => {
+    const mark = run?.eventDone ? run.eventMark : undefined;
+    if (mark) setMeta((m) => addMark(m, mark));
+  }, [run?.eventDone, run?.eventMark]);
   // A guest who does not answer does not hold the host up for ever.
   useEffect(() => {
     if (!(voting || eventOpen) || !ballot || ballot.done) return;

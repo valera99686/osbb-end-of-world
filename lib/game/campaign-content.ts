@@ -23,6 +23,10 @@ export interface CampaignEvent {
   choices: {
     label: string;
     detail: string;
+    // A choice with a moral side is remembered in the profile as
+    // «road-<event id>:warm» (helped at a cost) or «:cool» (took the gain and
+    // went on). Most meetings have no mark.
+    mark?: string;
     effect: EventEffect;
     result: string;
     // A gamble: with this chance the choice does what it says; otherwise
@@ -452,6 +456,7 @@ const content = {
       choices: [
         {
           label: 'Скинутися',
+          mark: 'road-rust-meeting:warm',
           detail: '−25 монет · врятувати мешканця',
           effect: { coins: -25, rescue: true },
           result:
@@ -459,6 +464,7 @@ const content = {
         },
         {
           label: 'Виступити з промовою',
+          mark: 'road-rust-meeting:cool',
           detail: '+20 монет',
           effect: { coins: 20 },
           result:
@@ -547,6 +553,7 @@ const content = {
       choices: [
         {
           label: 'Допомогти',
+          mark: 'road-green-beekeeper:warm',
           detail: '−10% максимальної міцності · +40 монет',
           effect: { damageMax: 0.1, coins: 40 },
           result:
@@ -591,6 +598,7 @@ const content = {
       choices: [
         {
           label: 'Розплутати коріння',
+          mark: 'road-green-roots:warm',
           detail: '−10% максимальної міцності · врятувати мешканця',
           effect: { damageMax: 0.1, rescue: true },
           result:
@@ -598,6 +606,7 @@ const content = {
         },
         {
           label: 'Перерізати кабель',
+          mark: 'road-green-roots:cool',
           detail: '+5 брухту',
           effect: { scrap: 5 },
           result: 'Кабель зняли на запчастини. Хто тиснув кнопку, лишиться загадкою.',
@@ -685,6 +694,7 @@ const content = {
       choices: [
         {
           label: 'Відвезти до майстерні',
+          mark: 'road-core-patrol:warm',
           detail: '−10% максимальної міцності · +40 монет',
           effect: { damageMax: 0.1, coins: 40 },
           result:
@@ -692,6 +702,7 @@ const content = {
         },
         {
           label: 'Зняти з нього деталі',
+          mark: 'road-core-patrol:cool',
           detail: '+5 брухту',
           effect: { scrap: 5 },
           result:
@@ -729,6 +740,7 @@ const content = {
       choices: [
         {
           label: 'Підняти й витягнути',
+          mark: 'road-core-lift:warm',
           detail: '−18% максимальної міцності · врятувати мешканця',
           effect: { damageMax: 0.18, rescue: true },
           result:
@@ -736,6 +748,7 @@ const content = {
         },
         {
           label: 'Зняти скоби',
+          mark: 'road-core-lift:cool',
           detail: '+4 брухту',
           effect: { scrap: 4 },
           result:

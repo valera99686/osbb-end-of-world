@@ -211,7 +211,7 @@ export const ARCS: Arc[] = [
       ),
       L(
         'intercom',
-        'Мене вчили бути ввічливим. Інших слів у мене… небагато.',
+        'Мене вчили бути ввічливим. Решту слів я збирав роками й нікому не казав.',
         { glitch: true },
       ),
     ],
@@ -642,7 +642,7 @@ export const ENDING_D_LINES: Line[] = [
     'Мешканців на борту: усі. У реєстрі: усі. Евакуацію завершено. Поле вимкнено.',
     { art: ENDING_ART.d },
   ),
-  L('narrator', 'О 04:18 місто не провалилося. Воно просто прокинулося.', {
+  L('narrator', 'Наступного ранку, о 04:18, місто не провалилося. Воно просто прокинулося.', {
     art: ENDING_ART.d,
     time: '04:18',
   }),
@@ -671,9 +671,17 @@ const TABLE: [string, string, string][] = [
   ['danilo', 'Він ходить! Боком, але ходить! Я ж казав, що мікрохвильовка не підведе.', 'Схема лежить у шухляді, підписана тричі. Колись я її таки збудую.'],
   ['solomia', 'Ми з домофоном заспівали вдвох. Цього разу я не була сама на двох.', 'Я співаю тихіше, але далі. Тиша теж частина партитури.'],
 ];
-export const tableLines = (): Line[] =>
+// In ending D the intercom stays on the wall and rings the whole city, so two
+// of the warm words differ from ending B, where it was taken aboard.
+const TABLE_D: Record<string, string> = {
+  mechanic:
+    'Панель я послабив. Домофон лишився на стіні, але дзвонить на все місто. Я лише тримаю драбину.',
+  danilo:
+    'Роз’єм Б мурчить на весь двір! Ніжки не знадобилися: його чують усі домофони міста. Але я їх збережу.',
+};
+export const tableLines = (ending: 'b' | 'd' = 'b'): Line[] =>
   TABLE.flatMap(([who, warmText, coolText]) => [
-    L(who as Line['who'], warmText, {
+    L(who as Line['who'], (ending === 'd' && TABLE_D[who]) || warmText, {
       when: (m) => hasMark(m, `${who}:warm`),
     }),
     L(who as Line['who'], coolText, {

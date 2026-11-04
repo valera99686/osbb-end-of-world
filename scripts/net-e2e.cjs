@@ -317,6 +317,38 @@ async function chatTest(host, guest) {
     return /Допоможи!/.test(t) && /Я тут/.test(t) ? t : '';
   });
   check('the host log has the quick phrase and the line', !!log);
+  // The chat can be dragged by the top of its panel and by its button.
+  const mouse = async (page, type, x, y) =>
+    page.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
+  const rectOf = (page, sel) =>
+    page.eval(`(()=>{const r=document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height}})()`);
+  const drag = async (page, sel, dx, dy) => {
+    const r = await rectOf(page, sel);
+    const [x, y] = [r.x + r.w / 2 - 20, r.y + r.h / 2];
+    await mouse(page, 'mousePressed', x, y);
+    for (let i = 1; i <= 8; i++) await mouse(page, 'mouseMoved', x + (dx * i) / 8, y + (dy * i) / 8);
+    await mouse(page, 'mouseReleased', x + dx, y + dy);
+    await sleep(300);
+  };
+  const before = await rectOf(host, '.chat-dock');
+  await drag(host, '.chat-grip', 180, -120);
+  const moved = await rectOf(host, '.chat-dock');
+  check(`the panel is dragged (${Math.round(before.x)},${Math.round(before.y)} to ${Math.round(moved.x)},${Math.round(moved.y)})`, Math.abs(moved.x - before.x - 180) < 12 && Math.abs(moved.y - before.y + 120) < 12);
+  const kept = await host.eval(`localStorage.getItem('osbb.chat.pos')`);
+  check('and its place is remembered: ' + kept, !!kept && Math.abs(JSON.parse(kept).x - moved.x) < 3 && Math.abs(JSON.parse(kept).y - moved.y) < 3);
+  // The shut button is dragged without opening, and opens on a plain tap.
+  await host.eval(`document.querySelector('.chat-close').click()`);
+  await sleep(300);
+  const btn = await rectOf(host, '.chat-open');
+  await drag(host, '.chat-open', 60, 40);
+  const open1 = await host.eval(`!!document.querySelector('.chat-panel')`);
+  const btn2 = await rectOf(host, '.chat-open');
+  check('the button moved and did not open the panel', !open1 && Math.abs(btn2.x - btn.x - 60) < 12);
+  await host.eval(`document.querySelector('.chat-open').click()`);
+  await sleep(300);
+  check('a tap on it opens the panel', await host.eval(`!!document.querySelector('.chat-panel')`));
+  const inside = await rectOf(host, '.chat-dock');
+  check('and the panel stays on the screen', inside.x >= 0 && inside.y >= 0 && inside.y + inside.h <= 800);
   const shot = await host.send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(os.tmpdir(), 'osbb-chat-host.png'), Buffer.from(shot.result.data, 'base64'));
   console.log('screenshot', path.join(os.tmpdir(), 'osbb-chat-host.png'));
@@ -324,7 +356,7 @@ async function chatTest(host, guest) {
   if (/relay=only/.test(URL)) {
     for (const [name, page] of [['host', host], ['guest', guest]]) {
       const note = await page.eval(`document.querySelector('.chat-voice')?.innerText`);
-      const mic = await page.eval(`!!document.querySelector('.chat-mic')`);
+      const mic = await page.eval(`!!document.querySelector('.chat-mic:not(:disabled)')`);
       check(`${name} is told there is no voice on the relay: ${JSON.stringify(note)}`, /резервний канал/.test(note) && !mic);
     }
     console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));

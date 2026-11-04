@@ -1628,3 +1628,35 @@
   color: #c4ddd5;
   font-size: 12px;
 }
+
+/* The chat can be dragged by its button and by the top of its panel. */
+.chat-open {
+  cursor: grab;
+  touch-action: none;
+}
+.chat-grip {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  justify-content: flex-start !important;
+}
+.chat-grip b {
+  flex: 1;
+}
+.chat-voice-title {
+  flex: 1 1 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8fd8c2;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.chat-mic:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.chat-dock[data-moved='1'] {
+  bottom: auto;
+}

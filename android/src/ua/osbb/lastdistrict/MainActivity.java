@@ -1,12 +1,16 @@
 package ua.osbb.lastdistrict;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Build;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.view.View;
 import android.view.WindowInsets;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
@@ -17,12 +21,15 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Locale;
 
-/** Bundled game. The single-player game is offline; the network permission is only for online co-op (a direct WebRTC link between two players, found through the free PeerJS broker; when it cannot come up, a public MQTT broker over a secure WebSocket, which the WebView does not route through shouldInterceptRequest). No analytics, ads, or JavaScript bridge. */
+/** Bundled game. The single-player game is offline; the network permission is only for online co-op (a direct WebRTC link between two players, found through the free PeerJS broker; when it cannot come up, a public MQTT broker over a secure WebSocket, which the WebView does not route through shouldInterceptRequest). The microphone is asked for only by the voice chat of online co-op, only for the game's own page, never the camera. No analytics, ads, or JavaScript bridge. */
 public final class MainActivity extends Activity {
   private static final String HOST = "appassets.androidplatform.net";
   // The room broker of online co-op: the only other host the game talks to.
   private static final String BROKER = "0.peerjs.com";
   private WebView game;
+  // The microphone request of the voice chat that waits for the player's answer.
+  private PermissionRequest pendingMic;
+  private static final int MIC = 7;
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
     FrameLayout root = new FrameLayout(this);
@@ -65,10 +72,30 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) { return missing(); }
       }
     });
+    game.setWebChromeClient(new WebChromeClient() {
+      @Override public void onPermissionRequest(final PermissionRequest request) {
+        runOnUiThread(() -> {
+          boolean ours = request.getOrigin() != null && "https".equals(request.getOrigin().getScheme()) && HOST.equals(request.getOrigin().getHost());
+          String[] wanted = request.getResources();
+          boolean micOnly = wanted.length == 1 && PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(wanted[0]);
+          if (!ours || !micOnly) { request.deny(); return; }
+          if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) request.grant(wanted);
+          else { if (pendingMic != null) pendingMic.deny(); pendingMic = request; requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC); }
+        });
+      }
+    });
     root.addView(game,new FrameLayout.LayoutParams(-1,-1));
     setContentView(root);
     if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> handleBack());
     if (state != null) game.restoreState(state); else game.loadUrl("https://" + HOST + "/index.html");
+  }
+  @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+    super.onRequestPermissionsResult(code, permissions, results);
+    if (code != MIC || pendingMic == null) return;
+    PermissionRequest request = pendingMic;
+    pendingMic = null;
+    if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+    else request.deny();
   }
   private WebResourceResponse missing() { return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",null,new ByteArrayInputStream(new byte[0])); }
   @Override protected void onSaveInstanceState(Bundle state) { if(game!=null)game.saveState(state);super.onSaveInstanceState(state); }

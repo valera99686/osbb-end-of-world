@@ -4,8 +4,14 @@
 // not come up (a router that will not connect them), a public MQTT broker
 // carries the messages instead (relay-link.ts). The library is loaded on
 // demand, so players who never go online never download it.
-import type { DataConnection, Peer } from 'peerjs';
-import { iceServers, makeCode, type Link, type Msg } from '@/lib/game/net';
+import type { DataConnection, MediaConnection, Peer } from 'peerjs';
+import {
+  iceServers,
+  makeCode,
+  type Link,
+  type Msg,
+  type VoiceLink,
+} from '@/lib/game/net';
 import { savedRelay } from './relay';
 import { joinRelay, listenRelay, type RelayHandle } from './relay-link';
 
@@ -31,14 +37,81 @@ const options = () => ({
 const relayOnly = () =>
   typeof location !== 'undefined' && /[?&]relay=only\b/.test(location.search);
 
+// Sound between the two ends of a direct link: each end calls the other with
+// its microphone, and answers the other's call without one (to listen).
+class PeerVoice implements VoiceLink {
+  onStream: ((stream: MediaStream | null) => void) | null = null;
+  stream: MediaStream | null = null;
+  private out: MediaConnection | null = null;
+  private heard: MediaConnection | null = null;
+  private answer = (call: MediaConnection) => {
+    // Only the partner of this link is listened to.
+    if (call.peer !== this.remote) return call.close();
+    this.heard?.close();
+    this.heard = call;
+    call.answer();
+    call.on('stream', (stream) => {
+      this.stream = stream;
+      this.onStream?.(stream);
+    });
+    const ended = () => {
+      if (this.heard !== call) return;
+      this.heard = null;
+      this.stream = null;
+      this.onStream?.(null);
+    };
+    call.on('close', ended);
+    call.on('error', ended);
+  };
+  constructor(
+    private peer: Peer,
+    private remote: string,
+  ) {
+    peer.on('call', this.answer);
+  }
+  send(stream: MediaStream) {
+    this.stop();
+    this.out = this.peer.call(this.remote, stream);
+  }
+  stop() {
+    this.out?.close();
+    this.out = null;
+  }
+  replace(stream: MediaStream) {
+    const track = stream.getAudioTracks()[0];
+    const sender = this.out?.peerConnection
+      ?.getSenders()
+      .find((s) => s.track?.kind === 'audio');
+    if (!track || !sender) return false;
+    void sender.replaceTrack(track);
+    return true;
+  }
+  dispose() {
+    this.stop();
+    this.heard?.close();
+    this.heard = null;
+    this.peer.off('call', this.answer);
+  }
+}
 class PeerLink implements Link {
   readonly kind = 'p2p' as const;
+  readonly voice: PeerVoice;
   onMessage: ((msg: Msg) => void) | null = null;
   onClose: (() => void) | null = null;
-  constructor(private conn: DataConnection) {
+  constructor(
+    private conn: DataConnection,
+    peer: Peer,
+  ) {
+    this.voice = new PeerVoice(peer, conn.peer);
     conn.on('data', (data) => this.onMessage?.(data as Msg));
-    conn.on('close', () => this.onClose?.());
-    conn.on('error', () => this.onClose?.());
+    conn.on('close', () => {
+      this.voice.dispose();
+      this.onClose?.();
+    });
+    conn.on('error', () => {
+      this.voice.dispose();
+      this.onClose?.();
+    });
   }
   get open() {
     return this.conn.open;
@@ -47,6 +120,7 @@ class PeerLink implements Link {
     if (this.conn.open) this.conn.send(msg);
   }
   close() {
+    this.voice.dispose();
     this.conn.close();
   }
 }
@@ -185,7 +259,7 @@ export async function createRoom(
       }
       current = conn;
       conn.on('open', () => {
-        if (!closed && current === conn) on.guest(new PeerLink(conn));
+        if (!closed && current === conn) on.guest(new PeerLink(conn, p));
       });
     });
   };
@@ -288,7 +362,7 @@ export async function joinRoom(
         reliable: true,
         serialization: 'json',
       });
-      conn.on('open', () => win(new PeerLink(conn)));
+      conn.on('open', () => win(new PeerLink(conn, p)));
       conn.on('error', directFailed);
     });
   }

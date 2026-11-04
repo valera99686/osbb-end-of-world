@@ -11,6 +11,13 @@ import {
   type ShareMode,
 } from './net';
 import { castVote, newBallot, readBallot, type Ballot } from './coop';
+import {
+  CHAT,
+  ChatLimiter,
+  cleanChat,
+  quickText,
+  type ChatLine,
+} from './chat';
 
 // What the host tells the guest while it is in a fight: when it says anything
 // else, the fight is over at the host.
@@ -76,6 +83,17 @@ export class NetSession {
   // are held (takeScenes).
   onScene: ((id: string) => void) | null = null;
   private heldScenes: string[] = [];
+  // The chat of the room: the last lines both ways, how many of the partner's
+  // have not been read, and whether the partner's microphone is on.
+  chat: ChatLine[] = [];
+  unread = 0;
+  partnerMic = false;
+  // The chat panel is open (the lines that come are read at once).
+  chatOpen = false;
+  // A line from the partner has just come (for the screens that show it).
+  onChat: ((line: ChatLine) => void) | null = null;
+  private chatId = 0;
+  private limiter = new ChatLimiter();
   // Host: the room still takes a guest after one has left.
   roomOpen = true;
   private pendingStart: StartMsg | null = null;
@@ -255,6 +273,25 @@ export class NetSession {
         else if (this.heldScenes.length < HELD_SCENES)
           this.heldScenes.push(m.id);
         return;
+      case 'chat': {
+        // The partner says something: a line of text or a quick phrase, kept
+        // short and clean, and only so fast.
+        const text =
+          m.q !== undefined ? quickText(m.q) : cleanChat(m.text);
+        if (!text || !this.limiter.allow(Date.now())) return;
+        this.addLine({
+          id: ++this.chatId,
+          mine: false,
+          text,
+          quick: m.q !== undefined ? m.q : undefined,
+          at: Date.now(),
+        });
+        return;
+      }
+      case 'voice':
+        this.partnerMic = !!m.on;
+        this.change();
+        return;
       case 'bye':
         this.lost(this.link);
         return;
@@ -266,8 +303,52 @@ export class NetSession {
         } else if (this.held.length < HELD_MAX) this.held.push(m);
     }
   }
+  private addLine(line: ChatLine) {
+    this.chat = [...this.chat, line].slice(-CHAT.keep);
+    if (!line.mine && !this.chatOpen) this.unread++;
+    this.change();
+    if (!line.mine) this.onChat?.(line);
+  }
+  // Says a line of text to the partner. False if there was nothing to say or
+  // nobody to say it to.
+  say(text: string): boolean {
+    const clean = cleanChat(text);
+    if (!clean || this.phase !== 'connected' || !this.link) return false;
+    this.link.send({ t: 'chat', text: clean });
+    this.addLine({ id: ++this.chatId, mine: true, text: clean, at: Date.now() });
+    return true;
+  }
+  // Says quick phrase number `q` to the partner.
+  sayQuick(q: number): boolean {
+    const text = quickText(q);
+    if (!text || this.phase !== 'connected' || !this.link) return false;
+    this.link.send({ t: 'chat', q });
+    this.addLine({
+      id: ++this.chatId,
+      mine: true,
+      text,
+      quick: q,
+      at: Date.now(),
+    });
+    return true;
+  }
+  // The chat panel is opened or closed; what was read is no longer new.
+  openChat(open: boolean) {
+    this.chatOpen = open;
+    if (open) this.unread = 0;
+    this.change();
+  }
+  // This end's microphone is on or off, told to the partner.
+  tellMic(on: boolean) {
+    if (this.phase === 'connected') this.link?.send({ t: 'voice', on });
+  }
+  // Whether a voice chat is possible on this link (a direct one is).
+  get voiceLink() {
+    return this.link?.voice ?? null;
+  }
   private lost(link: Link | null) {
     if (link && this.link && link !== this.link) return;
+    this.partnerMic = false;
     this.link = null;
     this.ballot = null;
     this.map = null;

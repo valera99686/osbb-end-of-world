@@ -1395,3 +1395,236 @@
   filter: saturate(0.5);
   pointer-events: none;
 }
+
+/* Chat and voice of an online room: a button at the left edge, a panel. */
+.chat-dock {
+  position: fixed;
+  left: 10px;
+  top: 46%;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100vw - 20px);
+}
+.chat-open {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #5fbfa5a0;
+  border-radius: 50%;
+  background: #0e1a17ee;
+  color: #8fd8c2;
+  box-shadow: 0 4px 14px #0008;
+}
+.chat-open.talking {
+  border-color: #f0c466;
+  color: #f0c466;
+  animation: chat-pulse 0.9s ease-in-out infinite;
+}
+@keyframes chat-pulse {
+  50% {
+    box-shadow: 0 0 0 7px #f0c46633;
+  }
+}
+.chat-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 19px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: #e8695a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.chat-toast {
+  max-width: min(320px, calc(100vw - 80px));
+  padding: 8px 12px;
+  border: 1px solid #5fbfa5a0;
+  border-radius: 8px;
+  background: #0e1a17f2;
+  color: #e6f4ee;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.chat-toast b {
+  color: #8fd8c2;
+}
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(340px, calc(100vw - 20px));
+  max-height: min(70vh, 520px);
+  padding: 10px;
+  border: 1px solid #3f6a62;
+  border-radius: 8px;
+  background: #0b1513f4;
+  box-shadow: 0 8px 28px #000a;
+}
+.chat-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #8fd8c2;
+  font-size: 13px;
+}
+.chat-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #9ec7bb;
+}
+.chat-log {
+  flex: 1;
+  min-height: 90px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #101a18;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chat-log p {
+  margin: 0 0 5px;
+  overflow-wrap: anywhere;
+}
+.chat-log b {
+  margin-right: 4px;
+  color: #8fd8c2;
+}
+.chat-log .mine b {
+  color: #f0c466;
+}
+.chat-empty {
+  color: #8fa8a0;
+}
+.chat-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.chat-quick button {
+  padding: 4px 8px;
+  border: 1px solid #3f6a62;
+  border-radius: 12px;
+  background: #13211f;
+  color: #c4ddd5;
+  font-size: 12px;
+}
+.chat-quick button:hover {
+  border-color: #8fd8c2;
+}
+.chat-form {
+  display: flex;
+  gap: 6px;
+}
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #3f6a62;
+  border-radius: 6px;
+  background: #101a18;
+  color: #e6f4ee;
+  font-size: 14px;
+}
+.chat-form button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: #5fbfa5;
+  color: #0e1a17;
+}
+.chat-form button:disabled {
+  opacity: 0.4;
+}
+.chat-voice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding-top: 6px;
+  border-top: 1px solid #3f6a6260;
+  font-size: 12px;
+  color: #9ec7bb;
+}
+.chat-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #3f6a62;
+  border-radius: 6px;
+  background: #13211f;
+  color: #c4ddd5;
+  font-size: 12px;
+  font-weight: 700;
+}
+.chat-mic.on {
+  border-color: #f0c466;
+  background: #2a2412;
+  color: #f4dca0;
+}
+.chat-mute {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #3f6a62;
+  border-radius: 6px;
+  background: #13211f;
+  color: #c4ddd5;
+}
+.chat-mute[aria-pressed='true'] {
+  color: #e8695a;
+  border-color: #e8695a80;
+}
+.chat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6fe39a;
+}
+.chat-state {
+  flex: 1 1 100%;
+}
+.chat-error {
+  margin: 0;
+  font-size: 12px;
+  color: #e8a090;
+}
+
+/* An open panel sits at the bottom, where it fits on a short screen. */
+.chat-dock[data-open='1'] {
+  top: auto;
+  bottom: 10px;
+}
+
+.chat-device {
+  flex: 1 1 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #3f6a62;
+  border-radius: 6px;
+  background: #13211f;
+  color: #c4ddd5;
+  font-size: 12px;
+}

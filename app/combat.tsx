@@ -357,8 +357,11 @@ export function Combat({
     }
     b.start();
     const keys = (e: KeyboardEvent) => {
-      // Sliders and switches in the settings dialog need the arrow keys.
+      // Sliders and switches in the settings dialog need the arrow keys, and
+      // the chat field the letters.
       if (holdRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       // While a boss is being presented any of these keys only skips it.
       const second = b.localDuo && P2_CODES.includes(e.code);
       if (

@@ -11,7 +11,7 @@ import type { Battle } from './engine';
 
 // Both ends must run the same build: the simulation is only repeatable inside
 // one version of the code, so a mismatch is refused at the door.
-export const NET_PROTOCOL = 6;
+export const NET_PROTOCOL = 7;
 // How a fight is shared: both ends simulate it and trade inputs ('sync'), or
 // the host alone simulates and streams it to the guest ('host').
 export type ShareMode = 'sync' | 'host';
@@ -150,11 +150,35 @@ export type Msg =
   | { t: 'end'; sid: number; result: unknown }
   // The host's raid is over: what it earned, for the guest's share of it.
   | { t: 'gift'; cores: number; won: boolean; final: boolean }
+  // Chat, both ways: a line of text, or the number of a quick phrase (chat.ts
+  // QUICK) that each end writes in its own words.
+  | { t: 'chat'; text?: string; q?: number }
+  // Voice chat, both ways: this end's microphone is on (not muted) or off. The
+  // sound itself does not go through here but through the link's voice call.
+  | { t: 'voice'; on: boolean }
   | { t: 'bye' };
+
+// The sound of a voice chat between the two ends of a direct link: each end
+// sends its microphone as a call to the other, and answers the other's call to
+// listen. A relay link has no such thing (a broker cannot carry sound).
+export interface VoiceLink {
+  // Sends this microphone to the partner until stop() (an outgoing call).
+  send(stream: MediaStream): void;
+  stop(): void;
+  // Puts another microphone's sound into the call that is going, without a
+  // break (false if there is no call to put it in).
+  replace(stream: MediaStream): boolean;
+  // The partner's sound arrives (a stream), or ends (null).
+  onStream: ((stream: MediaStream | null) => void) | null;
+  // The partner's sound as it is now, for a screen that opens later.
+  readonly stream: MediaStream | null;
+}
 
 export interface Link {
   // 'relay': the messages go through a broker on the internet (slower).
   readonly kind?: 'p2p' | 'relay';
+  // Present on a direct link that can carry sound.
+  readonly voice?: VoiceLink;
   send(msg: Msg): void;
   // Owned by the NetSession (session.ts), which hands fight messages on.
   onMessage: ((msg: Msg) => void) | null;

@@ -126,6 +126,8 @@ import {
 } from '@/lib/game/coop';
 import './features.css';
 import { HouseAside, PartnerHouse } from './house-aside';
+import { ChatDock } from './chat-dock';
+import { endVoice } from './voice-chat';
 import {
   ItemCard,
   rewardNote,
@@ -997,6 +999,7 @@ export default function Game() {
     roomHandle.current?.close();
     roomHandle.current = null;
     net?.close();
+    if (net) endVoice(net);
     setNet(null);
     setGuestFight(null);
     setGuestResult(null);
@@ -2904,6 +2907,15 @@ export default function Game() {
             </Suspense>
           );
         })()}
+      {net && net.phase === 'connected' && (
+        <ChatDock
+          session={net}
+          name={
+            net.partner?.name ||
+            (net.role === 'host' ? 'Гість' : 'Господар')
+          }
+        />
+      )}
     </main>
   );
 }

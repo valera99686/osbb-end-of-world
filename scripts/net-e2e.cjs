@@ -7,6 +7,7 @@
 //   SCENES=1 node scripts/net-e2e.cjs      (the guest sees the host's scene)
 //   EVENT=1 node scripts/net-e2e.cjs       (both decide an event)
 //   TOGETHER=1 node scripts/net-e2e.cjs    (a meeting that needs both)
+//   CHAT=1 node scripts/net-e2e.cjs        (text chat, quick phrases and voice chat)
 // Needs Chrome at the usual path and an internet connection (the broker).
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -33,6 +34,9 @@ async function launch(port) {
       '--disable-features=WebRtcHideLocalIpsWithMdns',
       '--autoplay-policy=no-user-gesture-required',
       '--no-first-run',
+      // A made-up microphone that the page may use without asking (voice chat).
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
       'about:blank',
     ],
     { stdio: 'ignore' },
@@ -277,6 +281,101 @@ async function togetherTest(host, guest) {
   process.exit(ok ? 0 : 1);
 }
 
+// Text chat, a quick phrase and a voice chat between the two real pages.
+async function chatTest(host, guest) {
+  const type = (page, value) =>
+    page.eval(`(()=>{const i=document.querySelector('.chat-form input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i, ${JSON.stringify(value)}); i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  const ok = [];
+  const check = (what, v) => {
+    ok.push(!!v);
+    console.log(v ? 'ok  ' : 'FAIL', what);
+  };
+  // The host writes; the guest sees a toast and a badge before opening it.
+  await until('the host chat button', () => host.eval(`!!document.querySelector('.chat-open')`));
+  await host.eval(`document.querySelector('.chat-open').click()`);
+  await until('the host panel', () => host.eval(`!!document.querySelector('.chat-panel')`));
+  await type(host, 'Привіт, друже!');
+  await sleep(200);
+  await host.eval(`document.querySelector('.chat-form button[type=submit]').click()`);
+  const toast = await until('the guest toast', () =>
+    guest.eval(`document.querySelector('.chat-toast')?.innerText`),
+  );
+  check('the guest sees the host line as a toast: ' + JSON.stringify(toast), /Привіт, друже!/.test(toast));
+  const badge = await guest.eval(`document.querySelector('.chat-badge')?.innerText`);
+  check('and an unread badge: ' + badge, badge === '1');
+  // The guest opens the panel and answers with a quick phrase and a line.
+  await guest.eval(`document.querySelector('.chat-open').click()`);
+  await until('the guest panel', () => guest.eval(`!!document.querySelector('.chat-panel')`));
+  const seen = await guest.eval(`document.querySelector('.chat-log').innerText`);
+  check('the guest log has the line', /Привіт, друже!/.test(seen));
+  await guest.eval(click('Допоможи', '.chat-quick button'));
+  await type(guest, 'Я тут');
+  await sleep(200);
+  await guest.eval(`document.querySelector('.chat-form button[type=submit]').click()`);
+  const log = await until('the host log with both', async () => {
+    const t = await host.eval(`document.querySelector('.chat-log').innerText`);
+    return /Допоможи!/.test(t) && /Я тут/.test(t) ? t : '';
+  });
+  check('the host log has the quick phrase and the line', !!log);
+  const shot = await host.send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(path.join(os.tmpdir(), 'osbb-chat-host.png'), Buffer.from(shot.result.data, 'base64'));
+  console.log('screenshot', path.join(os.tmpdir(), 'osbb-chat-host.png'));
+  // Through the relay there is no sound: the panel says so and has no microphone.
+  if (/relay=only/.test(URL)) {
+    for (const [name, page] of [['host', host], ['guest', guest]]) {
+      const note = await page.eval(`document.querySelector('.chat-voice')?.innerText`);
+      const mic = await page.eval(`!!document.querySelector('.chat-mic')`);
+      check(`${name} is told there is no voice on the relay: ${JSON.stringify(note)}`, /резервний канал/.test(note) && !mic);
+    }
+    console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+    const fine = ok.every(Boolean) && !host.errors.length && !guest.errors.length;
+    console.log(fine ? 'E2E OK' : 'E2E FAILED');
+    for (const p of procs) p.kill();
+    process.exit(fine ? 0 : 1);
+  }
+  // Voice: both turn the microphone on, and each hears the other.
+  for (const page of [host, guest])
+    await page.eval(click('Увімкнути мікрофон', '.chat-mic'));
+  for (const [name, page] of [['host', host], ['guest', guest]]) {
+    const heard = await until(`${name} hears the partner`, () =>
+      page.eval(`document.querySelector('.chat-voice')?.dataset.heard === '1'`),
+    20000).catch(() => false);
+    check(`${name} receives the partner's sound`, heard);
+    const live = await page.eval(`(()=>{const a=document.querySelector('audio'); const t=a?.srcObject?.getAudioTracks?.()[0]; return t ? t.readyState+':'+t.muted : 'no audio'})()`);
+    console.log(`${name} audio track:`, live);
+    check(`${name} plays a live track`, /^live/.test(live));
+    const mic = await page.eval(`document.querySelector('.chat-mic')?.className`);
+    check(`${name} microphone shows as on`, /\bon\b/.test(mic));
+  }
+  // Several microphones: the list is there, and another one can be chosen
+  // while the sound goes, without the partner losing it.
+  const opts = await host.eval(`[...document.querySelectorAll('.chat-device option')].map(o=>o.value+'='+o.textContent)`);
+  console.log('host microphones:', JSON.stringify(opts));
+  check('the host is offered several microphones', opts && opts.length > 2);
+  const pick = opts[opts.length - 1].split('=')[0];
+  await host.eval(`(()=>{const s=document.querySelector('.chat-device'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s, ${JSON.stringify(pick)}); s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await sleep(2500);
+  const stored = await host.eval(`localStorage.getItem('osbb.mic')`);
+  check('the choice is remembered', stored === pick);
+  const still = await host.eval(`document.querySelector('.chat-mic').classList.contains('on')`);
+  const heard = await guest.eval(`document.querySelector('.chat-voice')?.dataset.heard === '1'`);
+  const track = await host.eval(`(()=>{const t=[...document.querySelectorAll('audio')].length; return t})()`);
+  console.log('after the switch: mic on', still, '| guest hears', heard, '| host note', JSON.stringify(await host.eval(`document.querySelector('.chat-error')?.innerText ?? document.querySelector('.chat-mic')?.className`)));
+  check('the microphone stays on and the guest keeps hearing the host', still && heard);
+  // The partner's mic is told, and turning it off ends the sound.
+  await host.eval(click('Мікрофон увімкнено', '.chat-mic'));
+  const off = await until('the guest hears the host stop', () =>
+    guest.eval(`document.querySelector('.chat-voice')?.dataset.heard === '0'`),
+  15000).catch(() => false);
+  check('turning the microphone off ends the sound at the partner', off);
+  console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+  const good = ok.every(Boolean) && !host.errors.length && !guest.errors.length;
+  console.log(good ? 'E2E OK' : 'E2E FAILED');
+  process.exitCode = good ? 0 : 1;
+  for (const p of procs) p.kill();
+  process.exit(process.exitCode);
+}
+
 (async () => {
   const [wa, wb] = [await launch(9331), await launch(9332)];
   const host = new Page('host', wa),
@@ -285,7 +384,7 @@ async function togetherTest(host, guest) {
   console.log('pages loaded');
 
   // Both profiles past the tutorial and the prologue, as real players are.
-  if (process.env.SCENES || process.env.EVENT || process.env.TOGETHER)
+  if (process.env.SCENES || process.env.EVENT || process.env.TOGETHER || process.env.CHAT)
     for (const page of [host, guest])
       for (let i = 0; i < 6; i++) {
         await page.eval(click('Пропустити', 'button'));
@@ -313,6 +412,7 @@ async function togetherTest(host, guest) {
   );
   await until('guest room screen', () => guest.eval(`!!document.querySelector('.guest-room')`));
   console.log('connected');
+  if (process.env.CHAT) return chatTest(host, guest);
 
   // The host walks into the first fight.
   await host.eval(`document.querySelector('.start-button').click()`);

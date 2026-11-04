@@ -144,6 +144,7 @@ export class NetSession {
     if (this.role === 'host' && this.via === 'relay') this.mode = 'host';
     link.onMessage = (m) => this.handle(m);
     link.onClose = () => this.lost(link);
+    link.onVoice = () => this.change();
     if (this.role === 'guest') {
       this.phase = 'joining';
       link.send({
@@ -345,6 +346,10 @@ export class NetSession {
   // Whether a voice chat is possible on this link (a direct one is).
   get voiceLink() {
     return this.link?.voice ?? null;
+  }
+  // The link is still getting its voice connection ready.
+  get voicePending() {
+    return !!this.link?.voicePending;
   }
   private lost(link: Link | null) {
     if (link && this.link && link !== this.link) return;

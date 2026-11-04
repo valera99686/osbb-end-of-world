@@ -146,6 +146,10 @@ export class VoiceChat {
     this.version++;
     for (const cb of [...this.subs]) cb();
   }
+  // The voice goes through the relay (a walkie-talkie, not a call).
+  get relayed() {
+    return this.session.via === 'relay';
+  }
   // Whether there is a voice chat to have on this link.
   get available() {
     return this.session.phase === 'connected' && !!this.session.voiceLink;
@@ -156,6 +160,10 @@ export class VoiceChat {
     // (the call itself may take a while to be seen as closed).
     const theirs = this.session.partnerMic;
     if (this.theirMic && !theirs && this.heard) this.hear(null);
+    // They switched it on again: a relay's sound keeps one stream for good, so
+    // it is taken up again here (a call brings its own stream each time).
+    const kept = this.session.voiceLink?.stream;
+    if (!this.theirMic && theirs && !this.heard && kept) this.hear(kept);
     this.theirMic = theirs;
     const link = this.session.phase === 'connected' ? this.session.voiceLink : null;
     if (link === this.link) return;
@@ -173,7 +181,7 @@ export class VoiceChat {
     const link = this.link;
     if (!link) {
       this.error =
-        'Голос працює лише на прямому з’єднанні, а зараз зв’язок іде через резервний канал.';
+        'Голос зараз недоступний: він не підключився ні напряму, ні через резервний канал.';
       return this.change();
     }
     if (this.mic !== 'off') return;

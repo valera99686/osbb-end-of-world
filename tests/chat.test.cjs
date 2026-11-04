@@ -12,7 +12,7 @@ function wireUp(voice = false) {
   const mk = (out, inbox) => {
     const l = {
       kind: 'p2p',
-      voice: voice ? { send() {}, stop() {}, replace: () => false, onStream: null, stream: null } : undefined,
+      voice: voice ? { send() {}, stop() {}, replace: () => false, dispose() {}, onStream: null, stream: null } : undefined,
       onMessage: null,
       onClose: null,
       send: (m) => out.push(JSON.parse(JSON.stringify(m))),

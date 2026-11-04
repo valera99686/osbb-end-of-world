@@ -352,18 +352,17 @@ async function chatTest(host, guest) {
   const shot = await host.send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(os.tmpdir(), 'osbb-chat-host.png'), Buffer.from(shot.result.data, 'base64'));
   console.log('screenshot', path.join(os.tmpdir(), 'osbb-chat-host.png'));
-  // Through the relay there is no sound: the panel says so and has no microphone.
-  if (/relay=only/.test(URL)) {
+  const relay = /relay=only/.test(URL);
+  // Through the relay the voice takes a moment to get ready, and says what it is.
+  if (relay) {
+    await until('the relay voice is ready at both', async () =>
+      (await host.eval(`!!document.querySelector('.chat-mic:not(:disabled)')`)) &&
+      (await guest.eval(`!!document.querySelector('.chat-mic:not(:disabled)')`)),
+    20000);
     for (const [name, page] of [['host', host], ['guest', guest]]) {
       const note = await page.eval(`document.querySelector('.chat-voice')?.innerText`);
-      const mic = await page.eval(`!!document.querySelector('.chat-mic:not(:disabled)')`);
-      check(`${name} is told there is no voice on the relay: ${JSON.stringify(note)}`, /резервний канал/.test(note) && !mic);
+      check(`${name} is told it is a walkie-talkie: ${JSON.stringify(note.slice(0, 120))}`, /як у рації/.test(note));
     }
-    console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
-    const fine = ok.every(Boolean) && !host.errors.length && !guest.errors.length;
-    console.log(fine ? 'E2E OK' : 'E2E FAILED');
-    for (const p of procs) p.kill();
-    process.exit(fine ? 0 : 1);
   }
   // Voice: both turn the microphone on, and each hears the other.
   for (const page of [host, guest])
@@ -371,11 +370,17 @@ async function chatTest(host, guest) {
   for (const [name, page] of [['host', host], ['guest', guest]]) {
     const heard = await until(`${name} hears the partner`, () =>
       page.eval(`document.querySelector('.chat-voice')?.dataset.heard === '1'`),
-    20000).catch(() => false);
+    relay ? 40000 : 20000).catch(() => false);
     check(`${name} receives the partner's sound`, heard);
     const live = await page.eval(`(()=>{const a=document.querySelector('audio'); const t=a?.srcObject?.getAudioTracks?.()[0]; return t ? t.readyState+':'+t.muted : 'no audio'})()`);
     console.log(`${name} audio track:`, live);
     check(`${name} plays a live track`, /^live/.test(live));
+    if (relay) {
+      const spoke = await until(`${name} hears the partner speak`, () =>
+        page.eval(`/говорить/.test(document.querySelector('.chat-voice')?.innerText ?? '') || !!document.querySelector('.chat-open.talking')`),
+      30000).catch(() => false);
+      check(`${name} hears speech through the relay`, spoke);
+    }
     const mic = await page.eval(`document.querySelector('.chat-mic')?.className`);
     check(`${name} microphone shows as on`, /\bon\b/.test(mic));
   }

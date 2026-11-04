@@ -17,7 +17,15 @@ import {
   Reader,
   subscribePacket,
 } from '@/lib/game/mqtt';
-import type { Link, Msg } from '@/lib/game/net';
+import type { Link, Msg, VoiceLink } from '@/lib/game/net';
+import {
+  decodeLaw,
+  Framer,
+  JitterClock,
+  readVox,
+  toBase64,
+  VOX,
+} from '@/lib/game/vox';
 
 export const BROKERS = [
   'wss://broker.emqx.io:8084/mqtt',
@@ -137,6 +145,10 @@ class RelayLink implements Link {
   onMessage: ((msg: Msg) => void) | null = null;
   onClose: (() => void) | null = null;
   open = true;
+  // The walkie-talkie voice of this link (see RelayVoice), once it is up.
+  voice?: VoiceLink;
+  voicePending = true;
+  onVoice: (() => void) | null = null;
   private heard = Date.now();
   private beat = 0;
   private resend = 0;
@@ -232,12 +244,143 @@ class RelayLink implements Link {
     window.clearInterval(this.beat);
     window.clearInterval(this.resend);
     window.clearTimeout(this.ack);
+    this.voice?.dispose();
+    this.voice = undefined;
+    this.voicePending = false;
     this.release();
     this.onClose?.();
+  }
+  // The voice connection is ready (or did not come up).
+  giveVoice(voice: RelayVoice | null) {
+    this.voicePending = false;
+    if (voice && this.open) this.voice = voice;
+    else voice?.dispose();
+    this.onVoice?.();
   }
   close() {
     if (this.open) this.out({ k: 'bye' });
     this.shut();
+  }
+}
+
+// Voice over the relay, as a walkie-talkie: a connection of its own to the same
+// broker (the broker allows only about ten messages a second to one connection,
+// and the game's own messages must not be crowded out) carries the sound as the
+// small frames of lib/game/vox.ts, and the partner's frames come out as a
+// MediaStream, so the screens treat it like a call.
+class RelayVoice implements VoiceLink {
+  onStream: ((stream: MediaStream | null) => void) | null = null;
+  stream: MediaStream | null = null;
+  private seq = 0;
+  private mic: {
+    ctx: AudioContext;
+    src: MediaStreamAudioSourceNode;
+    proc: ScriptProcessorNode;
+    mute: GainNode;
+  } | null = null;
+  private play: {
+    ctx: AudioContext;
+    dest: MediaStreamAudioDestinationNode;
+    clock: JitterClock;
+  } | null = null;
+  private constructor(
+    private broker: Broker,
+    // The topics: what this end sends on, and what it listens to.
+    private out: string,
+    private gid: string,
+  ) {}
+  static async open(
+    url: string,
+    code: string,
+    role: 'host' | 'guest',
+    gid: string,
+  ): Promise<RelayVoice | null> {
+    if (typeof AudioContext === 'undefined') return null;
+    const b = new Broker(url);
+    if (!(await b.connect())) return null;
+    const mine = role === 'host' ? 'vh' : 'vg',
+      theirs = role === 'host' ? 'vg' : 'vh';
+    const voice = new RelayVoice(b, `${root(code)}/${mine}`, gid);
+    b.subscribe(`${root(code)}/${theirs}`);
+    b.onPublish = (_t, body) => voice.hear(body);
+    b.onClose = () => voice.dispose();
+    return voice;
+  }
+  send(stream: MediaStream) {
+    this.stop();
+    const ctx = new AudioContext();
+    void ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    const framer = new Framer(ctx.sampleRate);
+    proc.onaudioprocess = (e) => {
+      for (const frame of framer.push(e.inputBuffer.getChannelData(0)))
+        this.broker.publish(this.out, {
+          g: this.gid,
+          n: ++this.seq,
+          d: toBase64(frame),
+        });
+    };
+    src.connect(proc);
+    proc.connect(mute);
+    mute.connect(ctx.destination);
+    this.mic = { ctx, src, proc, mute };
+  }
+  replace(stream: MediaStream) {
+    if (!this.mic) return false;
+    this.mic.src.disconnect();
+    this.mic.src = this.mic.ctx.createMediaStreamSource(stream);
+    this.mic.src.connect(this.mic.proc);
+    return true;
+  }
+  stop() {
+    const m = this.mic;
+    if (!m) return;
+    this.mic = null;
+    m.proc.onaudioprocess = null;
+    try {
+      m.src.disconnect();
+      m.proc.disconnect();
+      m.mute.disconnect();
+    } catch {
+      // Already apart.
+    }
+    void m.ctx.close();
+  }
+  // A frame from the partner: played after the ones before it.
+  private hear(body: unknown) {
+    const frame = readVox(body, this.gid);
+    if (!frame) return;
+    if (!this.play) {
+      const ctx = new AudioContext();
+      const dest = ctx.createMediaStreamDestination();
+      this.play = { ctx, dest, clock: new JitterClock() };
+      this.stream = dest.stream;
+      this.onStream?.(this.stream);
+    }
+    const { ctx, dest, clock } = this.play;
+    if (ctx.state !== 'running') void ctx.resume();
+    const samples = decodeLaw(frame.bytes);
+    const at = clock.place(ctx.currentTime, samples.length / VOX.rate, frame.n);
+    if (at === null) return;
+    const buffer = ctx.createBuffer(1, samples.length, VOX.rate);
+    buffer.copyToChannel(samples, 0);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(dest);
+    source.start(at);
+  }
+  dispose() {
+    this.stop();
+    this.broker.onClose = null;
+    this.broker.close();
+    this.onStream?.(null);
+    this.onStream = null;
+    this.stream = null;
+    void this.play?.ctx.close();
+    this.play = null;
   }
 }
 
@@ -287,6 +430,7 @@ export async function listenRelay(
       guest = { id, link };
       b.publish(to(id), { k: 'ack' });
       on.guest(link);
+      void RelayVoice.open(b.url, code, 'host', id).then((v) => link.giveVoice(v));
     };
   };
   await Promise.all(BROKERS.map(listen));
@@ -331,6 +475,8 @@ export function joinRelay(
               (out) => b.publish(`${root(code)}/up`, { g: id, ...(out as object) }),
               () => b.close(),
             );
+            const made = link;
+            void RelayVoice.open(b.url, code, 'guest', id).then((v) => made.giveVoice(v));
             b.onPublish = (_x, more) => link?.take(more as Record<string, unknown>);
             b.onClose = () => link?.shut();
             stop('ack');

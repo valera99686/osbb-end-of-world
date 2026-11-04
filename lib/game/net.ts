@@ -172,13 +172,20 @@ export interface VoiceLink {
   onStream: ((stream: MediaStream | null) => void) | null;
   // The partner's sound as it is now, for a screen that opens later.
   readonly stream: MediaStream | null;
+  // Lets everything go (the link is gone).
+  dispose(): void;
 }
 
 export interface Link {
   // 'relay': the messages go through a broker on the internet (slower).
   readonly kind?: 'p2p' | 'relay';
-  // Present on a direct link that can carry sound.
+  // Present on a link that can carry sound: a direct one always, a relay one
+  // once its voice connection is up (then the sound is a walkie-talkie's).
   readonly voice?: VoiceLink;
+  // A relay link opens its voice connection a moment after the link itself.
+  readonly voicePending?: boolean;
+  // Told when `voice` appears or the wait for it ends.
+  onVoice?: (() => void) | null;
   send(msg: Msg): void;
   // Owned by the NetSession (session.ts), which hands fight messages on.
   onMessage: ((msg: Msg) => void) | null;

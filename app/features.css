@@ -1660,3 +1660,15 @@
 .chat-dock[data-moved='1'] {
   bottom: auto;
 }
+
+/* The colour filter for colour blindness, over the whole page (the filter is on
+   the root element, which keeps fixed panels in place). */
+html[data-cvd='protan'] {
+  filter: url(#cvd-protan);
+}
+html[data-cvd='deutan'] {
+  filter: url(#cvd-deutan);
+}
+html[data-cvd='tritan'] {
+  filter: url(#cvd-tritan);
+}

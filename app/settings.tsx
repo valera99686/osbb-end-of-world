@@ -23,6 +23,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { dateKey } from '@/lib/game/modes';
+import { CVD_LABELS, type Cvd } from '@/lib/game/cvd';
 import {
   exportSave,
   type Meta,
@@ -57,16 +58,16 @@ function Toggle({
     </button>
   );
 }
-function Segmented({
+function Segmented<T extends number | string>({
   label,
   value,
   options,
   onChange,
 }: {
   label: string;
-  value: number;
-  options: [number, string][];
-  onChange: (value: number) => void;
+  value: T;
+  options: [T, string][];
+  onChange: (value: T) => void;
 }) {
   return (
     <div className="settings-row">
@@ -279,9 +280,21 @@ export function SettingsDialog({
             ]}
             onChange={(textScale) => set({ textScale })}
           />
+          <Segmented
+            label="Фільтр кольорів на весь екран"
+            value={s.cvd}
+            options={(Object.keys(CVD_LABELS) as Cvd[]).map((k) => [k, CVD_LABELS[k]])}
+            onChange={(cvd) => set({ cvd })}
+          />
+          <p className="settings-note">
+            Протанопія й дейтеранопія: червоний і зелений зливаються. Тританопія:
+            синій і жовтий. Фільтр розводить їх за кольором у меню, на карті й у
+            бою. Не знаєш свого типу: спробуй кожен, вибери той, де різницю
+            видно найкраще.
+          </p>
           <Toggle
             label="Кольори для дальтоніків"
-            hint="Контрастніші кольори снарядів, небезпечних зон і посилених ворогів."
+            hint="Контрастніші кольори снарядів, небезпечних зон і посилених ворогів у бою (окремо від фільтра)."
             value={s.colorblind}
             onChange={(colorblind) => set({ colorblind })}
           />

@@ -127,6 +127,7 @@ import {
 import './features.css';
 import { HouseAside, PartnerHouse } from './house-aside';
 import { ChatDock } from './chat-dock';
+import { CvdFilters } from './cvd-filters';
 import { endVoice } from './voice-chat';
 import {
   ItemCard,
@@ -480,6 +481,8 @@ export default function Game() {
     const root = document.documentElement;
     root.style.setProperty('--text-scale', String(meta.settings.textScale));
     root.toggleAttribute('data-colorblind', meta.settings.colorblind);
+    if (meta.settings.cvd === 'off') delete root.dataset.cvd;
+    else root.dataset.cvd = meta.settings.cvd;
     root.toggleAttribute('data-reduced-flashes', meta.settings.reducedFlashes);
   }, [meta.settings]);
   // Menus share the hub theme; each location has its own. The engine lifts
@@ -2907,6 +2910,7 @@ export default function Game() {
             </Suspense>
           );
         })()}
+      <CvdFilters />
       {net && net.phase === 'connected' && (
         <ChatDock
           session={net}

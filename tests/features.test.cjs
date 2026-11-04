@@ -141,6 +141,7 @@ test('Settings are merged over defaults and clamped to the allowed steps', () =>
     vibration: true,
     shake: 0.5,
     colorblind: true,
+    cvd: 'off', // not in the stored settings: off
     textScale: 1.3,
     damageNumbers: false,
     reducedFlashes: false,

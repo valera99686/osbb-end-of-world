@@ -1,4 +1,5 @@
 import { specialEffects } from './specials';
+import { readCvd, type Cvd } from './cvd';
 import {
   BLUEPRINTS,
   blueprintReady,
@@ -144,6 +145,8 @@ export interface Settings {
   vibration: boolean;
   shake: number;
   colorblind: boolean;
+  // A colour filter over the whole screen for one kind of colour blindness.
+  cvd: Cvd;
   textScale: number;
   damageNumbers: boolean;
   reducedFlashes: boolean;
@@ -155,6 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vibration: true,
   shake: 1,
   colorblind: false,
+  cvd: 'off',
   textScale: 1,
   damageNumbers: true,
   reducedFlashes: false,
@@ -186,6 +190,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     vibration: flag(s.vibration, d.vibration),
     shake: nearest(SHAKE_STEPS, s.shake, d.shake),
     colorblind: flag(s.colorblind, d.colorblind),
+    cvd: readCvd(s.cvd),
     textScale: nearest(TEXT_STEPS, s.textScale, d.textScale),
     damageNumbers: flag(s.damageNumbers, d.damageNumbers),
     reducedFlashes: flag(s.reducedFlashes, d.reducedFlashes),

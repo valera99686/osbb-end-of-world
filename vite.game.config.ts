@@ -30,12 +30,12 @@ export default defineConfig({
           groups: [
             {
               name: 'react',
-              test: /node_modules[\/](react|react-dom|scheduler)[\/]/,
+              test: /node_modules[/](react|react-dom|scheduler)[/]/,
               priority: 20,
             },
             {
               name: 'ui',
-              test: /node_modules[\/](@base-ui|lucide-react|class-variance-authority|tailwind-merge|clsx)[\/]/,
+              test: /node_modules[/](@base-ui|lucide-react|class-variance-authority|tailwind-merge|clsx)[/]/,
               priority: 10,
             },
           ],

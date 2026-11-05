@@ -161,7 +161,7 @@ test('The rescued neighbours are shared out between the two houses, never taken 
   assert.equal(alone.mateId, null);
   assert.ok(alone.id);
   // A rescue after a fight tells both.
-  let after = afterFight({ ...coopRun('flora', meta), battleCount: 0 }, meta);
+  const after = afterFight({ ...coopRun('flora', meta), battleCount: 0 }, meta);
   assert.ok(after.mate.rescued.length >= 1);
   assert.match(after.eventResult, /Урятовано/);
 });

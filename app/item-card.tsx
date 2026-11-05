@@ -3,9 +3,8 @@
 import type { CSSProperties } from 'react';
 import { ITEM_BY_ID, FAMILY, RARITIES, type Item } from '@/lib/game/data';
 import { FURNITURE_BY_ID } from '@/lib/game/furniture';
-import { activeEquipment } from '@/lib/game/equipment';
 import { evolutionHint, type WeaponId } from '@/lib/game/weapons';
-import { mateRun, type Run } from '@/lib/game/model';
+import type { Run } from '@/lib/game/model';
 import { Glyph } from './glyph';
 
 // Weapon cores name the neighbour that evolves them.
@@ -47,28 +46,6 @@ export function shopNote(run: Run) {
   const mine = gear('host'),
     yours = gear('mate');
   return `: куплено${mine ? ` господарю — ${mine}` : ''}${mine && yours ? ';' : ''}${yours ? ` тобі — ${yours}` : ''}`;
-}
-// What the second house carries, as a row of chips.
-export function MateGear({ run, name }: { run: Run; name: string }) {
-  const ids = activeEquipment(mateRun(run)).map((i) => i.id);
-  return (
-    <div className="mate-gear">
-      <b>{name}</b>
-      {ids.length ? (
-        ids.map((id, i) => (
-          <span
-            key={id + i}
-            className={`mate-chip rarity-${ITEM_BY_ID[id].rarity}`}
-            title={ITEM_BY_ID[id].desc}
-          >
-            <Glyph name={ITEM_BY_ID[id].icon} size={14} /> {ITEM_BY_ID[id].name}
-          </span>
-        ))
-      ) : (
-        <span className="mate-chip">порожньо</span>
-      )}
-    </div>
-  );
 }
 export function ItemCard({
   item,

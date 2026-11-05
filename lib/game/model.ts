@@ -2291,9 +2291,6 @@ export function removeFurniture(run: Run, meta: Meta, uid: number): Run {
   next.hp = (run.hp * statsFor(next, meta).health) / statsFor(run, meta).health;
   return next;
 }
-export function expandHouse(meta: Meta, _run: Run | null): Meta {
-  return meta;
-}
 export function expandRunHouse(run: Run): Run {
   const cost = HOUSE_EXPANSION_COSTS[run.houseLevel];
   return run.page === 'combat' || cost === undefined || run.coins < cost

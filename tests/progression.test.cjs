@@ -6,7 +6,7 @@ const M = require('../.test-build/model.js'),
   R = require('../.test-build/residents.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
 test('Blueprint purchase requires the milestone, charges once, and never grants a start item', () => {
-  let meta = M.initialMeta();
+  const meta = M.initialMeta();
   meta.cores = 50;
   assert.equal(P.buyBlueprint(meta, 'rescue_beacon'), meta);
   meta.totalRescues = 8;

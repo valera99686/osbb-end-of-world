@@ -77,7 +77,7 @@ test('The Shelter tells one new story beat per raid, in order, then protocols', 
     // From here every head of ОСББ has won once (their epilogues open).
     if (meta.runs > 26) meta.winsByCharacter = Object.fromEntries(HEADS.map((id) => [id, 1]));
     const scene = S.hubScene(meta, false);
-    if (!/^hub-protocol/.test(scene.id)) {
+    if (!scene.id.startsWith('hub-protocol')) {
       offered.push(scene.id);
       meta.scenesSeen = [...meta.scenesSeen, scene.id];
       meta = S.addClues(meta, scene.clues);
@@ -273,7 +273,7 @@ test('Shelter talks have a backdrop: a defeat shows the fallen house, the hall a
 });
 
 test('Each ending changes the Shelter: its own beat once, and its own protocols', () => {
-  const seenAll = S.HUB_SCENES.map((x) => x.id).filter((id) => !/^hub-after-/.test(id));
+  const seenAll = S.HUB_SCENES.map((x) => x.id).filter((id) => !id.startsWith('hub-after-'));
   const base = { ...M.initialMeta(), deaths: 1, runs: 30, totalRescues: 9, totalBosses: 5, scenesSeen: seenAll };
   const protocols = (endings) => {
     const texts = new Set();

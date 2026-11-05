@@ -57,6 +57,43 @@ flowchart LR
 
 **Денний забіг.** Рекорд ставить лише перша спроба дня (`Run.dailyRanked`). `Meta.dailyAttempts` лічить спроби за датою; `startDaily` витрачає спробу при старті, а забіг, залишений до першого бою, повертає її (`finishRun`).
 
+## Гра вдвох: два будинки, мережа, чат
+
+Деталі протоколу й обмежень лежать у [online.md](online.md), правила локального режиму в [coop.md](coop.md), числа балансу в `lib/game/coop.ts`. Тут лише карта коду.
+
+```mermaid
+flowchart LR
+  subgraph lib["lib/game: без DOM"]
+    net[net.ts: протокол, Lockstep, коди кімнат]
+    session[session.ts: NetSession, чат, голос]
+    mirror[mirror.ts: знімки бою]
+    mqtt[mqtt.ts: клієнт MQTT]
+    chat[chat.ts, vox.ts: чат, кодек рації]
+    coopc[coop.ts: числа й нагороди]
+  end
+  subgraph app["app: браузер"]
+    peer[net-peer.ts: PeerJS і WebRTC]
+    relay[relay-link.ts: резервний канал]
+    online[online.tsx, guest-home.tsx: екрани]
+    dock[chat-dock.tsx, voice-chat.ts]
+  end
+  session --> net
+  session --> mirror
+  peer --> session
+  relay --> session
+  relay --> mqtt
+  online --> session
+  dock --> session
+  dock --> chat
+  coopc --> session
+```
+
+- **Два будинки.** Гість грає за власний будинок: у забігу (`Run`) є `mate` (мешканці, предмети, меблі другого будинку). `mateRun`/`withMateHouse` у `model.ts` підміняють його як забіг, тому ті самі екрани (план квартир, рюкзак, магазин) працюють для обох. Нагорода має два ряди (`loot`, `mateLoot`), `settleReward` рухає забіг далі, коли взяли обидва ряди; `picked`/`boughtBy` показують, хто що взяв. Господар не вірить гостю на слово: `take` і `house` перевіряються (`acceptMateHouse`, `readHouse`, `readView` чистять усе, що приходить дротом).
+- **Транспорт.** `PeerLink` (`net-peer.ts`) і `RelayLink` (`relay-link.ts`) дають один інтерфейс `Link` (`send`, `onMsg`, `voice`), тож `NetSession` не знає, чим іде зв’язок. Спершу PeerJS (брокер лише знайомить, далі канал даних WebRTC), а якщо за 7 с не вийшло, додається MQTT через WebSocket; хто відкрився першим, того й зв’язок.
+- **Бій.** «Обидва рахують»: `Lockstep` (`net.ts`) обмінюється лише введенням, симуляція детермінована й не читає розмір екрана. «Хост рахує»: `HostFeed` шле знімки, `MirrorClient` (`mirror.ts`) малює їх. Через резервний канал завжди другий.
+- **Чат і голос.** `ChatLimiter` і `cleanChat` (`chat.ts`) чистять текст і не пускають спам. Голос: на WebRTC це дзвінок (`PeerVoice`), на резервному каналі рація (`RelayVoice`: 8 кГц, µ-law, `Framer`, `JitterClock` у `vox.ts`). `VoiceChat` (`voice-chat.ts`) тримає мікрофон, вибір пристрою й індикатор.
+- **Колірні фільтри** (`cvd.ts`): матриці Мачадо та ін. і зсув у видимі канали, один SVG `feColorMatrix` (`cvd-filters.tsx`), що вмикається правилом `html[data-cvd]` на кореневому елементі (на `body` фіксовані панелі злітали б).
+
 ## Збірки
 
 | Команда | Результат |
@@ -65,12 +102,14 @@ flowchart LR
 | `npm run build` | `build/`: корінь `/`, service worker для офлайну |
 | `npm run build:pages` / `deploy:pages` | `.pages/` під `/osbb-end-of-world/` і гілка `gh-pages` |
 | `npm run build:android` | `releases/osbb.apk`, без Gradle (розмір скрипт не обмежує) |
+| `npm run lint` | oxlint з типами: помилок немає; 36 попереджень про залежності ефектів React лишено видимими |
+| `npm run typecheck` | `tsc --noEmit` |
 
 Базовий шлях передається змінною `OSBB_BASE`; у коді всі ресурси йдуть через `asset('art/…')` з `lib/game/assets.ts`, а `tests/assets.test.cjs` забороняє жорстко прописані `/art`, `/voice`.
 
 ## Перевірки
 
-`npm test` збирає потрібні модулі в `.test-build/` і запускає `node --test`. Списки модулів і тестів у `scripts/test.mjs` явні: новий файл у `lib/game/` або `tests/` без запису зупиняє `npm test`. `scripts/balance-audit.cjs` гонить контрольовані бої й перевіряє шість умов відчуття бою. CI (`.github/workflows/ci.yml`) виконує типи, тести й збірку на кожен push.
+`npm run lint` (конфіг `.oxlintrc.json`: тести, скрипти й згенеровані `components/ui` мають окремі винятки з поясненням) і `npm run typecheck` без помилок. `npm test` збирає потрібні модулі в `.test-build/` і запускає `node --test`. Списки модулів і тестів у `scripts/test.mjs` явні: новий файл у `lib/game/` або `tests/` без запису зупиняє `npm test`. `scripts/balance-audit.cjs` гонить контрольовані бої й перевіряє шість умов відчуття бою. CI (`.github/workflows/ci.yml`) виконує типи, тести й збірку на кожен push. Сценарій на двох справжніх Chrome (`scripts/net-e2e.cjs`) і знімки екрана для путівника й презентації (`scripts/qa/screens.cjs`, драйвер `scripts/qa/cdp.cjs`, колода `scripts/qa/build-deck.cjs`) запускаються вручну; їм потрібні dev-сервер, Chrome і для мережі інтернет.
 
 ## Як додати
 

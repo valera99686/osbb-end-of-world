@@ -184,7 +184,7 @@ export function Combat({
     alive.current = true;
     if (net && net.role === 'host' && !opened.current) {
       opened.current = true;
-      net.open(run, meta).then((id) => {
+      void net.open(run, meta).then((id) => {
         if (alive.current) setSid(id ?? 0);
       });
     }

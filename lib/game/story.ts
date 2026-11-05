@@ -9,7 +9,6 @@ import {
   canEndingD,
   ENDING_D_LINES,
   RAID_SCENES,
-  raidBeat,
   tableLines,
 } from './story-arcs';
 import {
@@ -1780,7 +1779,9 @@ export function raidEnd(
     // The last boss says its last words, then the finale opens.
     const last = boss ? bossEndId(boss) : '';
     return last && !meta.scenesSeen.includes(last) && isStoryId(last)
-      ? { scene: last, then: ['finale'] }
+      ? // `then` is the scene to play next, not a promise.
+        // oxlint-disable-next-line unicorn/no-thenable
+        { scene: last, then: ['finale'] }
       : { scene: 'finale' };
   }
   const beat = hubScene(meta, won);

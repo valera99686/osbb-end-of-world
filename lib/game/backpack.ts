@@ -142,24 +142,3 @@ export function movePacked(
   if (!item || !canPack(bag, item.id, x, y, rotation, uid)) return bag;
   return bag.map((i) => (i.uid === uid ? { ...i, x, y, rotation } : i));
 }
-export function restoreBag(
-  raw: unknown,
-  unlocked: readonly string[],
-): PackedItem[] {
-  const out: PackedItem[] = [];
-  if (!Array.isArray(raw)) return out;
-  for (const entry of raw.slice(0, 30)) {
-    if (
-      !entry ||
-      !Number.isInteger(entry.uid) ||
-      entry.uid < 1 ||
-      entry.uid > 1e8 ||
-      out.some((i) => i.uid === entry.uid) ||
-      !unlocked.includes(entry.id)
-    )
-      continue;
-    const { uid, id, x, y, rotation } = entry;
-    if (canPack(out, id, x, y, rotation)) out.push({ uid, id, x, y, rotation });
-  }
-  return out;
-}

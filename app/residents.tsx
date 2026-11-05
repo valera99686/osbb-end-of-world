@@ -204,30 +204,30 @@ function HousePlan({
                 (item) => item.resident === room.id && item.cell === index + 1,
               );
               const moduleId = items[apartmentSlot(room.id, index + 1)];
-              const module = moduleId ? ITEM_BY_ID[moduleId] : null;
+              const fitted = moduleId ? ITEM_BY_ID[moduleId] : null;
               return (
                 <g
                   key={`${cx}:${cy}`}
-                  opacity={item || module ? 1 : 0.55}
+                  opacity={item || fitted ? 1 : 0.55}
                   stroke={
-                    module
-                      ? FAMILY[module.family].color
+                    fitted
+                      ? FAMILY[fitted.family].color
                       : item
                         ? '#efd4a1'
                         : person.color
                   }
                   color={
-                    module
-                      ? FAMILY[module.family].color
+                    fitted
+                      ? FAMILY[fitted.family].color
                       : item
                         ? '#efd4a1'
                         : person.color
                   }
                   fill="none"
                 >
-                  {module ? (
+                  {fitted ? (
                     <Glyph
-                      name={module.icon}
+                      name={fitted.icon}
                       size={42}
                       x={cx * 100 + 29}
                       y={cy * 100 + 25}
@@ -261,16 +261,16 @@ function HousePlan({
                       textAnchor="middle"
                       stroke="none"
                       fill={
-                        module
-                          ? FAMILY[module.family].color
+                        fitted
+                          ? FAMILY[fitted.family].color
                           : item
                             ? '#efd4a1'
                             : person.color
                       }
                       fontSize="11"
                     >
-                      {module
-                        ? module.name
+                      {fitted
+                        ? fitted.name
                         : item
                           ? FURNITURE_BY_ID[item.id].name
                           : 'ОБЛАДНАННЯ'}

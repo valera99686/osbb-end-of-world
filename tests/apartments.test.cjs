@@ -1,8 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('../.test-build/model.js'),
-  A = require('../.test-build/apartments.js'),
-  R = require('../.test-build/residents.js');
+  A = require('../.test-build/apartments.js');
 const { Battle, AudioEngine } = require('../.test-build/engine.js');
 const room = (id, x, y, rotation = 0) => ({ id, x, y, rotation });
 function fixture(rooms, chapter = 0) {

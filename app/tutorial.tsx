@@ -197,6 +197,8 @@ export function Tutorial({
             <div className="tutorial-controls">
               <div
                 className="tutorial-arena"
+                // The practice field takes the game keys, so it has to be focusable.
+                // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 aria-label="Тренувальне поле: WASD або стрілки — рух, пробіл — ривок, E — хвиля"
               >

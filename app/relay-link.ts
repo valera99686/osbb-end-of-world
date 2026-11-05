@@ -9,6 +9,11 @@
 // A room is the topics `osbb17/CODE/up` (guest to host) and
 // `osbb17/CODE/to/GUEST` (host to one guest). The host listens on every broker
 // it can reach; a guest tries them one after the other until the host answers.
+//
+// The voice reads the microphone with a ScriptProcessorNode: it is deprecated,
+// but the replacement (an AudioWorklet) needs a module file of its own, and the
+// node works in every browser and in the Android WebView.
+/* oxlint-disable typescript/no-deprecated */
 import {
   connectPacket,
   DISCONNECT,
@@ -205,7 +210,7 @@ class RelayLink implements Link {
     if (body.k === 'rcv') {
       // Everything up to this number has arrived.
       if (typeof body.a === 'number')
-        for (const q of [...this.pending.keys()])
+        for (const q of this.pending.keys())
           if (q <= body.a) this.pending.delete(q);
       return;
     }
@@ -226,7 +231,7 @@ class RelayLink implements Link {
   private deliver(body: Record<string, unknown>) {
     const msg = body.m as { t?: unknown } | undefined;
     if (!msg || typeof msg !== 'object') return;
-    const kind = String(msg.t ?? '?');
+    const kind = typeof msg.t === 'string' ? msg.t : '?';
     this.seen[kind] = (this.seen[kind] ?? 0) + 1;
     this.onMessage?.(msg as Msg);
   }

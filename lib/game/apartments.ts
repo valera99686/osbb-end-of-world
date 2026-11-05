@@ -111,7 +111,7 @@ export function planRoomMove(
         rotation: (r.rotation + delta) % 4,
       };
     });
-  const next = [...state.residents.filter((r) => !ids.includes(r.id))];
+  const next = state.residents.filter((r) => !ids.includes(r.id));
   for (const room of moved) {
     if (validate && !canHouse(next, room, state.houseLevel)) return null;
     next.push(room);

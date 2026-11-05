@@ -119,6 +119,8 @@ export class NetSession {
   getVersion = () => this.version;
   private change() {
     this.version++;
+    // A copy: a listener may unsubscribe (or subscribe) while we call them.
+    // oxlint-disable-next-line unicorn/no-useless-spread
     for (const cb of [...this.subs]) cb();
   }
   // How the connection is going, for the guest's screen.

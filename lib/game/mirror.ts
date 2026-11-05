@@ -468,7 +468,7 @@ export class MirrorClient {
     // the snapshot that said so was lost on the way.
     if (s.live) {
       const keep = new Set(s.live);
-      for (const uid of [...this.enemies.keys()])
+      for (const uid of this.enemies.keys())
         if (!keep.has(uid)) {
           this.enemies.delete(uid);
           this.goal.delete(uid);

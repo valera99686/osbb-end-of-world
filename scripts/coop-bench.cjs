@@ -155,7 +155,7 @@ const all = [
 ];
 const cases =
   process.env.FIGHTS === 'late'
-    ? all.filter(([c, s, k]) => c >= 1 && (k === 'boss' || k === 'elite'))
+    ? all.filter(([c, _s, k]) => c >= 1 && (k === 'boss' || k === 'elite'))
     : all;
 const rows = [];
 for (const [chapter, step, kind] of cases) {

@@ -56,6 +56,8 @@ export function cleanChat(text: unknown): string | null {
       (c >= 0x2066 && c <= 0x2069);
     out += hidden ? ' ' : ch;
   }
+  // Counted by code point on purpose, so an emoji is one character.
+  // oxlint-disable-next-line typescript/no-misused-spread
   const line = [...out.replace(/\s+/g, ' ').trim()]
     .slice(0, CHAT.max)
     .join('')

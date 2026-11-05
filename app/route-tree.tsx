@@ -250,6 +250,8 @@ export function RouteTree({
         className="tree-viewport"
         ref={viewport}
         aria-label="Дерево маршрутів. Прокручуй вбік і вниз, щоб оглянути шлях до боса."
+        // A scroll area: focus lets the arrow keys scroll it.
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
       >
         <div className="tree-canvas" style={{ height }}>

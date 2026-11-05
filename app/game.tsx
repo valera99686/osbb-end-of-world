@@ -38,7 +38,6 @@ import {
   useEffect,
   useRef,
   useCallback,
-  type CSSProperties,
 } from 'react';
 import {
   ArrowUpRight,
@@ -51,11 +50,8 @@ import {
   Play,
   Home,
   Coins,
-  Shield,
   Heart,
-  Zap,
   Wrench,
-  Footprints,
   Crosshair,
   Package,
   ScrollText,
@@ -143,8 +139,8 @@ import {
 } from '@/components/ui/dialog';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
 import { Glyph } from './glyph';
-import { activeEquipment, APARTMENT_SLOTS } from '@/lib/game/equipment';
-import { Residents, HousePreview, EquipmentPlacement } from './residents';
+import { APARTMENT_SLOTS } from '@/lib/game/equipment';
+import { Residents, EquipmentPlacement } from './residents';
 import { DialoguePlayer, ProtocolCard } from './dialogue';
 import { onSpeaking, setVoice } from './voice';
 import { CasePage } from './case-file';
@@ -164,17 +160,14 @@ import {
 } from '@/lib/game/story';
 import { RescueCard, setRescueQuoteSource } from './rescue-card';
 import { SCENE_BY_ID, MISSIONS } from '@/lib/game/cutscenes';
-import { residentCells, RESIDENT_BY_ID, houseSize } from '@/lib/game/residents';
+import { RESIDENT_BY_ID } from '@/lib/game/residents';
 import { loreForProgress } from '@/lib/game/lore';
 import {
   ITEMS,
   ITEM_BY_ID,
-  FAMILY,
-  RARITIES,
   CHAPTERS,
   CHARACTERS,
   UNLOCK_TEXT,
-  type Item,
 } from '@/lib/game/data';
 import {
   initialMeta,
@@ -212,7 +205,6 @@ import {
 } from '@/lib/game/audio';
 import type { BattleResult } from '@/lib/game/engine';
 import { Currency } from './hud-parts';
-import { evolutionHint, type WeaponId } from '@/lib/game/weapons';
 
 // The battle engine is the heaviest part of the game: load it with the first raid.
 const Combat = lazy(() =>
@@ -1517,6 +1509,8 @@ export default function Game() {
             <p className="eyebrow">
               <span className="status-dot" /> СВІТ ЗАКІНЧИВСЯ. ОРЕНДА — НІ.
             </p>
+            {/* The secret seven taps on the title: not meant for the keyboard. */}
+            {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
             <h1 onClick={tapTitle}>
               ОСББ
               <br />

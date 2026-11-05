@@ -282,7 +282,7 @@ test('Ten-step trees vary room counts, widths, room types and discoveries withou
           assert.ok(M.routeTargets(row, col, run.nodes, run).length >= 1);
       let reached = [0];
       for (let row = 0; row < 9; row++) {
-        let next = new Set();
+        const next = new Set();
         for (const col of reached) {
           const targets = M.routeTargets(row, col, run.nodes, run);
           assert.ok(targets.length);
@@ -320,7 +320,7 @@ test('Ten-step trees vary room counts, widths, room types and discoveries withou
   assert.ok(roomCounts.size >= 6, 'Total room count should vary between runs');
 });
 test('Captain only, no free furniture or permanent recruitment; expensive floor expansions belong to the expedition', () => {
-  let meta = M.initialMeta();
+  const meta = M.initialMeta();
   meta.wins = 5;
   meta.residents = R.RESIDENTS.map((r) => r.id);
   let run = M.makeRun(meta, 'mechanic', 0, 91);
@@ -663,7 +663,7 @@ test('Miniboss fights have distinct telegraphed attacks, require a kill and awar
   for (let chapter = 0; chapter < 3; chapter++)
     for (let variant = 0; variant < 3; variant++) {
       const meta = M.initialMeta();
-      let run = roomOfKind(
+      const run = roomOfKind(
         M.makeRun(meta, 'mechanic', chapter, 771),
         meta,
         null,
@@ -763,9 +763,9 @@ test('Miniboss fights have distinct telegraphed attacks, require a kill and awar
 });
 test('A chest contains exactly one furniture or module, locked modules survive acquiring and reloading', () => {
   const meta = M.initialMeta();
-  let found = new Set();
+  const found = new Set();
   for (let seed = 0; seed < 300; seed++) {
-    let run = roomOfKind(
+    const run = roomOfKind(
       M.makeRun(meta, 'mechanic', 0, seed),
       meta,
       null,

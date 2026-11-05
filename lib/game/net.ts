@@ -209,6 +209,8 @@ export function makeCode(rand: () => number = Math.random): string {
 export function normalizeCode(text: string): string {
   const code = text.toUpperCase().replace(/[\s\-_.]/g, '');
   return code.length === ROOM_LENGTH &&
+    // By code point on purpose: the alphabet is plain ASCII.
+    // oxlint-disable-next-line typescript/no-misused-spread
     [...code].every((c) => ROOM_ALPHABET.includes(c))
     ? code
     : '';

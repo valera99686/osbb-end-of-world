@@ -374,7 +374,7 @@ async function chatTest(host, guest) {
     check(`${name} receives the partner's sound`, heard);
     const live = await page.eval(`(()=>{const a=document.querySelector('audio'); const t=a?.srcObject?.getAudioTracks?.()[0]; return t ? t.readyState+':'+t.muted : 'no audio'})()`);
     console.log(`${name} audio track:`, live);
-    check(`${name} plays a live track`, /^live/.test(live));
+    check(`${name} plays a live track`, String(live).startsWith('live'));
     if (relay) {
       const spoke = await until(`${name} hears the partner speak`, () =>
         page.eval(`/говорить/.test(document.querySelector('.chat-voice')?.innerText ?? '') || !!document.querySelector('.chat-open.talking')`),
@@ -396,7 +396,6 @@ async function chatTest(host, guest) {
   check('the choice is remembered', stored === pick);
   const still = await host.eval(`document.querySelector('.chat-mic').classList.contains('on')`);
   const heard = await guest.eval(`document.querySelector('.chat-voice')?.dataset.heard === '1'`);
-  const track = await host.eval(`(()=>{const t=[...document.querySelectorAll('audio')].length; return t})()`);
   console.log('after the switch: mic on', still, '| guest hears', heard, '| host note', JSON.stringify(await host.eval(`document.querySelector('.chat-error')?.innerText ?? document.querySelector('.chat-mic')?.className`)));
   check('the microphone stays on and the guest keeps hearing the host', still && heard);
   // The partner's mic is told, and turning it off ends the sound.
@@ -502,7 +501,7 @@ async function chatTest(host, guest) {
   const fire = (page, code, down) =>
     page.eval(`window.dispatchEvent(new KeyboardEvent(${JSON.stringify(down ? 'keydown' : 'keyup')},{code:${JSON.stringify(code)},bubbles:true,cancelable:true}))`);
   const end = Date.now() + SECONDS * 1000;
-  let held = { host: null, guest: null };
+  const held = { host: null, guest: null };
   while (Date.now() < end) {
     for (const [name, page] of [['host', host], ['guest', guest]]) {
       if (held[name]) await fire(page, held[name], false);
@@ -521,7 +520,10 @@ async function chatTest(host, guest) {
   let same = 0,
     diff = 0;
   for (const [step, hash] of Object.entries(a?.rec ?? {}))
-    if (b?.rec && step in b.rec) hash === b.rec[step] ? same++ : diff++;
+    if (b?.rec && step in b.rec) {
+      if (hash === b.rec[step]) same++;
+      else diff++;
+    }
   console.log(JSON.stringify({ host: { ...a, rec: undefined }, guest: { ...b, rec: undefined }, checkpointsEqual: same, checkpointsDifferent: diff }, null, 1));
   console.log('host errors', host.errors.slice(0, 5));
   console.log('guest errors', guest.errors.slice(0, 5));

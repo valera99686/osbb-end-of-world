@@ -117,7 +117,7 @@ class PeerLink implements Link {
     return this.conn.open;
   }
   send(msg: Msg) {
-    if (this.conn.open) this.conn.send(msg);
+    if (this.conn.open) void this.conn.send(msg);
   }
   close() {
     this.voice.dispose();
@@ -252,7 +252,7 @@ export async function createRoom(
       if (taken()) {
         // The room is taken: say so and leave.
         conn.on('open', () => {
-          conn.send({ t: 'refuse', why: 'busy' } satisfies Msg);
+          void conn.send({ t: 'refuse', why: 'busy' } satisfies Msg);
           setTimeout(() => conn.close(), 300);
         });
         return;

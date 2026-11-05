@@ -4431,7 +4431,6 @@ export class Battle {
   // The numbers of the screen's top (the guest of a mirror gets them too).
   hud(): Hud {
     const leaders = this.enemies.filter((e) => isLeader(e.type));
-    const boss = leaders[0];
     return {
       drafting: !!this.drafting,
       hp: this.run.hp,

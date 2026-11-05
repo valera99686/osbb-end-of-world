@@ -3,7 +3,7 @@ import {
   Suspense,
   useState,
   useSyncExternalStore,
-  type FormEvent,
+  type SyntheticEvent,
 } from 'react';
 import {
   Check,
@@ -62,7 +62,7 @@ function RelaySetup() {
     [user, setUser] = useState(() => savedRelay()?.username ?? ''),
     [pass, setPass] = useState(() => savedRelay()?.credential ?? ''),
     [note, setNote] = useState('');
-  function submit(e: FormEvent) {
+  function submit(e: SyntheticEvent) {
     e.preventDefault();
     const relay = parseRelay(urls, user, pass);
     if (!relay) {
@@ -159,7 +159,7 @@ export function OnlinePanel({
     [joining, setJoining] = useState(false),
     [copied, setCopied] = useState(false);
   const code = normalizeCode(typed);
-  function submit(e: FormEvent) {
+  function submit(e: SyntheticEvent) {
     e.preventDefault();
     if (code) onJoin(code);
   }
@@ -217,6 +217,8 @@ export function OnlinePanel({
                 autoCapitalize="characters"
                 autoComplete="off"
                 spellCheck={false}
+                // The only field of the join form: the cursor belongs in it.
+                // oxlint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
                 aria-label="Код кімнати"
               />

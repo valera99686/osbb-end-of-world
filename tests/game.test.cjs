@@ -251,7 +251,7 @@ test('Furniture rejects portrait slots, overlap, absent residents, invalid IDs a
 test('Old expanded floors are retained during migration without charging the player', () => {
   const meta = M.initialMeta();
   meta.houseLevel = 3;
-  let run = fixtureRun(meta, 'mechanic', 0, 93);
+  const run = fixtureRun(meta, 'mechanic', 0, 93);
   delete run.campaignVersion;
   run.residents.push({ id: 'marta', x: 6, y: 3, rotation: 0 });
   run.coins = 200;
@@ -543,7 +543,7 @@ test('Cutscenes resume safely, preserve watched progress and lock the ending unt
   const meta = M.initialMeta();
   meta.scenesSeen = ['prologue', 'victory-2', 'missing'];
   meta.sceneProgress = { id: 'prologue', index: 3 };
-  let saved = M.readSave(M.saveData(meta, null));
+  const saved = M.readSave(M.saveData(meta, null));
   assert.deepEqual(saved.meta.scenesSeen, ['prologue']);
   assert.deepEqual(saved.meta.sceneProgress, { id: 'prologue', index: 3 });
   assert.equal(Scenes.sceneUnlocked('victory-2', 0), false);

@@ -7,7 +7,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type FormEvent,
+  type SyntheticEvent,
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
@@ -167,7 +167,7 @@ export function ChatDock({
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [session.chat.length, open]);
-  const send = (e: FormEvent) => {
+  const send = (e: SyntheticEvent) => {
     e.preventDefault();
     if (session.say(text)) setText('');
   };
@@ -216,6 +216,8 @@ export function ChatDock({
         </button>
       )}
       {open && (
+        // Escape closes the panel: the key event bubbles up from the fields in it.
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <section className="chat-panel" aria-label="Чат кімнати" onKeyDown={keys}>
           <header
             className="chat-grip"

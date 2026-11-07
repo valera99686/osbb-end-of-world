@@ -11,44 +11,14 @@
 // `online` needs the internet (the public broker of the rooms).
 const path = require('node:path');
 const { launch, sleep, closeAll } = require('./cdp.cjs');
+const { veteran } = require('./profile.cjs');
 
 const URL = process.env.OSBB_URL || 'http://127.0.0.1:5180/';
 const OUT = path.resolve(process.env.OUT || 'docs/guide/img');
 const PART = process.argv[2] || 'solo';
 const out = (name) => path.join(OUT, name);
 const log = (...a) => console.log(...a);
-const TEST = path.resolve(__dirname, '../../.test-build');
 
-// A player who has been through a few raids: everything unlocked and the story
-// of the first screens already seen, so the hub shows its full self.
-function veteran(extra = {}) {
-  const M = require(path.join(TEST, 'model.js'));
-  const D = require(path.join(TEST, 'data.js'));
-  const R = require(path.join(TEST, 'residents.js'));
-  const meta = M.initialMeta();
-  Object.assign(meta, {
-    wins: 8,
-    runs: 19,
-    kills: 1840,
-    cores: 420,
-    totalBosses: 9,
-    totalMinibosses: 7,
-    totalRescues: 22,
-    tutorialDone: true,
-    deaths: 11,
-    bestHeat: 4,
-    heatUnlocked: 5,
-    playTime: 36000,
-    scenesSeen: ['prologue', 'origins'],
-    ...extra,
-  });
-  meta.unlocked = D.ITEMS.map((i) => i.id);
-  meta.residents = Object.keys(R.RESIDENT_BY_ID);
-  // What is earned is already known: no toast of new achievements over the shots.
-  const A = require(path.join(TEST, 'achievements.js'));
-  meta.achievements = A.newAchievements(meta, null, false);
-  return { key: M.SAVE_KEY, value: M.saveData(meta, null) };
-}
 async function load(p, profile) {
   await p.go(URL, 1500);
   if (profile) {

@@ -49,6 +49,8 @@ class Page {
   constructor(url, width, height) {
     this.width = width;
     this.height = height;
+    this.dpr = 1;
+    this.rec = null;
     this.id = 0;
     this.pending = new Map();
     this.errors = [];
@@ -59,6 +61,12 @@ class Page {
       if (m.id && this.pending.has(m.id)) {
         this.pending.get(m.id)(m);
         this.pending.delete(m.id);
+      } else if (m.method === 'Page.screencastFrame' && this.rec) {
+        const r = this.rec;
+        const file = path.join(r.dir, `f${String(r.frames.length).padStart(6, '0')}.jpg`);
+        fs.writeFileSync(file, Buffer.from(m.params.data, 'base64'));
+        r.frames.push({ file, t: m.params.metadata.timestamp });
+        this.send('Page.screencastFrameAck', { sessionId: m.params.sessionId });
       } else if (m.method === 'Runtime.exceptionThrown')
         this.errors.push(m.params.exceptionDetails.exception?.description ?? 'exception');
     };
@@ -85,7 +93,7 @@ class Page {
     await this.send('Emulation.setDeviceMetricsOverride', {
       width: this.width,
       height: this.height,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: this.dpr,
       mobile: this.width < 700,
     });
     await this.send('Page.navigate', { url });
@@ -124,6 +132,28 @@ class Page {
       `[...document.querySelectorAll(${JSON.stringify(sel)})].filter(b=>b.offsetParent).map(b=>(b.className.split(' ')[0]||'')+' | '+b.innerText.replace(/\\s+/g,' ').slice(0,50))`,
     );
   }
+  // A film of the page: the frames the browser paints, with their times. stopRecording
+  // gives the list; film() turns it into a 30 fps video of the given length.
+  async startRecording(dir, quality = 90) {
+    fs.mkdirSync(dir, { recursive: true });
+    this.rec = { dir, frames: [] };
+    await this.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality,
+      maxWidth: Math.round(this.width * this.dpr),
+      maxHeight: Math.round(this.height * this.dpr),
+      everyNthFrame: 1,
+    });
+  }
+  async stopRecording() {
+    const endT = Date.now() / 1000;
+    await this.send('Page.stopScreencast');
+    await new Promise((r) => setTimeout(r, 300));
+    const frames = this.rec.frames;
+    frames.endT = endT; // the last frame stays until here (a still page sends none)
+    this.rec = null;
+    return frames;
+  }
   // The whole page, not only what is on the screen (a taller window for a moment).
   async fullShot(file) {
     const h = await this.eval(
@@ -132,7 +162,7 @@ class Page {
     await this.send('Emulation.setDeviceMetricsOverride', {
       width: this.width,
       height: Math.min(h, 4000),
-      deviceScaleFactor: 1,
+      deviceScaleFactor: this.dpr,
       mobile: false,
     });
     await new Promise((r) => setTimeout(r, 500));
@@ -140,7 +170,7 @@ class Page {
     await this.send('Emulation.setDeviceMetricsOverride', {
       width: this.width,
       height: this.height,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: this.dpr,
       mobile: this.width < 700,
     });
     await new Promise((r) => setTimeout(r, 300));
@@ -159,7 +189,27 @@ class Page {
   }
 }
 
+// Frames with times to a constant 30 fps video (each frame stays until the next
+// one comes), via ffmpeg's concat list.
+function film(frames, out, { ffmpeg = 'ffmpeg', fps = 30, size = '1920:1080' } = {}) {
+  const { execFileSync } = require('node:child_process');
+  const list = out.replace(/\.[a-z0-9]+$/i, '') + '.txt';
+  const lines = [];
+  for (let i = 0; i < frames.length; i++) {
+    const dur = i + 1 < frames.length ? frames[i + 1].t - frames[i].t : Math.min(15, Math.max(1 / fps, (frames.endT ?? 0) - frames[i].t));
+    lines.push(`file '${frames[i].file.replaceAll('\\', '/')}'`, `duration ${Math.max(0.001, dur).toFixed(4)}`);
+  }
+  lines.push(`file '${frames[frames.length - 1].file.replaceAll('\\', '/')}'`);
+  fs.writeFileSync(list, lines.join('\n'));
+  execFileSync(
+    ffmpeg,
+    ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-vf', `fps=${fps},scale=${size}:flags=lanczos`, '-c:v', 'libx264', '-crf', '17', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', out],
+    { stdio: 'inherit' },
+  );
+  return out;
+}
+
 const closeAll = () => {
   for (const p of procs) p.kill();
 };
-module.exports = { launch, sleep, closeAll, Page };
+module.exports = { launch, sleep, closeAll, film, Page };

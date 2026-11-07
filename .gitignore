@@ -50,3 +50,7 @@ next-env.d.ts
 /scripts/voice/lines.json
 /.pages/
 /scripts/voice/lines-eleven.json
+
+# The trailer video is 40 MB: it is kept out of the history (see docs/presentation/demo-script.md)
+docs/presentation/video/*.mp4
+trailer-out/

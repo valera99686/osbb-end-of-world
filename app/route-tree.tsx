@@ -168,6 +168,24 @@ export function RouteTree({
     `${run.step}:${available[0] ?? 0}`,
   );
   const viewport = useRef<HTMLDivElement>(null);
+  // On a phone the legend folds away: the tree gets the height.
+  const [phone] = useState(
+    () =>
+      typeof matchMedia === 'function' &&
+      matchMedia(
+        '(max-width: 690px), (max-height: 520px) and (orientation: landscape)',
+      ).matches,
+  );
+  // A mouse drags the map about (a finger scrolls it anyway).
+  const pan = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+    moved: boolean;
+  } | null>(null);
+  const [panning, setPanning] = useState(false);
   const [selectedRow, selectedCol] = selection.split(':').map(Number);
   const kind = run.nodes[selectedRow]?.[selectedCol] ?? 'battle';
   const info = NODE_INFO[kind];
@@ -231,24 +249,72 @@ export function RouteTree({
         {run.nodes.flat().length} клітинок · {run.nodes.length} кроків до боса
         {wide && <span>Прокручуй карту вбік і вниз</span>}
       </p>
-      <div className="tree-legend" aria-label="Позначення карти">
-        <span className="legend-visited">Пройдено</span>
-        <span className="legend-available">Можна йти</span>
-        <span className="legend-future">Попереду</span>
-        <span className="tree-node-key">
-          <HelpCircle size={15} /> Випадкова кімната
-        </span>
-        <span className="tree-node-key">
-          <Gift size={15} /> Скриня
-        </span>
-        <span className="tree-node-key">
-          <ShieldAlert size={15} /> Мінібос
-        </span>
-        <ArrowDown size={14} aria-label="Рух униз до боса" />
-      </div>
+      <details className="tree-legend-box" open={!phone}>
+        <summary>Позначення карти</summary>
+        <div className="tree-legend" aria-label="Позначення карти">
+          <span className="legend-visited">Пройдено</span>
+          <span className="legend-available">Можна йти</span>
+          <span className="legend-future">Попереду</span>
+          <span className="tree-node-key">
+            <HelpCircle size={15} /> Випадкова кімната
+          </span>
+          <span className="tree-node-key">
+            <Gift size={15} /> Скриня
+          </span>
+          <span className="tree-node-key">
+            <ShieldAlert size={15} /> Мінібос
+          </span>
+          <ArrowDown size={14} aria-label="Рух униз до боса" />
+        </div>
+      </details>
       <div
-        className="tree-viewport"
+        className={`tree-viewport${panning ? ' panning' : ''}`}
         ref={viewport}
+        onPointerDown={(e) => {
+          if (e.pointerType !== 'mouse' || e.button !== 0) return;
+          const v = viewport.current!;
+          pan.current = {
+            id: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            left: v.scrollLeft,
+            top: v.scrollTop,
+            moved: false,
+          };
+        }}
+        onPointerMove={(e) => {
+          const p = pan.current;
+          if (!p || p.id !== e.pointerId) return;
+          const dx = e.clientX - p.x,
+            dy = e.clientY - p.y;
+          if (!p.moved && Math.hypot(dx, dy) < 5) return;
+          if (!p.moved) {
+            p.moved = true;
+            setPanning(true);
+            viewport.current!.setPointerCapture(e.pointerId);
+          }
+          viewport.current!.scrollLeft = p.left - dx;
+          viewport.current!.scrollTop = p.top - dy;
+        }}
+        onPointerUp={(e) => {
+          if (pan.current?.id !== e.pointerId) return;
+          // A drag is not a click on the step under the mouse.
+          if (pan.current.moved) {
+            const v = viewport.current!,
+              stop = (c: Event) => c.stopPropagation();
+            v.addEventListener('click', stop, { capture: true, once: true });
+            window.setTimeout(
+              () => v.removeEventListener('click', stop, { capture: true }),
+              60,
+            );
+          }
+          pan.current = null;
+          setPanning(false);
+        }}
+        onPointerCancel={() => {
+          pan.current = null;
+          setPanning(false);
+        }}
         aria-label="Дерево маршрутів. Прокручуй вбік і вниз, щоб оглянути шлях до боса."
         // A scroll area: focus lets the arrow keys scroll it.
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
@@ -410,21 +476,19 @@ export function RouteTree({
           type="button"
           className="tree-go"
           disabled={!canEnter || !!vote?.done || !!vote?.locked}
-          onClick={() =>
-            vote ? vote.onVote(selectedCol) : onEnter(selection)
-          }
+          onClick={() => (vote ? vote.onVote(selectedCol) : onEnter(selection))}
         >
           {!canEnter
             ? 'Недоступно'
             : vote?.locked
               ? 'Господар вирушає'
               : vote
-              ? vote.mine === selectedCol
-                ? 'Мій голос тут'
-                : 'Голосую сюди'
-              : checkpoint
-                ? 'Продовжити'
-                : 'Рушити сюди'}
+                ? vote.mine === selectedCol
+                  ? 'Мій голос тут'
+                  : 'Голосую сюди'
+                : checkpoint
+                  ? 'Продовжити'
+                  : 'Рушити сюди'}
           <ArrowRight size={17} />
         </button>
       </div>

@@ -5683,7 +5683,7 @@ export class Battle {
       this.drawIncoming(c, w, h);
       this.drawCourierMarker(c, w, h);
     }
-    const squad = this.client ? 0 : this.drawSquadTracker(c, w);
+    const squad = this.client ? 0 : this.drawSquadTracker(c, w, h);
     if (!this.client) this.drawEventTracker(c, w, squad);
     this.drawCombo(c, w, squad);
     this.drawBanners(c, w, h);
@@ -5765,7 +5765,7 @@ export class Battle {
   }
   // Squad status under the timer: name, wave and kills still needed.
   // Returns the height it takes, so the event tracker goes below it.
-  drawSquadTracker(c: CanvasRenderingContext2D, w: number) {
+  drawSquadTracker(c: CanvasRenderingContext2D, w: number, h: number) {
     const t = this.encounter;
     if (!t || this.ended) return 0;
     const ts = this.settings.textScale || 1,
@@ -5773,7 +5773,9 @@ export class Battle {
       bw = Math.min(w - 40, 260 * ts),
       bh = 30 * ts,
       x = w / 2 - bw / 2,
-      y = 88 * ts,
+      // On an upright phone the health box is taller (two houses in it when
+      // two play): the strip goes a little lower so the box does not cover it.
+      y = (w < 520 && h > w ? 110 : 88) * ts,
       last = this.plan.length - 1,
       left = this.squadLeft();
     const status =
@@ -5806,7 +5808,8 @@ export class Battle {
       bw - 12,
     );
     c.textBaseline = 'alphabetic';
-    return bh + 8 * ts;
+    // What is drawn below starts at 88: the strip's own drop counts too.
+    return y - 88 * ts + bh + 8 * ts;
   }
   // Windup read: a crosshair where a leading shot or charge is headed, and
   // the outline of the zone a mine, root or acid shot will leave.
@@ -5984,7 +5987,9 @@ export class Battle {
     const ts = this.settings.textScale || 1;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
-    let top = h * 0.22 - 29 * ts;
+    // A phone on its side: the top row of the screen (health, timer, the squad
+    // strip) takes the first third, so the banners start under it.
+    let top = w > h && h < 520 ? h * 0.36 : h * 0.22 - 29 * ts;
     for (const b of this.banners) {
       const age = b.max - b.life,
         pop = age < 0.18 ? 1.25 - (age / 0.18) * 0.25 : 1,

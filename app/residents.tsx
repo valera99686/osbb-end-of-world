@@ -21,7 +21,8 @@ import {
 import { installPacked, moveEquipment } from '@/lib/game/model';
 import { Glyph } from './glyph';
 import { ApartmentEquipment } from './equipment';
-import { useId, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { RotateCw, Home, Move, UserPlus, Check } from 'lucide-react';
 import {
   RESIDENT_BY_ID,
@@ -287,7 +288,11 @@ function HousePlan({
               viewBox={`${(person.portrait % 3) * 418} ${Math.floor(person.portrait / 3) * 418} 418 418`}
               overflow="hidden"
             >
-              <image href={asset('art/residents-v1.webp')} width="1254" height="1254" />
+              <image
+                href={asset('art/residents-v1.webp')}
+                width="1254"
+                height="1254"
+              />
             </svg>
             {!compact && (
               <text
@@ -404,7 +409,12 @@ export function EquipmentPlacement({
       </p>
       <div
         className="housing-canvas"
-        style={{ aspectRatio: `${size.width} / ${size.height}` }}
+        style={
+          {
+            aspectRatio: `${size.width} / ${size.height}`,
+            '--plan-ratio': size.width / size.height,
+          } as CSSProperties
+        }
       >
         <HousePlan
           rooms={run.residents}
@@ -446,6 +456,9 @@ export function EquipmentPlacement({
   );
 }
 
+type Lift = 'module' | 'furniture' | 'slot' | 'resident';
+type Cell = [number, number];
+
 export function Residents({
   run,
   meta,
@@ -483,6 +496,187 @@ export function Residents({
     moved: boolean;
   } | null>(null);
   const suppress = useRef(false);
+  // Things dragged by finger or mouse onto the plan: a spare module, a piece of
+  // furniture, a module already in a flat, or a resident from the list (the flat
+  // comes along). A list scrolls under a finger, so there a short hold lifts the
+  // thing; a thing in the plan lifts as soon as it moves.
+  const itemDrag = useRef<{
+    kind: Lift;
+    id: string;
+    pointerId: number;
+    x0: number;
+    y0: number;
+    x: number;
+    y: number;
+    touch: boolean;
+    handle: boolean;
+    active: boolean;
+    timer: number;
+    label: string;
+    el: HTMLElement;
+  } | null>(null);
+  const [lifted, setLifted] = useState<{
+    x: number;
+    y: number;
+    label: string;
+  } | null>(null);
+  const [dropCell, setDropCell] = useState<string | null>(null);
+  const swallowClick = useRef(false);
+  const startLift = useRef(() => {});
+  // What a lift, a hover over the plan and a drop do; renewed on every render,
+  // so they see the run of that render.
+  const dragHooks = useRef<{
+    lift: (kind: Lift, id: string) => void;
+    hover: (kind: Lift, id: string, cell: Cell | null) => void;
+    drop: (kind: Lift, id: string, cell: Cell | null) => void;
+  }>({ lift: () => {}, hover: () => {}, drop: () => {} });
+  const vibrate = useRef(meta.settings.vibration);
+  useEffect(() => {
+    const cellAt = (x: number, y: number): Cell | null => {
+      const el = document
+        .elementFromPoint(x, y)
+        ?.closest('.housing-hit-grid [data-cell]') as HTMLElement | null;
+      const cell = el?.dataset.cell?.split(':').map(Number);
+      return cell ? [cell[0], cell[1]] : null;
+    };
+    // The box that scrolls (the window of the flats, or the page).
+    const scroller = (el: HTMLElement) => {
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        const o = getComputedStyle(p).overflowY;
+        if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight)
+          return p;
+      }
+      return document.scrollingElement as HTMLElement;
+    };
+    const follow = () => {
+      const d = itemDrag.current!;
+      const cell = cellAt(d.x, d.y);
+      setLifted({ x: d.x, y: d.y, label: d.label });
+      setDropCell(cell ? cell.join(':') : null);
+      dragHooks.current.hover(d.kind, d.id, cell);
+    };
+    // Near the top or the foot of the screen the window scrolls by itself: on a
+    // phone the lists are under the plan.
+    let raf = 0;
+    const roll = () => {
+      raf = 0;
+      const d = itemDrag.current;
+      if (!d?.active) return;
+      const edge = 56,
+        h = window.innerHeight;
+      const v = d.y < edge ? d.y - edge : d.y > h - edge ? d.y - (h - edge) : 0;
+      if (!v) return;
+      const box = scroller(d.el);
+      const before = box.scrollTop;
+      box.scrollTop += Math.round(v / 4);
+      if (box.scrollTop !== before) follow();
+      raf = requestAnimationFrame(roll);
+    };
+    const lift = () => {
+      const d = itemDrag.current;
+      if (!d || d.active) return;
+      d.active = true;
+      d.el.classList.add('drag-lifted');
+      if (vibrate.current) navigator.vibrate?.(12);
+      dragHooks.current.lift(d.kind, d.id);
+      follow();
+    };
+    startLift.current = lift;
+    const end = (e: PointerEvent, drop: boolean) => {
+      const d = itemDrag.current;
+      if (!d || e.pointerId !== d.pointerId) return;
+      // Some touch screens end a touch at 0, 0: the last move is where it was.
+      if (e.clientX || e.clientY) {
+        d.x = e.clientX;
+        d.y = e.clientY;
+      }
+      window.clearTimeout(d.timer);
+      cancelAnimationFrame(raf);
+      raf = 0;
+      itemDrag.current = null;
+      d.el.classList.remove('drag-lifted');
+      if (!d.active) return;
+      // The click that may follow the drop must not pick or open anything.
+      swallowClick.current = true;
+      window.setTimeout(() => (swallowClick.current = false), 350);
+      setLifted(null);
+      setDropCell(null);
+      dragHooks.current.drop(d.kind, d.id, drop ? cellAt(d.x, d.y) : null);
+    };
+    const move = (e: PointerEvent) => {
+      const d = itemDrag.current;
+      if (!d || e.pointerId !== d.pointerId) return;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      if (!d.active) {
+        const far = Math.hypot(d.x - d.x0, d.y - d.y0);
+        if (d.touch && !d.handle) {
+          // The finger went on before the hold: it scrolls the list.
+          if (far > 10) {
+            window.clearTimeout(d.timer);
+            itemDrag.current = null;
+          }
+          return;
+        }
+        if (far < 6) return;
+        lift();
+      }
+      follow();
+      if (!raf) raf = requestAnimationFrame(roll);
+    };
+    const up = (e: PointerEvent) => end(e, true);
+    const cancel = (e: PointerEvent) => end(e, false);
+    // While a thing is lifted the window does not scroll under the finger, and a
+    // long press opens no menu.
+    const hold = (e: TouchEvent) => {
+      if (itemDrag.current?.active && e.cancelable) e.preventDefault();
+    };
+    const menu = (e: Event) => {
+      if (itemDrag.current) e.preventDefault();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('touchmove', hold, { passive: false });
+    window.addEventListener('contextmenu', menu);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('touchmove', hold);
+      window.removeEventListener('contextmenu', menu);
+    };
+  }, []);
+  function beginItemDrag(e: React.PointerEvent) {
+    if (e.button !== 0 || itemDrag.current || placing) return;
+    const el = (e.target as Element).closest(
+      '[data-drag]',
+    ) as HTMLElement | null;
+    if (!el) return;
+    const touch = e.pointerType !== 'mouse';
+    const handle = !!el.closest('.housing-hit-grid');
+    const d = {
+      kind: el.dataset.drag as Lift,
+      id: el.dataset.dragId ?? '',
+      pointerId: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      x: e.clientX,
+      y: e.clientY,
+      touch,
+      handle,
+      active: false,
+      timer: 0,
+      label: el.dataset.dragLabel ?? '',
+      el,
+    };
+    itemDrag.current = d;
+    if (touch && !handle)
+      d.timer = window.setTimeout(() => {
+        if (itemDrag.current === d) startLift.current();
+      }, 260);
+  }
   const groups = residentGroups(run.rescued, run.residents);
   const person = RESIDENT_BY_ID[selected],
     room = run.residents.find((r) => r.id === selected);
@@ -604,8 +798,121 @@ export function Residents({
     setMessage('');
   }
 
+  // A tap on the cell (x, y) of the plan, or a thing dropped on it.
+  function applyAt(x: number, y: number) {
+    const current = occupied.get(`${x}:${y}`);
+    const currentCell = current
+      ? residentCells(current.id, current.rotation).findIndex(
+          ([cx, cy]) => cx + current.x === x && cy + current.y === y,
+        )
+      : -1;
+    const currentSlot = current ? apartmentSlot(current.id, currentCell) : -1;
+    const moduleMode = pickedModule !== null || movingModule !== null;
+    if (moduleMode) {
+      const next =
+        pickedModule !== null
+          ? installPacked(run, meta, pickedModule, currentSlot)
+          : moveEquipment(run, meta, movingModule!, currentSlot);
+      if (next === run) {
+        setMessage(
+          'Обери місце всередині квартири без меблів. Портрет мешканця зайнятий.',
+        );
+        return;
+      }
+      onChange(next);
+      choose(current!.id);
+      setModuleSlot(currentSlot);
+      setMessage('Обладнання встановлено у квартирі. Бонус активний.');
+      return;
+    }
+    if (pickedFurniture !== null) {
+      const next = current
+        ? installFurniture(run, meta, pickedFurniture, current.id, currentCell)
+        : run;
+      if (next === run) {
+        setMessage(
+          'Меблі ставляться у вільний слот усередині квартири. Портрет і площа поза квартирою не підходять.',
+        );
+        return;
+      }
+      const item = run.furniture.find((item) => item.uid === pickedFurniture)!;
+      onChange(next);
+      choose(current!.id);
+      setMessage(
+        `${RESIDENT_BY_ID[current!.id].name}: ${furnitureEffect(item.id, current!.id).label}.`,
+      );
+      return;
+    }
+    if (placing) setGhost({ x, y });
+    else if (current) {
+      choose(current.id);
+      setModuleSlot(currentSlot >= 0 ? currentSlot : null);
+    }
+  }
+  // The hooks of a drag see this render's run (renewed after every render).
+  useEffect(() => {
+    vibrate.current = meta.settings.vibration;
+    dragHooks.current = {
+      lift(kind, id) {
+        stopDrag();
+        setGhost(null);
+        setPlacing(false);
+        setPickedFurniture(kind === 'furniture' ? Number(id) : null);
+        setPickedModule(kind === 'module' ? Number(id) : null);
+        setMovingModule(kind === 'slot' ? Number(id) : null);
+        if (kind === 'resident') {
+          setSelected(id);
+          setModuleSlot(null);
+          setRotation(run.residents.find((r) => r.id === id)?.rotation ?? 0);
+        }
+        // A thing from a list: the plan comes into view to meet the finger.
+        if (kind !== 'slot')
+          grid.current
+            ?.closest('.housing-canvas')
+            ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        setMessage(
+          kind === 'resident'
+            ? 'Відпусти над місцем на плані: туди стане портрет.'
+            : 'Відпусти над місцем усередині квартири.',
+        );
+      },
+      hover(kind, id, cell) {
+        if (kind !== 'resident') return;
+        if (!cell) {
+          setPlacing(false);
+          setGhost(null);
+          return;
+        }
+        const [hx, hy] = residentCells(id, rotation)[0];
+        setPlacing(true);
+        setGhost({ x: cell[0] - hx, y: cell[1] - hy });
+      },
+      drop(kind, id, cell) {
+        if (kind === 'resident') {
+          if (!cell) return cancelPlacement();
+          const [hx, hy] = residentCells(id, rotation)[0];
+          return place({ id, x: cell[0] - hx, y: cell[1] - hy, rotation });
+        }
+        if (cell) return applyAt(cell[0], cell[1]);
+        setPickedFurniture(null);
+        setPickedModule(null);
+        setMovingModule(null);
+        setMessage('');
+      },
+    };
+  });
+
   return (
-    <div className="resident-editor">
+    <div
+      className="resident-editor"
+      onPointerDownCapture={beginItemDrag}
+      onClickCapture={(e) => {
+        if (!swallowClick.current) return;
+        swallowClick.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+    >
       <div className="housing-summary">
         <span>
           <Home size={16} /> На борту <b>{groups.aboard.length}</b>
@@ -626,7 +933,12 @@ export function Residents({
             </div>
             <div
               className="housing-canvas"
-              style={{ aspectRatio: `${size.width} / ${size.height}` }}
+              style={
+                {
+                  aspectRatio: `${size.width} / ${size.height}`,
+                  '--plan-ratio': size.width / size.height,
+                } as CSSProperties
+              }
             >
               <HousePlan
                 rooms={run.residents}
@@ -682,6 +994,7 @@ export function Residents({
                   cancelPlacement();
                 }}
                 onLostPointerCapture={(e) => {
+                  if (e.target !== e.currentTarget) return;
                   if (drag.current?.pointerId === e.pointerId) {
                     drag.current = null;
                     cancelPlacement();
@@ -704,19 +1017,33 @@ export function Residents({
                   const moduleMode =
                     pickedModule !== null || movingModule !== null;
                   const gearTarget = moduleMode && canEquipAt(run, currentSlot);
+                  const fitted =
+                    currentCell > 0 ? run.items[currentSlot] : undefined;
                   return (
                     <button
                       type="button"
                       key={i}
-                      className={
+                      data-cell={`${x}:${y}`}
+                      {...(fitted
+                        ? {
+                            'data-drag': 'slot',
+                            'data-drag-id': currentSlot,
+                            'data-drag-label': ITEM_BY_ID[fitted].name,
+                          }
+                        : {})}
+                      className={[
                         gearTarget
                           ? run.items[currentSlot]
                             ? 'equipment-swap-target'
                             : 'equipment-free-target'
                           : current
                             ? 'has-room'
-                            : ''
-                      }
+                            : '',
+                        currentCell === 0 || fitted ? 'drag-handle' : '',
+                        dropCell === `${x}:${y}` ? 'drop-hover' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                       aria-label={`Клітинка ${x + 1}, ${y + 1}: ${current ? 'квартира ' + RESIDENT_BY_ID[current.id].name : 'поза квартирою'}${run.items[currentSlot] ? '. ' + ITEM_BY_ID[run.items[currentSlot]!].name : currentCell > 0 ? '. Місце для обладнання' : current ? '. Портрет мешканця' : ''}${placing ? '. Обрати місце для кімнати' : ''}`}
                       onPointerDown={(e) => {
                         if (drag.current || e.button !== 0) return;
@@ -746,75 +1073,7 @@ export function Residents({
                           suppress.current = false;
                           return;
                         }
-                        if (moduleMode) {
-                          const next =
-                            pickedModule !== null
-                              ? installPacked(
-                                  run,
-                                  meta,
-                                  pickedModule,
-                                  currentSlot,
-                                )
-                              : moveEquipment(
-                                  run,
-                                  meta,
-                                  movingModule!,
-                                  currentSlot,
-                                );
-                          if (next === run) {
-                            setMessage(
-                              'Обери місце всередині квартири без меблів. Портрет мешканця зайнятий.',
-                            );
-                            return;
-                          }
-                          onChange(next);
-                          choose(current!.id);
-                          setModuleSlot(currentSlot);
-                          setMessage(
-                            'Обладнання встановлено у квартирі. Бонус активний.',
-                          );
-                          return;
-                        }
-                        if (pickedFurniture !== null) {
-                          const cell = current
-                            ? residentCells(
-                                current.id,
-                                current.rotation,
-                              ).findIndex(
-                                ([cx, cy]) =>
-                                  cx + current.x === x && cy + current.y === y,
-                              )
-                            : -1;
-                          const next = current
-                            ? installFurniture(
-                                run,
-                                meta,
-                                pickedFurniture,
-                                current.id,
-                                cell,
-                              )
-                            : run;
-                          if (next === run) {
-                            setMessage(
-                              'Меблі ставляться у вільний слот усередині квартири. Портрет і площа поза квартирою не підходять.',
-                            );
-                            return;
-                          }
-                          const item = run.furniture.find(
-                            (item) => item.uid === pickedFurniture,
-                          )!;
-                          onChange(next);
-                          choose(current!.id);
-                          setMessage(
-                            `${RESIDENT_BY_ID[current!.id].name}: ${furnitureEffect(item.id, current!.id).label}.`,
-                          );
-                          return;
-                        }
-                        if (placing) setGhost({ x, y });
-                        else if (current) {
-                          choose(current.id);
-                          setModuleSlot(currentSlot >= 0 ? currentSlot : null);
-                        }
+                        applyAt(x, y);
                       }}
                     />
                   );
@@ -985,6 +1244,9 @@ export function Residents({
             {[...groups.aboard, ...groups.reserve].map((resident) => (
               <button
                 key={resident.id}
+                data-drag="resident"
+                data-drag-id={resident.id}
+                data-drag-label={resident.name}
                 className={`resident-card ${selected === resident.id ? 'active' : ''}`}
                 onClick={() => choose(resident.id)}
                 aria-pressed={selected === resident.id}
@@ -1175,6 +1437,17 @@ export function Residents({
               </div>
             </div>
           )}
+          {lifted &&
+            createPortal(
+              <div
+                className={`drag-ghost${lifted.y < 90 ? ' below' : ''}`}
+                style={{ left: lifted.x, top: lifted.y }}
+                aria-hidden="true"
+              >
+                {lifted.label}
+              </div>,
+              document.body,
+            )}
           <ApartmentFurniture
             run={run}
             meta={meta}

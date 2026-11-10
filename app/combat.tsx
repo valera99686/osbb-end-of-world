@@ -24,6 +24,7 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import './features.css';
+import './mobile.css';
 import {
   Dialog,
   DialogContent,
@@ -138,7 +139,12 @@ export function Combat({
     joystick = useRef<HTMLDivElement>(null),
     pointer = useRef<number | null>(null),
     joystick2 = useRef<HTMLDivElement>(null),
-    pointer2 = useRef<number | null>(null);
+    pointer2 = useRef<number | null>(null),
+    screen = useRef<HTMLElement>(null),
+    // A floating stick: a finger put down anywhere on the arena becomes the
+    // centre of the stick (null: the stick in the corner is used).
+    centre = useRef<{ x: number; y: number } | null>(null),
+    centre2 = useRef<{ x: number; y: number } | null>(null);
   const [hud, setHud] = useState<Hud>({
     hp: run.hp,
     max: statsFor(run, meta).health,
@@ -160,6 +166,9 @@ export function Combat({
   const [paused, setPaused] = useState(false),
     [stick, setStick] = useState({ x: 0, y: 0 }),
     [stick2, setStick2] = useState({ x: 0, y: 0 }),
+    // Where a floating stick is drawn (in the fight screen's own pixels).
+    [float1, setFloat1] = useState<{ x: number; y: number } | null>(null),
+    [float2, setFloat2] = useState<{ x: number; y: number } | null>(null),
     [draft, setDraft] = useState<{ offers: PerkId[]; level: number } | null>(
       null,
     ),
@@ -349,7 +358,10 @@ export function Combat({
       if (client)
         client.onEnd = (result) => {
           // The host's fight is over: the guest shows how it ended.
-          window.setTimeout(() => onDoneRef.current(result as BattleResult), 900);
+          window.setTimeout(
+            () => onDoneRef.current(result as BattleResult),
+            900,
+          );
         };
       // The guest says it listens, then both send their first frames.
       if (net.role === 'guest') net.ready(sid);
@@ -468,11 +480,15 @@ export function Combat({
   useEffect(() => {
     engine.current?.setSettings(meta.settings);
   }, [meta.settings]);
+  function middle(el: HTMLElement | null) {
+    const r = el!.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
   function point(e: React.PointerEvent) {
     if (pointer.current !== e.pointerId) return;
-    const r = joystick.current!.getBoundingClientRect();
-    let x = (e.clientX - r.left - r.width / 2) / 40,
-      y = (e.clientY - r.top - r.height / 2) / 40;
+    const c = centre.current ?? middle(joystick.current);
+    let x = (e.clientX - c.x) / 40,
+      y = (e.clientY - c.y) / 40;
     const length = Math.hypot(x, y);
     if (length > 1) {
       x /= length;
@@ -483,14 +499,16 @@ export function Combat({
   }
   function release() {
     pointer.current = null;
+    centre.current = null;
+    setFloat1(null);
     setStick({ x: 0, y: 0 });
     if (engine.current) engine.current.stick = { x: 0, y: 0 };
   }
   function point2(e: React.PointerEvent) {
     if (pointer2.current !== e.pointerId) return;
-    const r = joystick2.current!.getBoundingClientRect();
-    let x = (e.clientX - r.left - r.width / 2) / 40,
-      y = (e.clientY - r.top - r.height / 2) / 40;
+    const c = centre2.current ?? middle(joystick2.current);
+    let x = (e.clientX - c.x) / 40,
+      y = (e.clientY - c.y) / 40;
     const length = Math.hypot(x, y);
     if (length > 1) {
       x /= length;
@@ -501,8 +519,34 @@ export function Combat({
   }
   function release2() {
     pointer2.current = null;
+    centre2.current = null;
+    setFloat2(null);
     setStick2({ x: 0, y: 0 });
     if (engine.current) engine.current.stick2 = { x: 0, y: 0 };
+  }
+  function grab(e: React.PointerEvent<HTMLCanvasElement>) {
+    engine.current?.skipIntro();
+    if (e.pointerType === 'mouse') return;
+    const box = screen.current!.getBoundingClientRect();
+    const at = { x: e.clientX - box.left, y: e.clientY - box.top };
+    const second = duo && e.clientX > box.left + box.width / 2;
+    if (second ? pointer2.current !== null : pointer.current !== null) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (second) {
+      pointer2.current = e.pointerId;
+      centre2.current = { x: e.clientX, y: e.clientY };
+      setFloat2(at);
+      point2(e);
+    } else {
+      pointer.current = e.pointerId;
+      centre.current = { x: e.clientX, y: e.clientY };
+      setFloat1(at);
+      point(e);
+    }
+  }
+  function letGo(e: React.PointerEvent) {
+    if (pointer.current === e.pointerId) release();
+    if (pointer2.current === e.pointerId) release2();
   }
   // The fight is shared with a partner who is really there.
   const shared = !!net && sid !== null && sid > 0 && !!net.link;
@@ -534,7 +578,7 @@ export function Combat({
   }, [shared, drafting, paused, hold, draftKey]);
   const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
   return (
-    <section className="battle-screen">
+    <section className={`battle-screen${duo ? ' duo' : ''}`} ref={screen}>
       {(draft || hud.drafting) && !paused && !hold && net?.role === 'guest' && (
         <div className="net-note" role="status">
           Друг обирає покращення… ще {draftLeft} с
@@ -554,7 +598,9 @@ export function Combat({
           {sid === null ? (
             <span>Очікуємо, поки напарник збудує бій…</span>
           ) : netNote === 'wait' ? (
-            <span>Чекаємо напарника… Зв’язок повільний або він призупинив гру.</span>
+            <span>
+              Чекаємо напарника… Зв’язок повільний або він призупинив гру.
+            </span>
           ) : (
             <>
               <span>
@@ -580,13 +626,20 @@ export function Combat({
       <canvas
         ref={canvas}
         className="battle-canvas"
-        onPointerDown={() => engine.current?.skipIntro()}
+        onPointerDown={grab}
+        onPointerMove={(e) => {
+          point(e);
+          point2(e);
+        }}
+        onPointerUp={letGo}
+        onPointerCancel={letGo}
+        onLostPointerCapture={letGo}
         aria-label={
           online
             ? `Бойова арена, гра по мережі. Рух WASD або стрілками, пробіл — ривок, E — вміння: ${ability.name}.`
             : coop
-            ? `Бойова арена, двоє гравців. Перший: рух WASD, пробіл — ривок, E — вміння: ${ability.name}. Другий: рух стрілками, скісна риска — ривок, крапка — вміння: ${partner?.name}.`
-            : `Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`
+              ? `Бойова арена, двоє гравців. Перший: рух WASD, пробіл — ривок, E — вміння: ${ability.name}. Другий: рух стрілками, скісна риска — ривок, крапка — вміння: ${partner?.name}.`
+              : `Бойова арена. Рух WASD або стрілками, пробіл — ривок, E — вміння героя: ${ability.name}.`
         }
       />
       {bark && !draft && (
@@ -711,13 +764,40 @@ export function Combat({
                 : 'Розбий загін: три хвилі й ватажок. Рухайся — стрільці цілять на випередження.'}
         </div>
       )}
+      {float1 && (
+        <div
+          className="joystick floating"
+          style={{ left: float1.x, top: float1.y }}
+          aria-hidden="true"
+        >
+          <div className="stick-cross" />
+          <div
+            className="stick-knob"
+            style={{ transform: `translate(${stick.x}px,${stick.y}px)` }}
+          />
+        </div>
+      )}
+      {float2 && (
+        <div
+          className="joystick floating second"
+          style={{ left: float2.x, top: float2.y }}
+          aria-hidden="true"
+        >
+          <div className="stick-cross" />
+          <div
+            className="stick-knob"
+            style={{ transform: `translate(${stick2.x}px,${stick2.y}px)` }}
+          />
+        </div>
+      )}
       <div className={`battle-controls${duo ? ' coop' : ''}`}>
         <div
-          className="joystick"
+          className={`joystick${float1 ? ' away' : ''}`}
           ref={joystick}
           onPointerDown={(e) => {
             if (pointer.current !== null) return;
             pointer.current = e.pointerId;
+            centre.current = null;
             e.currentTarget.setPointerCapture(e.pointerId);
             point(e);
           }}
@@ -817,11 +897,12 @@ export function Combat({
               </button>
             </div>
             <div
-              className="joystick second"
+              className={`joystick second${float2 ? ' away' : ''}`}
               ref={joystick2}
               onPointerDown={(e) => {
                 if (pointer2.current !== null) return;
                 pointer2.current = e.pointerId;
+                centre2.current = null;
                 e.currentTarget.setPointerCapture(e.pointerId);
                 point2(e);
               }}

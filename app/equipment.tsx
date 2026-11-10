@@ -158,6 +158,9 @@ export function ApartmentEquipment({
         {run.backpack.map((item) => (
           <button
             key={item.uid}
+            data-drag="module"
+            data-drag-id={item.uid}
+            data-drag-label={ITEM_BY_ID[item.id].name}
             className={picked === item.uid ? 'selected' : ''}
             aria-pressed={picked === item.uid}
             onClick={() => {

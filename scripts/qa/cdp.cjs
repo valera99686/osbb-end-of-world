@@ -50,6 +50,7 @@ class Page {
     this.width = width;
     this.height = height;
     this.dpr = 1;
+    this.mobile = null; // true: a phone (touch, mobile layout) whatever the width
     this.rec = null;
     this.id = 0;
     this.pending = new Map();
@@ -94,8 +95,15 @@ class Page {
       width: this.width,
       height: this.height,
       deviceScaleFactor: this.dpr,
-      mobile: this.width < 700,
+      mobile: this.mobile ?? this.width < 700,
     });
+    // A phone: touch events and a phone's user agent, so the page sees a touch screen.
+    if (this.mobile) {
+      await this.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await this.send('Emulation.setUserAgentOverride', {
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36',
+      });
+    }
     await this.send('Page.navigate', { url });
     await sleep(wait);
   }
@@ -171,7 +179,7 @@ class Page {
       width: this.width,
       height: this.height,
       deviceScaleFactor: this.dpr,
-      mobile: this.width < 700,
+      mobile: this.mobile ?? this.width < 700,
     });
     await new Promise((r) => setTimeout(r, 300));
   }

@@ -121,6 +121,7 @@ import {
   VOTE,
 } from '@/lib/game/coop';
 import './features.css';
+import './mobile.css';
 import { HouseAside, PartnerHouse } from './house-aside';
 import { ChatDock } from './chat-dock';
 import { CvdFilters } from './cvd-filters';

@@ -1029,3 +1029,16 @@ test('Boss encounters terminate with a win and never produce NaN state', () => {
     assert.ok(Number.isFinite(result.run.hp));
   }
 });
+
+test('the drawing of a fight lives in battle-view and is installed on Battle', () => {
+  const { view } = require('../.test-build/battle-view.js');
+  const names = Object.keys(view);
+  assert.ok(names.length >= 25, `drawing methods: ${names.length}`);
+  for (const name of names) {
+    assert.equal(typeof view[name], 'function', name);
+    assert.equal(Battle.prototype[name], view[name], `${name} on Battle.prototype`);
+  }
+  assert.ok(names.includes('draw'), 'the frame entry point');
+  // The simulation keeps its own methods: nothing it steps was moved.
+  for (const name of ['tick', 'finish', 'hurt']) assert.equal(typeof Battle.prototype[name], 'function', name);
+});

@@ -41,7 +41,8 @@ APK збирається окремо (потрібні JDK 21 і Android SDK, �
 | --- | --- |
 | Опис гри для того, хто її не бачив: концепт, механіка, правила, герої, ціни | [docs/game-description.md](docs/game-description.md) |
 | Путівник гравця (PDF, понад 20 скріншотів з живої гри) | [docs/guide/osbb-putivnyk-gravtsya.pdf](docs/guide/osbb-putivnyk-gravtsya.pdf) |
-| Презентація (14 слайдів з нотатками), сценарій демо, відповіді на питання | [docs/presentation/](docs/presentation/) |
+| Презентація (19 слайдів з нотатками), сценарій демо, відповіді на питання | [docs/presentation/](docs/presentation/) |
+| Фінмодель: скільки триває гра, монетизація (пропозиція), ринок і дохід | [docs/finmodel.md](docs/finmodel.md) |
 | Архітектура, збереження, озвучка, як додати ворога чи перк | [docs/architecture.md](docs/architecture.md) |
 | Гра по мережі, чат і голос | [docs/online.md](docs/online.md) |
 | Локальний кооператив і числа балансу | [docs/coop.md](docs/coop.md), [docs/balance/](docs/balance/) |
@@ -49,7 +50,7 @@ APK збирається окремо (потрібні JDK 21 і Android SDK, �
 | Перевірки перед релізом, доступність, плейтест | [docs/qa](docs/qa/) |
 | Усі зміни по версіях | [CHANGELOG.md](CHANGELOG.md) |
 
-## Що є в грі (0.39.0)
+## Що є в грі (0.40.0)
 
 ### Кампанія та бій
 
@@ -99,6 +100,7 @@ APK збирається окремо (потрібні JDK 21 і Android SDK, �
 | 0.35–0.37 | текстовий і голосовий чат, голос «рацією» через резервний канал, фільтр кольорів на весь екран |
 | 0.38 | гра на телефоні: плаваючий джойстик, перетягування пальцем, компактні рація й смуга боса |
 | 0.39 | у кооперативі кожен обирає перк для свого будинку, ядра за рейд порівну, меблі в ряду гостя, гість бачить нові для себе сцени; гра по мережі більше не зависає після вибору перка |
+| 0.40 | фінмодель (тривалість гри ботами, монетизація як пропозиція, ринок), бій вимагає руху, сцени Притулку для гостя, плавніший бій на слабких телефонах і лічильник кадрів, бій розбито на три файли |
 
 Докладно: [CHANGELOG.md](CHANGELOG.md).
 
@@ -136,7 +138,7 @@ APK збирається окремо (потрібні JDK 21 і Android SDK, �
 - `residents.ts`, `apartments.ts`, `furniture.ts`, `equipment.ts`, `backpack.ts`, `specials.ts` — будинок, квартири, меблі, обладнання.
 - `story.ts` — діалоги, 12 доказів, кінцівки, репліки; `barks.ts`, `campaign-content.ts`, `cutscenes.ts`, `lore.ts`, `notices.ts`.
 - `upgrades.ts` — перки; `weapons.ts` — ядра й еволюції; `heroes.ts` — вміння героїв.
-- `engine.ts` — Canvas-бій; `arena.ts`, `enemy-art.ts`, `sprites.ts`, `pace.ts`; `audio.ts` — синтезована музика й ефекти.
+- `engine.ts` — Canvas-бій (клас `Battle`: симуляція), `battle-view.ts` — його малювання, `battle-core.ts` — типи й константи бою; `arena.ts`, `enemy-art.ts`, `sprites.ts`, `pace.ts`; `audio.ts` — синтезована музика й ефекти.
 - Мережа: `net.ts` (протокол, `Lockstep`), `session.ts` (`NetSession`), `mirror.ts` (знімки бою), `mqtt.ts`, `chat.ts`, `vox.ts` (кодек «рації»), `coop.ts` (числа й нагороди), `cvd.ts` (колірні фільтри).
 
 `app/` — React-інтерфейс: `game.tsx` (екрани й профіль), `combat.tsx` (бій, вантажиться окремо), `online.tsx`, `guest-home.tsx`, `chat-dock.tsx`, `voice-chat.ts`, `net-peer.ts`, `relay-link.ts`, `settings.tsx`, `cvd-filters.tsx` та інші. `android/` — Java-оболонка з локальним HTTPS-origin; політика конфіденційності: `public/privacy.html`.

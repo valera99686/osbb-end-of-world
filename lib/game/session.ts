@@ -11,13 +11,7 @@ import {
   type ShareMode,
 } from './net';
 import { castVote, newBallot, readBallot, type Ballot } from './coop';
-import {
-  CHAT,
-  ChatLimiter,
-  cleanChat,
-  quickText,
-  type ChatLine,
-} from './chat';
+import { CHAT, ChatLimiter, cleanChat, quickText, type ChatLine } from './chat';
 
 // What the host tells the guest while it is in a fight: when it says anything
 // else, the fight is over at the host.
@@ -59,8 +53,15 @@ export class NetSession {
   // Guest only: called when the host opens a fight.
   onStart: ((m: StartMsg) => void) | null = null;
   // Guest only: the host's raid is over and this is what it earned.
-  onGift: ((m: { cores: number; won: boolean; final: boolean }) => void) | null =
-    null;
+  onGift:
+    | ((m: {
+        cores: number;
+        won: boolean;
+        final: boolean;
+        story: string[];
+        all: boolean;
+      }) => void)
+    | null = null;
   // Bumps on every change, for React's useSyncExternalStore.
   version = 0;
   // The vote for the next stop of the raid, as both ends see it, and (guest)
@@ -266,7 +267,19 @@ export class NetSession {
         return;
       }
       case 'gift':
-        if (this.role === 'guest') this.onGift?.(m);
+        if (this.role === 'guest')
+          this.onGift?.({
+            cores: m.cores,
+            won: !!m.won,
+            final: !!m.final,
+            // Only ids that look like ours, and not too many of them.
+            story: Array.isArray(m.story)
+              ? m.story
+                  .filter((id) => typeof id === 'string' && SCENE_ID.test(id))
+                  .slice(0, 60)
+              : [],
+            all: !!m.all,
+          });
         return;
       case 'scene':
         // Only the id of a scene crosses the wire: the guest plays it from its
@@ -279,8 +292,7 @@ export class NetSession {
       case 'chat': {
         // The partner says something: a line of text or a quick phrase, kept
         // short and clean, and only so fast.
-        const text =
-          m.q !== undefined ? quickText(m.q) : cleanChat(m.text);
+        const text = m.q !== undefined ? quickText(m.q) : cleanChat(m.text);
         if (!text || !this.limiter.allow(Date.now())) return;
         this.addLine({
           id: ++this.chatId,
@@ -318,7 +330,12 @@ export class NetSession {
     const clean = cleanChat(text);
     if (!clean || this.phase !== 'connected' || !this.link) return false;
     this.link.send({ t: 'chat', text: clean });
-    this.addLine({ id: ++this.chatId, mine: true, text: clean, at: Date.now() });
+    this.addLine({
+      id: ++this.chatId,
+      mine: true,
+      text: clean,
+      at: Date.now(),
+    });
     return true;
   }
   // Says quick phrase number `q` to the partner.
@@ -486,10 +503,23 @@ export class NetSession {
     this.heldScenes = [];
     return held;
   }
-  // Host: the raid ended; the guest gets a share of what it earned.
-  sendGift(cores: number, won: boolean, final: boolean) {
+  // Host: the raid ended; the guest gets a share of what it earned and the
+  // story of the raid's end to watch from its own copy (story.ts raidEndStory).
+  sendGift(
+    cores: number,
+    won: boolean,
+    final: boolean,
+    story: { scenes: string[]; all: boolean } = { scenes: [], all: false },
+  ) {
     if (this.role === 'host' && this.phase === 'connected')
-      this.link?.send({ t: 'gift', cores, won, final });
+      this.link?.send({
+        t: 'gift',
+        cores,
+        won,
+        final,
+        story: story.scenes,
+        all: story.all,
+      });
   }
   // Guest: the fight is built and listening.
   ready(sid: number) {

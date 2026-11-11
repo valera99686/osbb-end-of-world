@@ -252,6 +252,12 @@ export function SettingsDialog({
             onChange={(damageNumbers) => set({ damageNumbers })}
           />
           <Toggle
+            label="Лічильник кадрів"
+            hint="Кадри за секунду в кутку бою: щоб перевірити, як гра йде на цьому пристрої."
+            value={s.fps}
+            onChange={(fps) => set({ fps })}
+          />
+          <Toggle
             label="Менше спалахів"
             hint="Приглушує спалахи, миготіння й пульсацію екрана."
             value={s.reducedFlashes}
@@ -283,14 +289,17 @@ export function SettingsDialog({
           <Segmented
             label="Фільтр кольорів на весь екран"
             value={s.cvd}
-            options={(Object.keys(CVD_LABELS) as Cvd[]).map((k) => [k, CVD_LABELS[k]])}
+            options={(Object.keys(CVD_LABELS) as Cvd[]).map((k) => [
+              k,
+              CVD_LABELS[k],
+            ])}
             onChange={(cvd) => set({ cvd })}
           />
           <p className="settings-note">
-            Протанопія й дейтеранопія: червоний і зелений зливаються. Тританопія:
-            синій і жовтий. Фільтр розводить їх за кольором у меню, на карті й у
-            бою. Не знаєш свого типу: спробуй кожен, вибери той, де різницю
-            видно найкраще.
+            Протанопія й дейтеранопія: червоний і зелений зливаються.
+            Тританопія: синій і жовтий. Фільтр розводить їх за кольором у меню,
+            на карті й у бою. Не знаєш свого типу: спробуй кожен, вибери той, де
+            різницю видно найкраще.
           </p>
           <Toggle
             label="Кольори для дальтоніків"

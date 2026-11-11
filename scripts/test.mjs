@@ -46,6 +46,8 @@ const modules = [
   'sprites',
   'enemy-art',
   'audio',
+  'battle-core',
+  'battle-view',
   'engine',
 ];
 const tests = [

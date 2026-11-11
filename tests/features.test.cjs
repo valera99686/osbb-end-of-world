@@ -145,6 +145,7 @@ test('Settings are merged over defaults and clamped to the allowed steps', () =>
     textScale: 1.3,
     damageNumbers: false,
     reducedFlashes: false,
+    fps: false, // not in the stored settings: off
   });
   meta.settings = 'broken';
   assert.deepEqual(

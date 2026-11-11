@@ -1955,6 +1955,27 @@ export const LIBRARY_IDS = [...LIBRARY_SCENES.map((s) => s.id), 'origins'];
 
 // Story beats told in the Shelter between raids (one per raid end).
 export const HUB_SCENES = HUB_BEATS.map((b) => b.scene);
+export const HUB_IDS: ReadonlySet<string> = new Set(
+  HUB_SCENES.map((s) => s.id),
+);
+// The Shelter beats this profile's progress has opened, seen or not, in the
+// order they are told: a guest of a raid for two is told the first one it has
+// not seen yet (its own profile does not count the host's raids).
+export function openHubBeats(meta: Meta): string[] {
+  return HUB_BEATS.filter((b) => b.when(meta)).map((b) => b.scene.id);
+}
+// What a raid's end tells a guest: after the final win the last boss's words
+// and the finale, all of them; otherwise the opened Shelter beats, of which
+// the guest is shown the first new one.
+export function raidEndStory(
+  meta: Meta,
+  final: boolean,
+  boss = '',
+): { scenes: string[]; all: boolean } {
+  return final
+    ? { scenes: [...(boss ? [bossEndId(boss)] : []), 'finale'], all: true }
+    : { scenes: openHubBeats(meta), all: false };
+}
 const HUB_BY_ID: Record<string, Scene> = Object.fromEntries(
   HUB_BEATS.map((b) => [b.scene.id, b.scene]),
 );

@@ -35,6 +35,10 @@ export const PACE = {
 export class Pacer {
   // Share of the sharpest ratio the screen can afford, 1 down to `least`.
   detail = 1;
+  // The detail is as low as it goes and frames are still long: the fight then
+  // draws less of what is only for the look (the arena's motes, half of the
+  // sparks and smoke). A weak phone gets it back once frames are quick again.
+  lean = false;
   private ceiling = 1;
   private area = 0;
   private sum = 0;
@@ -77,6 +81,16 @@ export class Pacer {
     if (++this.count < PACE.window) return;
     const mean = this.sum / this.count;
     this.sum = this.count = 0;
+    if (mean > PACE.slow && this.detail <= PACE.least) {
+      this.lean = true;
+      this.skip = PACE.settle;
+      return;
+    }
+    if (mean < PACE.ok && this.lean) {
+      this.lean = false;
+      this.skip = PACE.settle;
+      return;
+    }
     // Cost follows the pixel count, which follows the ratio squared.
     if (mean > PACE.slow && this.detail > PACE.least) {
       const cut = Math.max(0.5, Math.min(0.9, Math.sqrt(PACE.aim / mean)));

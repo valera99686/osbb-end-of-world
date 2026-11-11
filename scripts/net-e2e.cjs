@@ -6,6 +6,7 @@
 //   FINISH=1 VOTE=1 node scripts/net-e2e.cjs 8 host   (the map vote after a fight)
 //   SCENES=1 node scripts/net-e2e.cjs      (the guest sees the host's scene)
 //   SCENES=seen node scripts/net-e2e.cjs   (...even one the host has seen before)
+//   RAIDEND=1 node scripts/net-e2e.cjs 8 host  (the raid ends: the guest is told its own next Shelter beat)
 //   EVENT=1 node scripts/net-e2e.cjs       (both decide an event)
 //   TOGETHER=1 node scripts/net-e2e.cjs    (a meeting that needs both)
 //   CHAT=1 node scripts/net-e2e.cjs        (text chat, quick phrases and voice chat)
@@ -263,7 +264,7 @@ async function chestTest(host, guest) {
     const r = await row(guest, '.guest-room button.item-card');
     return r.length ? r : null;
   }, 15000).catch(() => []);
-  const say = async (p, sel) => p.eval(`document.querySelector(${JSON.stringify(sel)})?.innerText.replace(/\s+/g, ' ').slice(0, 200)`);
+  const say = async (p, sel) => p.eval(`document.querySelector(${JSON.stringify(sel)})?.innerText.replace(/\\s+/g, ' ').slice(0, 200)`);
   console.log('host page:', await say(host, '.play-main'));
   console.log('guest page:', await say(guest, '.guest-room'));
   console.log('host finds:', hostRow, '| guest finds:', guestRow);
@@ -473,6 +474,11 @@ async function chatTest(host, guest) {
         await page.eval(click('Пропустити', 'button'));
         await sleep(500);
       }
+  if (process.env.RAIDEND) {
+    // The host has been told the first Shelter beat already; the guest has not.
+    await host.eval(`(()=>{const k='osbb.save.v1'; const s=JSON.parse(localStorage.getItem(k)); s.meta.scenesSeen=[...new Set([...s.meta.scenesSeen,'goal','arrival-0','hub-first-death'])]; s.meta.deaths=Math.max(1, s.meta.deaths||0); localStorage.setItem(k, JSON.stringify(s)); 0})()`);
+    await host.go(URL);
+  }
   if (process.env.SCENES === 'seen') {
     // The host has seen the first scenes of a raid already, the guest has not:
     // the guest is shown them all the same.
@@ -540,6 +546,22 @@ async function chatTest(host, guest) {
   await until('host fight', () => host.eval(inFight), 40000);
   await until('guest fight', () => guest.eval(inFight), 40000);
   console.log('both in the fight');
+  if (process.env.RAIDEND) {
+    // The host's house falls: the raid is over. The guest, who has not seen the
+    // first Shelter beat, is told it, though the host has seen it.
+    await sleep(3000);
+    await host.eval(`window.__battle.run.hp = 0; window.__battle.finish(false); 0`);
+    const shown = await until('a scene at the guest', () =>
+      guest.eval(`(()=>{const s=JSON.parse(localStorage.getItem('osbb.save.v1')||'{}'); return s.meta?.sceneProgress?.id || null})()`),
+    20000).catch(() => null);
+    const hostScene = await host.eval(`(()=>{const s=JSON.parse(localStorage.getItem('osbb.save.v1')||'{}'); return s.meta?.sceneProgress?.id || null})()`);
+    console.log('guest is told:', shown, '| host is told:', hostScene);
+    const ok = shown === 'hub-first-death' && !host.errors.length && !guest.errors.length;
+    console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+    console.log(ok ? 'E2E OK' : 'E2E FAILED');
+    for (const p of procs) p.kill();
+    process.exit(ok ? 0 : 1);
+  }
   if (PROD) {
     await sleep(9000);
     const shown = (p) => p.eval(`({canvas: !!document.querySelector('canvas.battle-canvas'), partner: !!document.querySelector('.ally-bar'), time: document.querySelector('.battle-center strong')?.innerText})`);
@@ -578,7 +600,7 @@ async function chatTest(host, guest) {
       const state = (page) =>
         page.eval(`(()=>{const b=window.__battle; return b ? {step: b.sync?.step ?? -1, draft: !!b.choosing, stalled: (b.sync||b.client||b.feed||{}).stalled ?? 0, perks: (b.run.perks||[]).join(), mate: (b.run.mate?.perks||[]).join()} : null})()`);
       const pick = (page) =>
-        page.eval(`(()=>{const c=document.querySelector('.perk-card'); if(!c) return ''; const who=document.querySelector('.perk-for')?.innerText ?? ''; c.click(); return who + ' | ' + c.innerText.replace(/\s+/g, ' ').slice(0, 40)})()`);
+        page.eval(`(()=>{const c=document.querySelector('.perk-card'); if(!c) return ''; const who=document.querySelector('.perk-for')?.innerText ?? ''; c.click(); return who + ' | ' + c.innerText.replace(/\\s+/g, ' ').slice(0, 40)})()`);
       const hostPick = await pick(host);
       if (hostPick) console.log('host picked', JSON.stringify(hostPick));
       if (await guest.eval(`!!document.querySelector('.perk-card')`)) {

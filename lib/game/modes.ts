@@ -161,14 +161,18 @@ export const HEAT_LEVELS: { level: number; title: string; text: string }[] = [
 // gentle as they were for someone still learning the controls.
 export const BASELINE = [
   { enemyDamage: 1.7, spawnRate: 1.5, enemyHealth: 1.8 },
-  { enemyDamage: 1.15, spawnRate: 1.3, enemyHealth: 1.5 },
-  { enemyDamage: 1.1, spawnRate: 1.25, enemyHealth: 1.4 },
+  { enemyDamage: 1.35, spawnRate: 1.3, enemyHealth: 1.7 },
+  { enemyDamage: 1.35, spawnRate: 1.25, enemyHealth: 1.7 },
 ] as const;
+// The zones a boss or a miniboss marks before it strikes hurt this much more:
+// a player who reads the warning and steps out loses nothing, one who stands
+// still loses the fight (bots: scripts/playtime.cjs, a house that never moves
+// used to win at heat 0 after a few raids of upgrades).
+export const LEADER_STRIKE = 1.6;
 export const BASELINE_STEPS = 7;
 export function baselineAt(chapter: number, step: number) {
   const full = BASELINE[Math.min(BASELINE.length - 1, Math.max(0, chapter))];
-  const n =
-    chapter > 0 ? 1 : Math.min(1, Math.max(0, step) / BASELINE_STEPS);
+  const n = chapter > 0 ? 1 : Math.min(1, Math.max(0, step) / BASELINE_STEPS);
   const part = (x: number) => 1 + (x - 1) * n;
   return {
     enemyDamage: part(full.enemyDamage),
@@ -212,8 +216,7 @@ export function heatEffects(heat: number, modifier?: string): HeatEffects {
   const beyond = Math.max(0, h - MAX_HEAT);
   const e: HeatEffects = {
     enemyHealth: 1 + 0.25 * at(1) + 0.3 * at(10) + 0.05 * beyond,
-    enemyDamage:
-      1 + 0.15 * at(2) + 0.2 * at(4) + 0.25 * at(10) + 0.03 * beyond,
+    enemyDamage: 1 + 0.15 * at(2) + 0.2 * at(4) + 0.25 * at(10) + 0.03 * beyond,
     enemySpeed: 1 + 0.12 * at(3),
     projectileSpeed: 1 + 0.15 * at(7),
     spawnRate: 1 + 0.1 * at(3) + 0.2 * at(6),
@@ -248,7 +251,8 @@ export function heatEffects(heat: number, modifier?: string): HeatEffects {
     e[key] = round(e[key]);
   return e;
 }
-const percent = (x: number) => `${x > 1 ? '+' : ''}${Math.round((x - 1) * 100)}%`;
+const percent = (x: number) =>
+  `${x > 1 ? '+' : ''}${Math.round((x - 1) * 100)}%`;
 // What a heat level does to the enemies, in numbers a player can compare.
 export function heatSummary(heat: number): string {
   const e = heatEffects(heat);

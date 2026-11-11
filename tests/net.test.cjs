@@ -336,6 +336,30 @@ test('A scene that begins at the host reaches the guest, which holds it until it
   assert.deepEqual(seen, ['victory-0', 'arrival-1']);
 });
 
+test("The end of the host's raid tells the guest its own story: the first new Shelter beat, or the whole finale", () => {
+  const St = require('../.test-build/story.js');
+  const meta = { ...M.initialMeta(), deaths: 1, runs: 3, scenesSeen: [] };
+  const lost = St.raidEndStory(meta, false);
+  assert.equal(lost.all, false);
+  assert.equal(lost.scenes[0], 'hub-first-death', 'in the order they are told');
+  assert.ok(lost.scenes.every((id) => St.HUB_IDS.has(id)));
+  // Seen or not by the host: the list does not depend on it.
+  assert.deepEqual(St.raidEndStory({ ...meta, scenesSeen: ['hub-first-death'] }, false).scenes, lost.scenes);
+  const final = St.raidEndStory(meta, true, 'svitanok');
+  assert.equal(final.all, true);
+  assert.deepEqual(final.scenes.at(-1), 'finale');
+  // Over the wire: odd ids are dropped, the rest reach the guest as sent.
+  const { wire, host, guest } = rooms();
+  const got = [];
+  guest.onGift = (g) => got.push(g);
+  host.sendGift(12, false, false, { scenes: ['hub-first-death', '../evil', 'hub-runs-2'], all: false });
+  for (let i = 0; i < 3; i++) wire.deliver();
+  assert.equal(got.length, 1);
+  assert.deepEqual(got[0].story, ['hub-first-death', 'hub-runs-2']);
+  assert.equal(got[0].all, false);
+  assert.equal(got[0].cores, 12);
+});
+
 test('A guest with another build is refused and the host keeps waiting', () => {
   const { host, guest } = rooms('0.18.0', '0.17.0');
   assert.equal(guest.phase, 'refused');

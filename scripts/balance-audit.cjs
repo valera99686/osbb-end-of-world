@@ -9,7 +9,11 @@ const E = require('../.test-build/equipment.js');
 const D = require('../.test-build/data.js');
 const F = require('../.test-build/furniture.js');
 const C = require('../.test-build/encounters.js');
-const { Battle, AudioEngine } = require('../.test-build/engine.js');
+const {
+  Battle,
+  AudioEngine,
+  LEADER_SECONDS,
+} = require('../.test-build/engine.js');
 const { play } = require('./pilots.cjs');
 const room = (id, x, y, rotation = 0) => ({ id, x, y, rotation });
 const meta = M.initialMeta();
@@ -128,9 +132,11 @@ function simulate(run, pilot, seed) {
   // Fixed routes, no access to future attack patterns. The stationary bot
   // measures passive survivability with no abilities or dodging; see
   // scripts/pilots.cjs for circle and reactive.
+  // The game's own clock: a boss may take LEADER_SECONDS.boss (480 s) and its
+  // presentation before it times out, so the run must not stop sooner.
   const r = play(b, pilot === 'stationary' ? 'idle' : pilot, {
     seed,
-    limit: 260,
+    limit: LEADER_SECONDS.boss + 40,
     each: () =>
       assert.ok(
         Number.isFinite(b.run.hp) &&

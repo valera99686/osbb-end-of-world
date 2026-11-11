@@ -150,7 +150,16 @@ export type Msg =
   | { t: 'pin'; sid: number; x: number; y: number; f: number }
   | { t: 'end'; sid: number; result: unknown }
   // The host's raid is over: what it earned, for the guest's share of it.
-  | { t: 'gift'; cores: number; won: boolean; final: boolean }
+  | {
+      t: 'gift';
+      cores: number;
+      won: boolean;
+      final: boolean;
+      // The story of the raid's end for the guest (story.ts raidEndStory):
+      // scene ids, all of them to watch (`all`) or the first new one.
+      story?: string[];
+      all?: boolean;
+    }
   // Chat, both ways: a line of text, or the number of a quick phrase (chat.ts
   // QUICK) that each end writes in its own words.
   | { t: 'chat'; text?: string; q?: number }

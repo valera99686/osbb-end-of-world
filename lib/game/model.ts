@@ -150,6 +150,8 @@ export interface Settings {
   textScale: number;
   damageNumbers: boolean;
   reducedFlashes: boolean;
+  // A frame counter in the corner of a fight (to check a phone's speed).
+  fps: boolean;
 }
 export const DEFAULT_SETTINGS: Settings = {
   music: 0.4,
@@ -162,6 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
   textScale: 1,
   damageNumbers: true,
   reducedFlashes: false,
+  fps: false,
 };
 const SHAKE_STEPS = [0, 0.5, 1],
   TEXT_STEPS = [1, 1.15, 1.3];
@@ -194,6 +197,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     textScale: nearest(TEXT_STEPS, s.textScale, d.textScale),
     damageNumbers: flag(s.damageNumbers, d.damageNumbers),
     reducedFlashes: flag(s.reducedFlashes, d.reducedFlashes),
+    fps: flag(s.fps, d.fps),
   };
 }
 export type NodeKind =

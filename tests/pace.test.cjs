@@ -122,3 +122,15 @@ test('a very different screen is judged afresh', () => {
   p.ratio(1, 640, 360);
   assert.equal(p.detail, 1);
 });
+
+test('at the lowest detail and still slow, the fight goes lean, and back once quick', () => {
+  const p = seasoned();
+  feed(p, 90, 20);
+  assert.equal(p.detail, PACE.least, 'the detail is as low as it goes');
+  assert.equal(p.lean, true, 'and the look is thinned out');
+  feed(p, 12, 4);
+  assert.equal(p.lean, false, 'quick frames bring it back');
+  const fresh = seasoned();
+  feed(fresh, 16.7, 6);
+  assert.equal(fresh.lean, false, 'a quick screen never goes lean');
+});

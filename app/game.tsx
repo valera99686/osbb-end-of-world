@@ -137,6 +137,7 @@ import { onSpeaking, setVoice } from './voice';
 import { CasePage } from './case-file';
 import {
   CLUES,
+  HUB_IDS,
   LIBRARY_IDS,
   addMark,
   isStoryId,
@@ -144,6 +145,7 @@ import {
   raidBeat,
   raidBeatsAt,
   raidEnd,
+  raidEndStory,
   victoryChain,
   rescueQuote as storyRescueQuote,
   storyScene,
@@ -768,12 +770,21 @@ export default function Game() {
         setGuestEarned((e) => ({ ...e, raid: pay }));
         setMeta(next);
         grant(applyAchievements(next, null).unlocked);
+        // The story of the raid's end, from this profile's own copy: after the
+        // final win all of it, otherwise the first Shelter beat new here.
+        const story = g.all
+          ? g.story
+          : g.story.filter((id) => !now.scenesSeen.includes(id)).slice(0, 1);
+        for (const id of story) watch(id, true);
       };
       // A scene that begins at the host is shown here once, if it is new to
       // this profile; one that comes while another plays waits its turn.
-      const watch = (id: string) => {
+      // A Shelter beat of the host's own comes with the end of the raid
+      // (onGift above), not on its own: the guest is told its own next one.
+      const watch = (id: string, raidEnd = false) => {
         const now = metaRef.current;
         if (
+          (!raidEnd && HUB_IDS.has(id)) ||
           now.scenesSeen.includes(id) ||
           now.sceneProgress?.id === id ||
           !(SCENE_BY_ID[id] || isStoryId(id))
@@ -783,7 +794,7 @@ export default function Game() {
           setSceneQueue((q) => (q.includes(id) ? q : [...q, id]));
         else setMeta((m) => ({ ...m, sceneProgress: { id, index: 0 } }));
       };
-      net.onScene = watch;
+      net.onScene = (id) => watch(id);
       for (const id of net.takeScenes()) watch(id);
       const early = net.takeStart();
       if (early) net.onStart(early);
@@ -1211,7 +1222,13 @@ export default function Game() {
         score = runScore(b.run, final);
       const f = finishRun(meta, b.run, b.won);
       // The partner in the room gets a share of the cores of this raid.
-      if (livePartner && b.run.coop) net?.sendGift(f.cores, b.won, final);
+      if (livePartner && b.run.coop)
+        net?.sendGift(
+          f.cores,
+          b.won,
+          final,
+          raidEndStory(f.meta, final, b.won && gate ? bossId : ''),
+        );
       // After a raid: the next story beat as a scene, else a short protocol.
       const after = raidEnd(f.meta, b.won, final, b.won && gate ? bossId : '');
       setSceneQueue(after.then ?? []);

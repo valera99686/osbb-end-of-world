@@ -86,7 +86,7 @@
 ## Код
 
 - `lib/game/coop.ts`: усі числа й чисті правила (розкладки клавіш, масштабування ворогів, підйом, межа відстані).
-- `lib/game/engine.ts`: `Battle.ally`, `updateAlly`, `allyDash`, `allyPulse`, `hurtAlly`, `downAlly`, `reviveAlly`, `goalOf` (кого переслідує ворог), `pollGamepad` для двох геймпадів, `drawAlly`, камера.
+- `lib/game/engine.ts`: `Battle.ally`, `updateAlly`, `allyDash`, `allyPulse`, `hurtAlly`, `downAlly`, `reviveAlly`, `goalOf` (кого переслідує ворог), `pollGamepad` для двох геймпадів; `drawAlly` у `battle-view.ts`, камера.
 - `app/combat.tsx`: клавіші другого гравця, другий джойстик і кнопки, смуга здоров’я напарника.
 - `app/coop-select.tsx`: перемикач у Притулку, вибір героя.
 - `tests/coop.test.cjs`: 17 тестів. Одиночна гра без змін: всі 238 попередніх тестів лишилися зеленими.

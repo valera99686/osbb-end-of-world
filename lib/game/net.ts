@@ -139,8 +139,9 @@ export type Msg =
   | { t: 'ready'; sid: number }
   // Inputs: [step, x, y, flags] per player-step (flags: 1 dash, 2 pulse).
   | { t: 'in'; sid: number; f: number[][] }
-  // The host's choice of a perk, for both ends to take at the same moment.
-  | { t: 'perk'; sid: number; id: string }
+  // A perk taken by one player for their own house (who: 0 the host's, 1 the
+  // guest's), for both ends to take at the same moment.
+  | { t: 'perk'; sid: number; id: string; who?: 0 | 1 }
   | { t: 'hash'; sid: number; s: number; h: number }
   // The host left the fight (menu, defeat screen): the guest can leave too.
   | { t: 'over'; sid: number }
@@ -261,7 +262,7 @@ export class Lockstep {
   private sent: number[][] = [];
   private myHash = new Map<number, number>();
   private theirHash = new Map<number, number>();
-  private perks: string[] = [];
+  private perks: { id: string; who: 0 | 1 }[] = [];
   onDesync?: () => void;
   onClosed?: () => void;
   onOver?: () => void;
@@ -291,9 +292,9 @@ export class Lockstep {
     if (kind === 'dash') this.dash = true;
     else this.pulse = true;
   }
-  // The host picked a perk: send it; the guest's copy arrives as onPerk.
+  // This player took a perk for their own house: the other end takes it too.
   choose(id: string) {
-    this.link.send({ t: 'perk', sid: this.sid, id });
+    this.link.send({ t: 'perk', sid: this.sid, id, who: this.me });
   }
   finish() {
     this.link.send({ t: 'over', sid: this.sid });
@@ -306,7 +307,7 @@ export class Lockstep {
         if (step >= this.step) this.theirs.set(step, frame);
       }
     } else if (m.t === 'perk') {
-      this.perks.push(m.id);
+      this.perks.push({ id: m.id, who: m.who === 1 ? 1 : 0 });
     } else if (m.t === 'hash') {
       this.theirHash.set(m.s, m.h);
       this.compare(m.s);
@@ -355,14 +356,17 @@ export class Lockstep {
     this.acc = Math.min(this.acc + real, 0.25);
     let ran = 0;
     while (this.acc >= STEP && !b.ended) {
-      // The host's pick is taken the moment the simulation is waiting for it,
-      // the same moment at both ends: right after the step that opened it.
-      if (b.drafting && this.perks.length) {
-        const id = this.perks.shift()!;
-        if (b.drafting.includes(id as never)) b.choosePerk(id as never);
+      // The partner's pick is taken the moment the simulation is waiting for
+      // it, the same moment at both ends: right after the step that opened the
+      // draft (the simulation stands still until both houses have theirs).
+      const pick = this.perks[0];
+      if (pick && (pick.who === 0 ? b.drafting : b.mateDrafting)) {
+        this.perks.shift();
+        if (pick.who === 0) b.choosePerk(pick.id as never);
+        else b.chooseMatePerk(pick.id as never);
         continue;
       }
-      if (b.drafting || b.paused || b.presenting) break;
+      if (b.choosing || b.paused || b.presenting) break;
       const frames = this.frames(this.step);
       if (!frames) {
         this.stalled += real;

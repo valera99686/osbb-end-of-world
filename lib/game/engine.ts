@@ -53,6 +53,7 @@ import {
   statsFor,
   mateStats as statsOfMate,
   mateRun,
+  freshHouse,
   minibossVariant,
   DEFAULT_SETTINGS,
   type Run,
@@ -444,8 +445,11 @@ export interface Hud {
   waves?: number;
   left?: number;
   squad?: string;
-  // Online: the host is choosing a perk (the guest only waits).
+  // A perk draft is open (the fight waits); in co-op each house has its own:
+  // the first one's offers and the second one's (null when taken).
   drafting?: boolean;
+  hostDraft?: PerkId[] | null;
+  mateDraft?: PerkId[] | null;
   // Co-op only: the second player's health, revive progress and cooldowns.
   ally?: {
     hp: number;
@@ -481,6 +485,15 @@ export interface Ally {
   muzzle: number;
   aim: number;
   walk: number;
+  // Perks of the second house (its own draft): the blows its blanket still
+  // stops, the second wind used, the dash that a kill gives back, the discharge
+  // at the end of a dash, the volleys counted for the rhythm.
+  shields?: number;
+  secondWind?: boolean;
+  dashKill?: number;
+  shockAt?: number;
+  volleys?: number;
+  trailGap?: number;
 }
 export type BattleResult = { run: Run; won: boolean; boss: boolean };
 // How the last battle ended; tests and the balance audit read it.
@@ -519,18 +532,23 @@ export interface BattleOptions {
   onLevelUp?: (level: number) => void;
   // Story and UI hook: see CombatBeat. Called synchronously from update().
   onBeat?: (beat: CombatBeat) => void;
-  // Level-up perk draft: the battle holds still until choosePerk(id). With
+  // Level-up perk draft: the battle holds still until choosePerk(id) (and, in
+  // co-op, chooseMatePerk(id) for the second house, from its own offers). With
   // no handler the level-up keeps the old +10 hp only, unless autoPerks
-  // (balance bots) takes the first offer at once.
-  onPerkDraft?: (offers: PerkId[], level: number) => void;
+  // (balance bots) takes the first offers at once.
+  onPerkDraft?: (
+    offers: PerkId[],
+    level: number,
+    mateOffers: PerkId[] | null,
+  ) => void;
   autoPerks?: boolean;
   // The boss's line under its name on the intro card (story.ts bossQuote).
   introQuote?: string;
   // Online co-op (net.ts): both devices run this fight in lockstep and the
   // simulation takes its inputs from there instead of the keys and sticks.
   sync?: Lockstep;
-  // The host's perk choice reached this end; the draft on screen is over.
-  onPerkTaken?: () => void;
+  // A perk was taken (0 the first house, 1 the second): that draft is over.
+  onPerkTaken?: (who: 0 | 1) => void;
   // Online, the other way (mirror.ts): the host streams its fight to a guest
   // who drives the partner, or the guest only draws what the host streams.
   feed?: HostFeed;
@@ -643,7 +661,7 @@ export class Battle {
   // Fractions of coins and crystals left by the co-op loot share.
   coinCarry = 0;
   xpCarry = 0;
-  onPerkTaken?: () => void;
+  onPerkTaken?: (who: 0 | 1) => void;
   // Button edges restart after start, a reconnect or unpausing: whatever
   // is down then (the A that picked the fight or pressed "resume") has to
   // be released before it acts in battle.
@@ -748,10 +766,16 @@ export class Battle {
   } | null = null;
   // Backs the `paused` accessor below.
   halted = false;
-  // Perk draft on screen (the simulation waits) and levels still to draft.
+  // Perk drafts on screen (the simulation waits while either is open): the
+  // first house's and the second one's, and levels still to draft.
   drafting: PerkId[] | null = null;
+  mateDrafting: PerkId[] | null = null;
   pendingLevels = 0;
-  onPerkDraft?: (offers: PerkId[], level: number) => void;
+  onPerkDraft?: (
+    offers: PerkId[],
+    level: number,
+    mateOffers: PerkId[] | null,
+  ) => void;
   autoPerks = false;
   introQuote = '';
   meta: Meta;
@@ -760,8 +784,9 @@ export class Battle {
   dashKill = 0;
   shockAt = 0;
   trailGap = 0;
-  trails: { x: number; y: number; life: number }[] = [];
+  trails: { x: number; y: number; life: number; dps: number }[] = [];
   perkCache: Record<string, number> = {};
+  matePerkCache: Record<string, number> = {};
   shells: Shell[] = [];
   // Pre-rendered facade: rebuilt when the layout or crew changes.
   facade: { key: string; canvas: HTMLCanvasElement | null } | null = null;
@@ -819,7 +844,8 @@ export class Battle {
     this.mateStats = run.coop ? statsOfMate(run, meta) : this.stats;
     this.specials = specialEffects(run);
     // Марта starts every fight with one shield.
-    this.shieldCharges = this.specials.shields + (run.character === 'marta' ? 1 : 0);
+    this.shieldCharges =
+      this.specials.shields + (run.character === 'marta' ? 1 : 0);
     this.audio = audio;
     this.settings = { ...DEFAULT_SETTINGS, ...options.settings };
     this.onPause = options.onPause;
@@ -970,46 +996,73 @@ export class Battle {
     this.onEnd(result);
   }
   refreshPerks() {
-    this.perkCache = {};
-    for (const id of this.run.perks ?? [])
-      this.perkCache[id] = (this.perkCache[id] ?? 0) + 1;
+    const count = (ids: readonly string[] | undefined) => {
+      const out: Record<string, number> = {};
+      for (const id of ids ?? []) out[id] = (out[id] ?? 0) + 1;
+      return out;
+    };
+    this.perkCache = count(this.run.perks);
+    this.matePerkCache = count(this.run.mate?.perks);
   }
+  // A perk's level for the first house, and for the second one (co-op).
   pk(id: PerkId) {
     return this.perkCache[id] ?? 0;
   }
+  pkm(id: PerkId) {
+    return this.matePerkCache[id] ?? 0;
+  }
+  // The perk of whoever it belongs to: the second house when `mate`.
+  own(id: PerkId, mate: boolean | undefined) {
+    return mate ? this.pkm(id) : this.pk(id);
+  }
+  // A draft is open: the fight waits for every house to take its perk.
+  get choosing() {
+    return !!(this.drafting || this.mateDrafting);
+  }
   // Offers the next queued level-up draft, if none is on screen.
   openDraft() {
-    if (this.drafting || this.pendingLevels <= 0 || this.ended) return;
+    if (this.choosing || this.pendingLevels <= 0 || this.ended) return;
     if (!this.onPerkDraft && !this.autoPerks) {
       this.pendingLevels = 0;
       return;
     }
     const r = this.run;
-    const offers = perkOffers(
-      r,
-      r.seed * 7 +
-        r.level * 977 +
-        r.chapter * 131 +
-        r.step * 17 +
-        (r.perks?.length ?? 0) * 3,
-    );
-    if (!offers.length) {
+    const seed = r.seed * 7 + r.level * 977 + r.chapter * 131 + r.step * 17;
+    const offers = perkOffers(r, seed + (r.perks?.length ?? 0) * 3);
+    // Two houses: the second one takes its own perk from its own offers.
+    const matePerks = r.mate?.perks ?? [];
+    const mateOffers =
+      this.ally && r.coop
+        ? perkOffers({ perks: matePerks }, seed + 4099 + matePerks.length * 3)
+        : [];
+    if (!offers.length && !mateOffers.length) {
       this.pendingLevels = 0;
       return;
     }
+    this.drafting = offers.length ? offers : null;
+    this.mateDrafting = mateOffers.length ? mateOffers : null;
     if (this.onPerkDraft) {
-      this.drafting = offers;
       this.keys.clear();
-      this.onPerkDraft(offers, r.level);
-    } else this.choosePerk(offers[0]);
+      this.onPerkDraft(offers, r.level, this.mateDrafting);
+      return;
+    }
+    if (this.mateDrafting) this.chooseMatePerk(mateOffers[0]);
+    if (this.drafting) this.choosePerk(offers[0]);
   }
-  // Takes one offered perk, rebuilds the stats and resumes the fight.
-  choosePerk(id: PerkId) {
-    if (this.drafting && !this.drafting.includes(id)) return;
-    this.drafting = null;
+  // Both houses have taken their perks: the level is done, the next one (if
+  // any) is offered.
+  afterPick() {
+    if (this.choosing) return;
     this.pendingLevels = Math.max(0, this.pendingLevels - 1);
+    this.openDraft();
+  }
+  // Takes one offered perk for the first house, rebuilds the stats and, once
+  // every house has taken its own, resumes the fight.
+  choosePerk(id: PerkId) {
+    if (!this.drafting?.includes(id)) return;
+    this.drafting = null;
     this.run.perks = [...(this.run.perks ?? []), id];
-    this.onPerkTaken?.();
+    this.onPerkTaken?.(0);
     this.refreshPerks();
     const before = this.stats.health;
     this.stats = statsFor(this.run, this.meta);
@@ -1026,7 +1079,28 @@ export class Battle {
     this.ring(this.x, this.y - 14, 150, '#ffd98a', 0.45, 4);
     this.burst(this.x, this.y, '#ffd98a', 24);
     this.freeze(0.05);
-    this.openDraft();
+    this.afterPick();
+  }
+  // The second house's perk (co-op): its own list, its own stats.
+  chooseMatePerk(id: PerkId) {
+    if (!this.mateDrafting?.includes(id)) return;
+    this.mateDrafting = null;
+    const house = this.run.mate ?? freshHouse(this.run, this.run.coop);
+    this.run.mate = { ...house, perks: [...(house.perks ?? []), id] };
+    this.onPerkTaken?.(1);
+    this.refreshPerks();
+    this.mateStats = statsOfMate(this.run, this.meta);
+    const a = this.ally;
+    if (a) {
+      const max = allyHealth(this.mateStats.health);
+      a.hp = Math.min(max, a.hp + Math.max(0, max - a.max));
+      a.max = max;
+      if (id === 'tea' && !a.down) a.hp = Math.min(a.max, a.hp + 25);
+      if (id === 'blanket') a.shields = (a.shields ?? 0) + 1;
+      this.ring(a.x, a.y - 14, 120, '#ffd98a', 0.45, 4);
+      this.burst(a.x, a.y, '#ffd98a', 18);
+    }
+    this.afterPick();
   }
   setSettings(settings: Settings) {
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -1095,7 +1169,13 @@ export class Battle {
     }
     // The presentation of a boss freezes the fight for a few seconds.
     if (this.presenting) return;
-    if (this.drafting) return;
+    if (this.choosing) {
+      // Online the partner's pick comes through the lockstep, which takes it
+      // the moment it arrives; without this the guest's copy waited for the
+      // host's pick forever (and the host for the guest).
+      if (this.sync && !this.ended) this.sync.pump(this, real);
+      return;
+    }
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - real);
       return;
@@ -1327,7 +1407,7 @@ export class Battle {
       this.dashCd > 0 ||
       this.paused ||
       this.ended ||
-      this.drafting ||
+      this.choosing ||
       this.presenting
     )
       return;
@@ -1353,7 +1433,7 @@ export class Battle {
       this.pulseCd > 0 ||
       this.paused ||
       this.ended ||
-      this.drafting ||
+      this.choosing ||
       this.presenting
     )
       return;
@@ -1438,6 +1518,7 @@ export class Battle {
       muzzle: 0,
       aim: 0,
       walk: 0,
+      shields: this.pkm('blanket'),
     };
   }
   // Who an enemy goes for: the house, unless the partner is clearly closer.
@@ -1465,13 +1546,15 @@ export class Battle {
       a.dashCd > 0 ||
       this.paused ||
       this.ended ||
-      this.drafting ||
+      this.choosing ||
       this.presenting
     )
       return;
     a.dashCd = this.specials.dashCooldown;
     a.dashing = 0.22;
     a.invincible = Math.max(a.invincible, 0.55);
+    a.dashKill = 0.8;
+    if (this.pkm('shock_dash')) a.shockAt = 0.22;
     this.audio.play('dash', { volume: 0.7 });
     this.burst(a.x, a.y, '#f0c466', 12);
     this.ring(a.x, a.y - 8, 56, '#f0c466', 0.25, 3);
@@ -1488,11 +1571,11 @@ export class Battle {
       a.pulseCd > 0 ||
       this.paused ||
       this.ended ||
-      this.drafting ||
+      this.choosing ||
       this.presenting
     )
       return;
-    a.pulseCd = 12 - 3 * this.pk('short_fuse');
+    a.pulseCd = 12 - 3 * this.pkm('short_fuse');
     this.addTrauma(0.42);
     this.vibrate(25);
     const hero = heroAbility(a.hero);
@@ -1506,9 +1589,12 @@ export class Battle {
     };
     this.x = a.x;
     this.y = a.y;
+    const perks = this.perkCache;
+    this.perkCache = this.matePerkCache;
     try {
       this.castAbility(a.hero);
     } finally {
+      this.perkCache = perks;
       this.x = home.x;
       this.y = home.y;
       this.dashCd = home.dashCd;
@@ -1528,7 +1614,22 @@ export class Battle {
   hurtAlly(amount: number, invincible: number, trauma: number) {
     const a = this.ally;
     if (!a || a.down) return 0;
+    if ((a.shields ?? 0) > 0) {
+      a.shields = (a.shields ?? 0) - 1;
+      a.invincible = invincible + (this.sync ? COOP.netGrace : 0);
+      this.burst(a.x, a.y, '#7cbef4', 18);
+      this.label(a.x, a.y - 50, 'УДАР ЗАБЛОКОВАНО', '#7cbef4');
+      return 0;
+    }
     a.hp -= amount;
+    if (a.hp <= 0 && !a.secondWind && this.pkm('second_wind')) {
+      // Друге дихання: once a fight the partner stays up with a third.
+      a.secondWind = true;
+      a.hp = Math.max(1, a.max / 3);
+      a.invincible = Math.max(a.invincible, 1.2);
+      this.ring(a.x, a.y, 110, '#ffd98a', 0.5, 4);
+      this.label(a.x, a.y - 62, 'ДРУГЕ ДИХАННЯ', '#ffd98a');
+    }
     a.invincible = invincible + (this.sync ? COOP.netGrace : 0);
     this.addTrauma(trauma * 0.6);
     this.audio.play('hit', { volume: 0.7 });
@@ -1802,8 +1903,7 @@ export class Battle {
       if (e.hp <= 0 || Math.hypot(e.x - this.x, e.y - this.y) >= JAM.radius)
         continue;
       stunned++;
-      if (!isLeader(e.type))
-        e.stagger = Math.max(e.stagger ?? 0, JAM.stagger);
+      if (!isLeader(e.type)) e.stagger = Math.max(e.stagger ?? 0, JAM.stagger);
       this.damage(e, this.stats.damage * JAM.damage);
       if (this.ended) break;
     }
@@ -2321,7 +2421,10 @@ export class Battle {
             1,
           );
     const speed =
-      this.mateStats.speed * COOP.speed * slow * (a.hasteTime > 0 ? EXPRESS.haste : 1);
+      this.mateStats.speed *
+      COOP.speed *
+      slow *
+      (a.hasteTime > 0 ? EXPRESS.haste : 1);
     const fromX = a.x,
       fromY = a.y;
     a.x = Math.max(55, Math.min(1545, a.x + dx * speed * dt));
@@ -2337,8 +2440,12 @@ export class Battle {
     const fix = spreadFix(
       this,
       a,
-      small ? Math.max(260, Math.min(COOP.spreadX, this.view.w - 120)) : COOP.spreadX,
-      small ? Math.max(200, Math.min(COOP.spreadY, this.view.h - 140)) : COOP.spreadY,
+      small
+        ? Math.max(260, Math.min(COOP.spreadX, this.view.w - 120))
+        : COOP.spreadX,
+      small
+        ? Math.max(200, Math.min(COOP.spreadY, this.view.h - 140))
+        : COOP.spreadY,
     );
     if (fix.ax || fix.ay) {
       this.x = Math.max(55, Math.min(1545, this.x + fix.ax));
@@ -2399,22 +2506,38 @@ export class Battle {
         this.dashCd = 0;
         this.label(this.x, this.y - 62, 'ФОРСАЖ', '#efbd68');
       }
-      const shards = this.pk('shrapnel') * 2;
-      for (let i = 0; i < shards && e.type !== COURIER; i++) {
-        const a = this.fx() * Math.PI * 2;
-        this.bullets.push({
-          x: e.x,
-          y: e.y,
-          vx: Math.cos(a) * 420,
-          vy: Math.sin(a) * 420,
-          life: 0.45,
-          damage: this.stats.damage * 0.5,
-          enemy: false,
-          crit: false,
-          age: 0,
-          shard: true,
-          hitSet: [e],
-        });
+      const ally = this.ally;
+      if (
+        ally &&
+        !ally.down &&
+        (ally.dashKill ?? 0) > 0 &&
+        ally.dashCd > 0 &&
+        this.pkm('overdrive')
+      ) {
+        ally.dashCd = 0;
+        this.label(ally.x, ally.y - 62, 'ФОРСАЖ', '#efbd68');
+      }
+      // Осколки: each house's own, at its own strength.
+      for (const mate of [false, true]) {
+        const shards = this.own('shrapnel', mate) * 2;
+        const power = (mate ? this.mateStats : this.stats).damage * 0.5;
+        for (let i = 0; i < shards && e.type !== COURIER; i++) {
+          const a = this.fx() * Math.PI * 2;
+          this.bullets.push({
+            x: e.x,
+            y: e.y,
+            vx: Math.cos(a) * 420,
+            vy: Math.sin(a) * 420,
+            life: 0.45,
+            damage: power,
+            enemy: false,
+            crit: false,
+            age: 0,
+            shard: true,
+            hitSet: [e],
+            ...(mate ? { mate: true as const } : {}),
+          });
+        }
       }
       if (e.type === COURIER) {
         this.courierCaught(e);
@@ -2497,9 +2620,7 @@ export class Battle {
           this.run.minibossKills = (this.run.minibossKills ?? 0) + 1;
         // With two leaders the first one's fall is only a beat: the fight
         // goes on until the last one is down.
-        if (
-          this.enemies.some((o) => o !== e && o.hp > 0 && isLeader(o.type))
-        ) {
+        if (this.enemies.some((o) => o !== e && o.hp > 0 && isLeader(o.type))) {
           this.leaderDown(e);
           this.banner('БОС ЗБИТО', 'Лишився ще один', '#ffd166', 1.4);
           return;
@@ -2984,9 +3105,9 @@ export class Battle {
   ) {
     const st = mate ? this.mateStats : this.stats;
     const evo = st.evolution,
-      pierce = this.pk('complaint'),
-      bounce = this.pk('ricochet'),
-      homing = this.pk('homing') > 0;
+      pierce = this.own('complaint', mate),
+      bounce = this.own('ricochet', mate),
+      homing = this.own('homing', mate) > 0;
     const bullet = (
       angle: number,
       speed: number,
@@ -3170,13 +3291,13 @@ export class Battle {
       const d = Math.hypot(b.vx, b.vy) || 1;
       this.knock(e, (b.vx / d) * 160, (b.vy / d) * 160);
     }
-    const spores = this.pk('spores');
+    const spores = this.own('spores', b.mate);
     if (spores && e.hp > 0) {
       e.burn = 2;
       e.burnDps = Math.max(e.burnDps ?? 0, b.damage * 0.22 * spores);
     }
-    if (this.pk('cold_shower') && e.hp > 0) e.slow = 1.2;
-    if (b.crit && !b.shard && this.pk('static')) {
+    if (this.own('cold_shower', b.mate) && e.hp > 0) e.slow = 1.2;
+    if (b.crit && !b.shard && this.own('static', b.mate)) {
       const near = this.enemies
         .filter(
           (n) => n !== e && n.hp > 0 && Math.hypot(n.x - e.x, n.y - e.y) < 180,
@@ -3245,15 +3366,17 @@ export class Battle {
     b.vx = Math.cos(a) * speed;
     b.vy = Math.sin(a) * speed;
   }
-  // Електроривок: a discharge around the house at the end of a dash.
-  shock() {
-    const level = this.pk('shock_dash');
-    this.ring(this.x, this.y - 14, 130, '#86c9ff', 0.3, 5);
-    this.burst(this.x, this.y, '#86c9ff', 18);
+  // Електроривок: a discharge around a house at the end of its dash.
+  shock(mate = false) {
+    const at = mate && this.ally ? this.ally : this;
+    const level = this.own('shock_dash', mate),
+      power = (mate ? this.mateStats : this.stats).damage;
+    this.ring(at.x, at.y - 14, 130, '#86c9ff', 0.3, 5);
+    this.burst(at.x, at.y, '#86c9ff', 18);
     this.audio.play('explosion', { volume: 0.35 });
     for (const e of this.enemies.slice())
-      if (e.hp > 0 && Math.hypot(e.x - this.x, e.y - this.y) < 130 + e.r)
-        this.damage(e, this.stats.damage * 1.6 * level);
+      if (e.hp > 0 && Math.hypot(e.x - at.x, e.y - at.y) < 130 + e.r)
+        this.damage(e, power * 1.6 * level);
   }
   // Слід пального: burning strips left by dashes; also ticks perk statuses.
   updatePerks(dt: number) {
@@ -3261,6 +3384,26 @@ export class Battle {
     if (this.shockAt > 0) {
       this.shockAt -= dt;
       if (this.shockAt <= 0) this.shock();
+    }
+    const a = this.ally;
+    if (a) {
+      a.dashKill = Math.max(0, (a.dashKill ?? 0) - dt);
+      if ((a.shockAt ?? 0) > 0) {
+        a.shockAt = (a.shockAt ?? 0) - dt;
+        if (a.shockAt <= 0 && !a.down) this.shock(true);
+      }
+      if (a.dashing > 0 && !a.down && this.pkm('fire_trail')) {
+        a.trailGap = (a.trailGap ?? 0) - dt;
+        if (a.trailGap <= 0) {
+          this.trails.push({
+            x: a.x,
+            y: a.y + 8,
+            life: 2,
+            dps: this.mateStats.damage * 1.1 * this.pkm('fire_trail'),
+          });
+          a.trailGap = 0.035;
+        }
+      }
     }
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
@@ -3274,19 +3417,26 @@ export class Battle {
     if (this.dashing > 0 && this.pk('fire_trail')) {
       this.trailGap -= dt;
       if (this.trailGap <= 0) {
-        this.trails.push({ x: this.x, y: this.y + 8, life: 2 });
+        this.trails.push({
+          x: this.x,
+          y: this.y + 8,
+          life: 2,
+          dps: this.stats.damage * 1.1 * this.pk('fire_trail'),
+        });
         this.trailGap = 0.035;
       }
     }
     if (!this.trails.length) return;
     for (const t of this.trails) t.life -= dt;
     this.trails = this.trails.filter((t) => t.life > 0);
-    const dps = this.stats.damage * 1.1 * this.pk('fire_trail');
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
-      if (
-        this.trails.some((t) => Math.hypot(t.x - e.x, t.y - e.y) < 26 + e.r)
-      ) {
+      // The hottest strip under the enemy burns it.
+      let dps = 0;
+      for (const t of this.trails)
+        if (Math.hypot(t.x - e.x, t.y - e.y) < 26 + e.r)
+          dps = Math.max(dps, t.dps);
+      if (dps > 0) {
         this.damage(e, dps * dt, false, undefined, true);
         e.burn = Math.max(e.burn ?? 0, 0.6);
         e.burnDps = Math.max(e.burnDps ?? 0, dps * 0.3);
@@ -3308,9 +3458,12 @@ export class Battle {
     const st = mate ? this.mateStats : this.stats;
     const shots = replay?.shots ?? (drone ? 1 : st.shots);
     let crit = replay?.crit ?? this.rng() < st.crit;
-    // Ритм: every fourth main volley is a sure crit.
-    if (!drone && !mate && !replay && this.pk('rhythm'))
-      if (++this.volleys % 4 === 0) crit = true;
+    // Ритм: every fourth main volley is a sure crit (each house counts its own).
+    if (!drone && !replay && this.own('rhythm', mate)) {
+      const a = this.ally;
+      const n = mate && a ? (a.volleys = (a.volleys ?? 0) + 1) : ++this.volleys;
+      if (n % 4 === 0) crit = true;
+    }
     let damage =
       st.damage *
       (1 + Math.min(0.6, (this.run.level - 1) * 0.04)) *
@@ -3335,7 +3488,7 @@ export class Battle {
         damage *= 1.3;
     }
     // Відсотки: +1 damage per 10 coins in the till, up to +10.
-    if (!replay && this.pk('interest'))
+    if (!replay && this.own('interest', mate))
       damage += Math.min(10, Math.floor(this.run.coins / 10));
     if (!drone && !replay) damage *= WEAPONS[st.weapon].damage;
     if (mate) damage *= COOP.damage;
@@ -3351,9 +3504,9 @@ export class Battle {
       }
       return { damage, crit, shots };
     }
-    const pierce = drone ? 0 : this.pk('complaint'),
-      bounce = drone ? 0 : this.pk('ricochet'),
-      homing = this.pk('homing') > 0;
+    const pierce = drone ? 0 : this.own('complaint', mate),
+      bounce = drone ? 0 : this.own('ricochet', mate),
+      homing = this.own('homing', mate) > 0;
     for (let i = 0; i < shots; i++) {
       const angle = a + (i - (shots - 1) / 2) * 0.12;
       this.bullets.push({
@@ -3646,13 +3799,26 @@ export class Battle {
   }
   // Orbit blades wear down whatever they sweep through.
   orbitHit(e: Enemy, dt: number) {
-    for (let i = 0; i < this.stats.orbit; i++) {
-      const a = this.elapsed * 2 + (i * Math.PI * 2) / this.stats.orbit;
-      const ox = this.x + Math.cos(a) * 105,
-        oy = this.y + Math.sin(a) * 85;
-      if (Math.hypot(ox - e.x, oy - e.y) < e.r + 14)
-        this.damage(e, this.stats.damage * 2 * dt);
+    for (const [at, st] of this.orbiters()) {
+      for (let i = 0; i < st.orbit; i++) {
+        const a = this.elapsed * 2 + (i * Math.PI * 2) / st.orbit;
+        const ox = at.x + Math.cos(a) * 105,
+          oy = at.y + Math.sin(a) * 85;
+        if (Math.hypot(ox - e.x, oy - e.y) < e.r + 14)
+          this.damage(e, st.damage * 2 * dt);
+      }
     }
+  }
+  // Who carries saws and drones: the house, and the partner on their feet with
+  // the second house's own (its modules and its perks).
+  orbiters(): [{ x: number; y: number }, Stats, boolean][] {
+    const a = this.ally;
+    return a && !a.down && this.mateStats !== this.stats
+      ? [
+          [this, this.stats, false],
+          [a, this.mateStats, true],
+        ]
+      : [[this, this.stats, false]];
   }
   // The parcel bursts open: coins, crystals and a repair kit.
   courierCaught(e: Enemy) {
@@ -3896,14 +4062,15 @@ export class Battle {
       }
     }
     this.droneTimer -= dt;
-    if (this.droneTimer <= 0 && this.stats.drones) {
-      for (let i = 0; i < this.stats.drones; i++) {
-        const a = this.elapsed * 0.8 + (i * Math.PI * 2) / this.stats.drones;
-        const x = this.x + Math.cos(a) * 85,
-          y = this.y + Math.sin(a) * 65;
-        const e = this.nearest(x, y, this.stats.range);
-        if (e) this.shoot(x, y, e, true);
-      }
+    if (this.droneTimer <= 0) {
+      for (const [at, st, mate] of this.orbiters())
+        for (let i = 0; i < st.drones; i++) {
+          const a = this.elapsed * 0.8 + (i * Math.PI * 2) / st.drones;
+          const x = at.x + Math.cos(a) * 85,
+            y = at.y + Math.sin(a) * 65;
+          const e = this.nearest(x, y, st.range);
+          if (e) this.shoot(x, y, e, true, undefined, 1, mate);
+        }
       this.droneTimer = 0.7;
     }
     for (const e of this.enemies) {
@@ -4432,7 +4599,9 @@ export class Battle {
   hud(): Hud {
     const leaders = this.enemies.filter((e) => isLeader(e.type));
     return {
-      drafting: !!this.drafting,
+      drafting: this.choosing,
+      hostDraft: this.drafting,
+      mateDraft: this.mateDrafting,
       hp: this.run.hp,
       max: this.stats.health,
       coins: this.run.coins,
@@ -5057,7 +5226,13 @@ export class Battle {
     let nextProp = 0;
     const propsBefore = (ground: number) => {
       while (nextProp < standing.length && standing[nextProp].y <= ground)
-        drawProp(c, standing[nextProp++], this.run.chapter, this.elapsed, colorblind);
+        drawProp(
+          c,
+          standing[nextProp++],
+          this.run.chapter,
+          this.elapsed,
+          colorblind,
+        );
     };
     for (const actor of actors) {
       propsBefore(actor.y);
@@ -5120,28 +5295,30 @@ export class Battle {
     }
     propsBefore(Infinity);
     if (this.muzzle > 0 && !wrecked) this.drawMuzzle(c);
-    for (let i = 0; i < this.stats.drones; i++) {
-      const a = this.elapsed * 0.8 + (i * Math.PI * 2) / this.stats.drones;
-      const x = this.x + Math.cos(a) * 85,
-        y = this.y + Math.sin(a) * 65;
-      c.fillStyle = '#e8bd74';
-      c.fillRect(x - 7, y - 4, 14, 8);
-      c.strokeStyle = '#78a7bb';
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(x - 15, y - 6);
-      c.lineTo(x + 15, y - 6);
-      c.stroke();
-    }
-    for (let i = 0; i < this.stats.orbit; i++) {
-      const a = this.elapsed * 2 + (i * Math.PI * 2) / this.stats.orbit,
-        x = this.x + Math.cos(a) * 105,
-        y = this.y + Math.sin(a) * 85;
-      this.glowAt(c, '#6abbff', x, y, 22, 0.9);
-      c.fillStyle = '#8cc5ed';
-      c.beginPath();
-      c.arc(x, y, 9, 0, Math.PI * 2);
-      c.fill();
+    for (const [at, st] of this.orbiters()) {
+      for (let i = 0; i < st.drones; i++) {
+        const a = this.elapsed * 0.8 + (i * Math.PI * 2) / st.drones;
+        const x = at.x + Math.cos(a) * 85,
+          y = at.y + Math.sin(a) * 65;
+        c.fillStyle = '#e8bd74';
+        c.fillRect(x - 7, y - 4, 14, 8);
+        c.strokeStyle = '#78a7bb';
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(x - 15, y - 6);
+        c.lineTo(x + 15, y - 6);
+        c.stroke();
+      }
+      for (let i = 0; i < st.orbit; i++) {
+        const a = this.elapsed * 2 + (i * Math.PI * 2) / st.orbit,
+          x = at.x + Math.cos(a) * 105,
+          y = at.y + Math.sin(a) * 85;
+        this.glowAt(c, '#6abbff', x, y, 22, 0.9);
+        c.fillStyle = '#8cc5ed';
+        c.beginPath();
+        c.arc(x, y, 9, 0, Math.PI * 2);
+        c.fill();
+      }
     }
     this.drawBullets(c, visible);
     this.drawShells(c);
@@ -5192,7 +5369,13 @@ export class Battle {
   // (red: obstacles; orange: explosive props; blue: the house and the partner;
   // yellow: enemies; the second yellow ring is where a walking enemy is stopped).
   drawHitboxes(c: CanvasRenderingContext2D, visible: Visible) {
-    const ring = (x: number, y: number, r: number, color: string, dash = false) => {
+    const ring = (
+      x: number,
+      y: number,
+      r: number,
+      color: string,
+      dash = false,
+    ) => {
       c.strokeStyle = color;
       c.lineWidth = 1.5;
       c.setLineDash(dash ? [4, 3] : []);
@@ -5205,8 +5388,7 @@ export class Battle {
     for (const s of this.solids)
       if (visible(s.x, s.y, s.r)) ring(s.x, s.y, s.r, '#ff4040');
     for (const p of this.explosives)
-      if (!p.blown)
-        for (const s of propBody(p)) ring(s.x, s.y, s.r, '#ff9a2e');
+      if (!p.blown) for (const s of propBody(p)) ring(s.x, s.y, s.r, '#ff9a2e');
     ring(this.x, this.y, 24, '#4aa3ff');
     if (this.ally) ring(this.ally.x, this.ally.y, 24, '#4aa3ff', true);
     for (const e of this.enemies) {
@@ -6274,7 +6456,18 @@ export class Battle {
         (hint.length ? gap * 1.6 + small + hint.length * line : 0) +
         (hp ? gap * 1.6 + 26 * tk : 0) +
         (quoteLines.length ? gap * 1.6 + quoteLines.length * line : 0);
-      return { tk, small, nameSize, hint, quoteLines, line, gap, kicker, hp, height };
+      return {
+        tk,
+        small,
+        nameSize,
+        hint,
+        quoteLines,
+        line,
+        gap,
+        kicker,
+        hp,
+        height,
+      };
     };
     let words = plan(1, wide ? 3 : 2, true, true);
     for (const [k, hintMax, quote, hp] of [
@@ -6348,7 +6541,8 @@ export class Battle {
     if (words.hp) {
       y += gap * 1.6;
       c.globalAlpha = show(1.3);
-      const label = 'ЗДОРОВ’Я ' + Math.round(card.hp ?? 0).toLocaleString('uk-UA'),
+      const label =
+          'ЗДОРОВ’Я ' + Math.round(card.hp ?? 0).toLocaleString('uk-UA'),
         ph = Math.round(26 * tk);
       c.font = `800 ${Math.round(12 * tk)}px ${FONT}`;
       const pw = c.measureText(label).width + 24;

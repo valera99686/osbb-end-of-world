@@ -16,13 +16,16 @@ export function PerkDraft({
   run,
   offers,
   level,
+  owner,
   waiting,
   onPick,
 }: {
   run: Run;
   offers: PerkId[];
   level: number;
-  // Online: seconds left before the first card is taken for the pair.
+  // Co-op: whose house this perk is for (each player takes one for their own).
+  owner?: string;
+  // Online: seconds left before the first card is taken for this player.
   waiting?: number;
   onPick: (id: PerkId) => void;
 }) {
@@ -57,8 +60,9 @@ export function PerkDraft({
       <header>
         <small>РІВЕНЬ {level}</small>
         <h2>Сусіди пропонують</h2>
+        {owner && <small className="perk-for">{owner}</small>}
         {waiting !== undefined && (
-          <small className="perk-wait">Друг чекає · {waiting} с</small>
+          <small className="perk-wait">Лишилось {waiting} с</small>
         )}
       </header>
       <div className="perk-cards">

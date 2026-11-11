@@ -6,7 +6,11 @@ import type { Choice, Line, Scene } from './story';
 // player's choices leave in the profile. A choice with a `mark` is remembered
 // as «тема:warm» (by the heart) or «тема:cool» (by the book). The marks open
 // the last ending and decide who speaks at the table in the endings.
-const L = (who: Line['who'], text: string, extra: Partial<Line> = {}): Line => ({
+const L = (
+  who: Line['who'],
+  text: string,
+  extra: Partial<Line> = {},
+): Line => ({
   who,
   text,
   ...extra,
@@ -41,20 +45,18 @@ export const neighbours = (meta: Pick<Meta, 'marks'>) =>
 // The last ending: the whole street votes. It needs a heart (six warm choices),
 // two other houses that were answered, and the evidence about the loop.
 export const canEndingD = (meta: Meta) =>
-  warmth(meta) >= 6 &&
-  neighbours(meta) >= 2 &&
-  (meta.clues ?? []).length >= 8;
+  warmth(meta) >= 6 && neighbours(meta) >= 2 && (meta.clues ?? []).length >= 8;
 
-const warm = (
-  topic: string,
-  text: string,
-  reply: Line,
-): Choice => ({ text, reply, mark: `${topic}:warm` });
-const cool = (
-  topic: string,
-  text: string,
-  reply: Line,
-): Choice => ({ text, reply, mark: `${topic}:cool` });
+const warm = (topic: string, text: string, reply: Line): Choice => ({
+  text,
+  reply,
+  mark: `${topic}:warm`,
+});
+const cool = (topic: string, text: string, reply: Line): Choice => ({
+  text,
+  reply,
+  mark: `${topic}:cool`,
+});
 
 export interface Arc {
   id: string;
@@ -118,10 +120,7 @@ export const ARCS: Arc[] = [
       cool(
         'nina',
         'Це просто техніка, Ніно Василівно',
-        L(
-          'nina',
-          'Техніка. Угу. А чого ж ти тоді стишив голос?',
-        ),
+        L('nina', 'Техніка. Угу. А чого ж ти тоді стишив голос?'),
       ),
     ],
   ),
@@ -281,7 +280,10 @@ export const ARCS: Arc[] = [
         'boris',
         'Конверта я двадцять років не відкривав. А сьогодні відкрив. Там чек і записка: «За світло. Дякую, що не вимикаєте».',
       ),
-      L('boris', 'Я не вимикав. Просто не знав, що можна. Це ж лише одна гривня.'),
+      L(
+        'boris',
+        'Я не вимикав. Просто не знав, що можна. Це ж лише одна гривня.',
+      ),
     ],
     [
       warm(
@@ -352,10 +354,7 @@ export const ARCS: Arc[] = [
         'danilo',
         'Роз’єм Б це його пам’ять. Вийняти блок і поставити на ноги, і він зможе ходити за нами. Теоретично. Практично, як піде.',
       ),
-      L(
-        'mechanic',
-        'Даниле, якщо щось піде не так, воно піде в мою стіну.',
-      ),
+      L('mechanic', 'Даниле, якщо щось піде не так, воно піде в мою стіну.'),
     ],
     [
       warm(
@@ -405,10 +404,7 @@ export const ARCS: Arc[] = [
       cool(
         'solomia',
         'Тихіше, це може привабити ворогів',
-        L(
-          'solomia',
-          'Тихіше? Добре. Тиша теж частина партитури, я ж казала.',
-        ),
+        L('solomia', 'Тихіше? Добре. Тиша теж частина партитури, я ж казала.'),
       ),
     ],
   ),
@@ -416,7 +412,16 @@ export const ARCS: Arc[] = [
 
 // The other houses of the street answer on the radio during a raid. Each asks
 // for a place in the Shelter; the answer is remembered.
-const house = (n: number, id: string, title: string, lines: Line[], yes: string, yesReply: Line, no: string, noReply: Line): Scene => ({
+const house = (
+  n: number,
+  id: string,
+  title: string,
+  lines: Line[],
+  yes: string,
+  yesReply: Line,
+  no: string,
+  noReply: Line,
+): Scene => ({
   id,
   title,
   lines: lines.map((l, i) =>
@@ -577,6 +582,16 @@ const RAID_BEATS: [location: number, step: number, id: string][] = [
   [1, 6, 'raid-1-b'],
   [2, 3, 'raid-2-a'],
 ];
+export function raidBeatsAt(
+  meta: Pick<Meta, 'tutorialDone'>,
+  chapter: number,
+  step: number,
+): string[] {
+  if (!meta.tutorialDone) return [];
+  return RAID_BEATS.filter(
+    ([location, at]) => location === chapter && step >= at,
+  ).map(([, , id]) => id);
+}
 export function raidBeat(
   meta: Pick<Meta, 'scenesSeen' | 'tutorialDone'>,
   chapter: number,
@@ -642,34 +657,73 @@ export const ENDING_D_LINES: Line[] = [
     'Мешканців на борту: усі. У реєстрі: усі. Евакуацію завершено. Поле вимкнено.',
     { art: ENDING_ART.d },
   ),
-  L('narrator', 'Наступного ранку, о 04:18, місто не провалилося. Воно просто прокинулося.', {
-    art: ENDING_ART.d,
-    time: '04:18',
-  }),
+  L(
+    'narrator',
+    'Наступного ранку, о 04:18, місто не провалилося. Воно просто прокинулося.',
+    {
+      art: ENDING_ART.d,
+      time: '04:18',
+    },
+  ),
   L(
     'intercom',
     'Я вперше не чую власного голосу, бо всі говорять одночасно. Це гарна тиша.',
     { art: ENDING_ART.d, time: '04:18' },
   ),
-  L(
-    'galyna',
-    'Протокол номер вісімнадцять. Слухали: усіх. Ухвалили: жити.',
-    { art: ENDING_ART.d, time: '04:19' },
-  ),
+  L('galyna', 'Протокол номер вісімнадцять. Слухали: усіх. Ухвалили: жити.', {
+    art: ENDING_ART.d,
+    time: '04:19',
+  }),
 ];
 
 // At the table in the endings: whoever the player's choices touched has a word,
 // the one who was answered by the heart or the one who was answered by the book.
 const TABLE: [string, string, string][] = [
-  ['nina', 'Я налила десяту чашку, і вона не охолола. Це ж ти її поніс до стіни.', 'Десята чашка ще стоїть. Просто тепер ніхто не питає, чия вона.'],
-  ['lev', 'Я більше не на посту, дитино. Я вдома. Це інша служба, і вона мені до душі.', 'Пост здав. Служба є служба, голово. Дякую, що не брехав мені.'],
-  ['mechanic', 'Панель я зняв. Домофон ходить, а я лише тримаю драбину. Хай буде так.', 'Стіна його тримає, а я тримаю стіну. Усе по-людськи, нічого зайвого.'],
-  ['spark', 'Він надіслав мені «будь ласка» азбукою. Я зберегла кожну крапку.', 'Антену я прибрала. Слухаю через стіну, як усі нормальні люди.'],
-  ['flora', 'Кущ м’яти розцвів. Чай на всіх, голово, і ще лишилось.', 'Кущ відростає повільно. Але відростає. Я не квапитиму.'],
-  ['boris', 'Розписку вклеїв у книгу. «Мешканця вітаємо». Мій найкращий запис.', 'Одна гривня лишилась одною гривнею. Кошторис зійшовся, і слава Богу.'],
-  ['marta', 'Подяку номер триста одинадцять повісила над аптечкою. Хай читають.', 'Скарга в роботі, голово. Я за нею стежу. Ніхто не втече.'],
-  ['danilo', 'Він ходить! Боком, але ходить! Я ж казав, що мікрохвильовка не підведе.', 'Схема лежить у шухляді, підписана тричі. Колись я її таки збудую.'],
-  ['solomia', 'Ми з домофоном заспівали вдвох. Цього разу я не була сама на двох.', 'Я співаю тихіше, але далі. Тиша теж частина партитури.'],
+  [
+    'nina',
+    'Я налила десяту чашку, і вона не охолола. Це ж ти її поніс до стіни.',
+    'Десята чашка ще стоїть. Просто тепер ніхто не питає, чия вона.',
+  ],
+  [
+    'lev',
+    'Я більше не на посту, дитино. Я вдома. Це інша служба, і вона мені до душі.',
+    'Пост здав. Служба є служба, голово. Дякую, що не брехав мені.',
+  ],
+  [
+    'mechanic',
+    'Панель я зняв. Домофон ходить, а я лише тримаю драбину. Хай буде так.',
+    'Стіна його тримає, а я тримаю стіну. Усе по-людськи, нічого зайвого.',
+  ],
+  [
+    'spark',
+    'Він надіслав мені «будь ласка» азбукою. Я зберегла кожну крапку.',
+    'Антену я прибрала. Слухаю через стіну, як усі нормальні люди.',
+  ],
+  [
+    'flora',
+    'Кущ м’яти розцвів. Чай на всіх, голово, і ще лишилось.',
+    'Кущ відростає повільно. Але відростає. Я не квапитиму.',
+  ],
+  [
+    'boris',
+    'Розписку вклеїв у книгу. «Мешканця вітаємо». Мій найкращий запис.',
+    'Одна гривня лишилась одною гривнею. Кошторис зійшовся, і слава Богу.',
+  ],
+  [
+    'marta',
+    'Подяку номер триста одинадцять повісила над аптечкою. Хай читають.',
+    'Скарга в роботі, голово. Я за нею стежу. Ніхто не втече.',
+  ],
+  [
+    'danilo',
+    'Він ходить! Боком, але ходить! Я ж казав, що мікрохвильовка не підведе.',
+    'Схема лежить у шухляді, підписана тричі. Колись я її таки збудую.',
+  ],
+  [
+    'solomia',
+    'Ми з домофоном заспівали вдвох. Цього разу я не була сама на двох.',
+    'Я співаю тихіше, але далі. Тиша теж частина партитури.',
+  ],
 ];
 // In ending D the intercom stays on the wall and rings the whole city, so two
 // of the warm words differ from ending B, where it was taken aboard.

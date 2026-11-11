@@ -71,10 +71,7 @@ function restoreAttempts(
   for (const key of Object.keys(best)) out[key] = 1;
   for (const [key, value] of Object.entries(saved))
     if (DATE_KEY.test(key))
-      out[key] = Math.max(
-        out[key] ?? 0,
-        Math.floor(finite(value, 0, 99, 0)),
-      );
+      out[key] = Math.max(out[key] ?? 0, Math.floor(finite(value, 0, 99, 0)));
   return Object.fromEntries(
     Object.entries(out)
       .filter(([, n]) => n > 0)
@@ -403,7 +400,12 @@ export function readSave(raw: string | null): {
         r.character,
         Math.floor(finite(r.chapter, 0, 2, 0)),
         r.seed,
-        { mode, heat: finite(r.heat, 0, heatCap(mode), 0), daily, coop: r.coop },
+        {
+          mode,
+          heat: finite(r.heat, 0, heatCap(mode), 0),
+          daily,
+          coop: r.coop,
+        },
       );
       run.loop = mode === 'endless' ? Math.floor(finite(r.loop, 0, 1e4, 0)) : 0;
       // A run saved before ranking existed counts as the ranked one.
@@ -714,12 +716,15 @@ export function readSave(raw: string | null): {
           ? r.mateLoot
               .filter(
                 (l: { kind?: string; id?: string }) =>
-                  l?.kind === 'module' &&
-                  typeof l.id === 'string' &&
-                  base.unlocked.includes(l.id),
+                  typeof l?.id === 'string' &&
+                  ((l.kind === 'module' && base.unlocked.includes(l.id)) ||
+                    (l.kind === 'furniture' && !!FURNITURE_BY_ID[l.id])),
               )
               .slice(0, 3)
-              .map((l: { id: string }) => ({ kind: 'module' as const, id: l.id }))
+              .map((l: { kind: 'module' | 'furniture'; id: string }) => ({
+                kind: l.kind,
+                id: l.id,
+              }))
           : [];
       const named = (v: unknown) =>
         typeof v === 'string' && (!!ITEM_BY_ID[v] || !!FURNITURE_BY_ID[v])
@@ -732,7 +737,12 @@ export function readSave(raw: string | null): {
       }
       run.boughtBy = {};
       for (const [k, who] of Object.entries(r.boughtBy ?? {}))
-        if (Number.isInteger(+k) && +k >= 0 && +k < 12 && (who === 'host' || who === 'mate'))
+        if (
+          Number.isInteger(+k) &&
+          +k >= 0 &&
+          +k < 12 &&
+          (who === 'host' || who === 'mate')
+        )
           run.boughtBy[+k] = who;
       run.rerolls = finite(r.rerolls, 0, 50, 0);
       run.eventDone = !!r.eventDone;

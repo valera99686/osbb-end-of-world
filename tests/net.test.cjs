@@ -57,9 +57,10 @@ function end(role, link, opts = {}) {
   const b = new Battle(null, run, meta, silent, () => {}, () => {}, {
     sync,
     onPerkDraft: opts.draft
-      ? (offers) => {
+      ? (offers, _level, mateOffers) => {
           log.drafts++;
           log.offers = offers;
+          log.mateOffers = mateOffers;
         }
       : undefined,
     onPerkTaken: () => log.taken++,
@@ -188,24 +189,41 @@ test('A drift is noticed by the hash check and stops the fight', () => {
   assert.equal(host.sync.step, stopped, 'no more steps after a drift');
 });
 
-test('The host picks a perk and both ends take it at the same moment', () => {
+test('Each player takes a perk for their own house and both ends take both at the same moment', () => {
   const wire = pipe(2);
   const host = end(0, wire.a, { draft: true, xp: 40 }),
     guest = end(1, wire.b, { draft: true, xp: 40 });
-  let picked = 0;
-  play(host, guest, wire, 10, [1 / 60, 1 / 45], () => {
-    // Only the host's screen chooses; the guest just waits.
-    if (host.b.drafting && !picked) {
-      picked++;
+  let hostAt = -1,
+    guestAt = -1,
+    stepAt = -1;
+  play(host, guest, wire, 12, [1 / 60, 1 / 45], (t) => {
+    // Each screen answers its own draft, at its own pace.
+    if (host.b.drafting && hostAt < 0) {
+      hostAt = t;
+      stepAt = host.sync.step;
+    }
+    if (hostAt >= 0 && host.b.drafting && t > hostAt + 0.4) {
       const id = host.b.drafting[0];
       host.sync.choose(id);
       host.b.choosePerk(id);
     }
+    if (guest.b.mateDrafting && guestAt < 0) guestAt = t;
+    if (guestAt >= 0 && guest.b.mateDrafting && t > guestAt + 1.5) {
+      const id = guest.b.mateDrafting[1];
+      guest.sync.choose(id);
+      guest.b.chooseMatePerk(id);
+    }
   });
   assert.ok(host.log.drafts >= 1 && guest.log.drafts >= 1, 'both ends saw the draft');
   assert.deepEqual(host.log.offers, guest.log.offers, 'with the very same offers');
-  assert.ok(guest.log.taken >= 1 && host.log.taken >= 1);
+  assert.ok(host.log.mateOffers?.length, 'and the second house has its own offers');
+  assert.deepEqual(host.log.mateOffers, guest.log.mateOffers);
+  assert.ok(host.b.run.perks.length >= 1);
+  assert.equal(host.b.run.mate.perks.length, host.b.run.perks.length, 'a perk for each house at each level');
   assert.deepEqual(host.b.run.perks, guest.b.run.perks);
+  assert.deepEqual(host.b.run.mate.perks, guest.b.run.mate.perks);
+  assert.ok(!host.b.choosing && !guest.b.choosing, 'both drafts are over');
+  assert.ok(host.sync.step > stepAt + 120, 'and the fight went on');
   same(host, guest);
 });
 

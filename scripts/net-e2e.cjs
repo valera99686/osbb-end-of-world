@@ -5,9 +5,12 @@
 //   node scripts/net-e2e.cjs [seconds] [mode]
 //   FINISH=1 VOTE=1 node scripts/net-e2e.cjs 8 host   (the map vote after a fight)
 //   SCENES=1 node scripts/net-e2e.cjs      (the guest sees the host's scene)
+//   SCENES=seen node scripts/net-e2e.cjs   (...even one the host has seen before)
 //   EVENT=1 node scripts/net-e2e.cjs       (both decide an event)
 //   TOGETHER=1 node scripts/net-e2e.cjs    (a meeting that needs both)
 //   CHAT=1 node scripts/net-e2e.cjs        (text chat, quick phrases and voice chat)
+//   PERK=1 node scripts/net-e2e.cjs 45     (the host picks the perks; both go on)
+//   CHEST=1 node scripts/net-e2e.cjs       (a chest: a find for each house)
 // Needs Chrome at the usual path and an internet connection (the broker).
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -244,6 +247,50 @@ async function eventTest(host, guest) {
   process.exit(ok ? 0 : 1);
 }
 
+// A chest on the shared map: each house gets its own find from it.
+async function chestTest(host, guest) {
+  // Every way at this step leads to a chest.
+  await host.eval(`(()=>{const r=JSON.parse(localStorage.getItem('osbb.save.v1')).run; const nodes=r.nodes.map(x=>[...x]); nodes[r.step]=nodes[r.step].map(()=>'chest'); window.__osbbRun({ nodes }); 0})()`);
+  await sleep(500);
+  await host.eval(`document.querySelector('button.tree-go').click()`);
+  const row = (p, sel) =>
+    p.eval(`[...document.querySelectorAll(${JSON.stringify(sel)})].map(c => c.querySelector('h3')?.innerText ?? c.innerText.slice(0, 30))`);
+  const hostRow = await until('the chest at the host', async () => {
+    const r = await row(host, '.play-main .reward-owner:not(.mate) ~ .reward-cards .item-card, .play-main .reward-cards .item-card');
+    return r.length ? r : null;
+  }, 15000).catch(() => []);
+  const guestRow = await until('the chest at the guest', async () => {
+    const r = await row(guest, '.guest-room button.item-card');
+    return r.length ? r : null;
+  }, 15000).catch(() => []);
+  const say = async (p, sel) => p.eval(`document.querySelector(${JSON.stringify(sel)})?.innerText.replace(/\s+/g, ' ').slice(0, 200)`);
+  console.log('host page:', await say(host, '.play-main'));
+  console.log('guest page:', await say(guest, '.guest-room'));
+  console.log('host finds:', hostRow, '| guest finds:', guestRow);
+  for (const [name, p] of [['host', host], ['guest', guest]]) {
+    const shot = await p.send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(os.tmpdir(), `osbb-chest-${name}.png`), Buffer.from(shot.result.data, 'base64'));
+  }
+  // Furniture in the guest's row: the guest takes it, the host puts it in the
+  // guest's house.
+  await host.eval(`window.__osbbRun({ mateLoot: [{ kind: 'furniture', id: 'firedoor' }], picked: {} }); 0`);
+  await until('furniture in the guest row', () =>
+    guest.eval(`!!document.querySelector('.guest-room button.furniture-reward:not([disabled])')`),
+  15000);
+  const before = await host.eval(`JSON.parse(localStorage.getItem('osbb.save.v1')).run.mate.furniture.length`);
+  await guest.eval(`[...document.querySelectorAll('.guest-room button.furniture-reward:not([disabled])')].pop().click(); 0`);
+  const took = await until('the host gives it to the guest house', async () => {
+    const r = await host.eval(`(()=>{const run=JSON.parse(localStorage.getItem('osbb.save.v1')).run; return run && run.mate ? run.mate.furniture.map(f=>f.id) : null})()`);
+    return r && r.length > before ? r : null;
+  }, 15000).catch(() => null);
+  console.log('guest house furniture after the take:', took);
+  const ok = hostRow.length > 0 && guestRow.length > 0 && !!took?.includes('firedoor') && !host.errors.length && !guest.errors.length;
+  console.log('host errors', host.errors.slice(0, 5), 'guest errors', guest.errors.slice(0, 5));
+  console.log(ok ? 'E2E OK' : 'E2E FAILED');
+  for (const p of procs) p.kill();
+  process.exit(ok ? 0 : 1);
+}
+
 // A meeting that needs both players: the host does its part and waits; a silent
 // partner does not let it pass (20 seconds and more); when the guest does its
 // part the outcome shows at both ends.
@@ -426,6 +473,12 @@ async function chatTest(host, guest) {
         await page.eval(click('Пропустити', 'button'));
         await sleep(500);
       }
+  if (process.env.SCENES === 'seen') {
+    // The host has seen the first scenes of a raid already, the guest has not:
+    // the guest is shown them all the same.
+    await host.eval(`(()=>{const k='osbb.save.v1'; const s=JSON.parse(localStorage.getItem(k)); s.meta.scenesSeen=[...new Set([...s.meta.scenesSeen,'goal','arrival-0'])]; localStorage.setItem(k, JSON.stringify(s)); 0})()`);
+    await host.go(URL);
+  }
   // The online mode is a tab of the hub's "Хто грає?" block.
   for (const page of [host, guest])
     await until('online tab', () => page.eval(click('Вдвох по мережі', 'button.play-mode')));
@@ -459,6 +512,8 @@ async function chatTest(host, guest) {
       guest.eval(`[...document.querySelectorAll('button')].some(b => /Пропустити/.test(b.innerText))`),
     8000);
     console.log("the guest sees the host's scene:", seen);
+    if (process.env.SCENES === 'seen')
+      console.log('the host, who saw it, goes on without it:', await host.eval(`![...document.querySelectorAll('button')].some(b => /Пропустити/.test(b.innerText))`));
     process.exitCode = seen ? 0 : 1;
     console.log(seen ? 'E2E OK' : 'E2E FAILED');
     for (const p of procs) p.kill();
@@ -476,6 +531,7 @@ async function chatTest(host, guest) {
   );
   console.log('guest sees the first map:', seen);
   if (process.env.EVENT) return eventTest(host, guest);
+  if (process.env.CHEST) return chestTest(host, guest);
   if (process.env.TOGETHER) return togetherTest(host, guest);
   await host.eval(`document.querySelector('button.tree-go').click()`);
   // A production build has no debugging hook: then only the screens are seen.
@@ -502,6 +558,10 @@ async function chatTest(host, guest) {
     page.eval(`window.dispatchEvent(new KeyboardEvent(${JSON.stringify(down ? 'keydown' : 'keyup')},{code:${JSON.stringify(code)},bubbles:true,cancelable:true}))`);
   const end = Date.now() + SECONDS * 1000;
   const held = { host: null, guest: null };
+  const perks = [];
+  let stall = 0,
+    guestSaw = -1,
+    ends = [];
   while (Date.now() < end) {
     for (const [name, page] of [['host', host], ['guest', guest]]) {
       if (held[name]) await fire(page, held[name], false);
@@ -511,6 +571,31 @@ async function chatTest(host, guest) {
         await fire(page, Math.random() < 0.5 ? 'Space' : 'KeyE', true);
         await fire(page, 'Space', false);
       }
+    }
+    if (process.env.PERK) {
+      // Each player picks a perk for their own house, at their own pace (the
+      // guest a second later); both ends must go on together.
+      const state = (page) =>
+        page.eval(`(()=>{const b=window.__battle; return b ? {step: b.sync?.step ?? -1, draft: !!b.choosing, stalled: (b.sync||b.client||b.feed||{}).stalled ?? 0, perks: (b.run.perks||[]).join(), mate: (b.run.mate?.perks||[]).join()} : null})()`);
+      const pick = (page) =>
+        page.eval(`(()=>{const c=document.querySelector('.perk-card'); if(!c) return ''; const who=document.querySelector('.perk-for')?.innerText ?? ''; c.click(); return who + ' | ' + c.innerText.replace(/\s+/g, ' ').slice(0, 40)})()`);
+      const hostPick = await pick(host);
+      if (hostPick) console.log('host picked', JSON.stringify(hostPick));
+      if (await guest.eval(`!!document.querySelector('.perk-card')`)) {
+        if (guestSaw < 0) guestSaw = Date.now();
+        if (Date.now() - guestSaw > 1000) {
+          const g = await pick(guest);
+          if (g) {
+            console.log('guest picked', JSON.stringify(g));
+            guestSaw = -1;
+          }
+        }
+      }
+      const [hs, gs] = [await state(host), await state(guest)];
+      if (hostPick) perks.push(hs.step);
+      if (hostPick || hs.draft || gs.draft) console.log('host', JSON.stringify(hs), 'guest', JSON.stringify(gs));
+      stall = Math.max(stall, hs.stalled, gs.stalled);
+      ends = [hs, gs];
     }
     await sleep(500);
   }
@@ -528,6 +613,21 @@ async function chatTest(host, guest) {
   console.log('host errors', host.errors.slice(0, 5));
   console.log('guest errors', guest.errors.slice(0, 5));
   let ok = a && b && !a.desync && !b.desync && same >= 5 && diff === 0 && a.step > 300;
+  let perkOk = true;
+  if (process.env.PERK) {
+    // At least one pick, and both ends went on well past the last one.
+    const last = perks[perks.length - 1] ?? Infinity;
+    console.log('picks at steps', perks, '| longest stall', stall.toFixed(1), 's');
+    const [hs, gs] = ends;
+    // Both ends hold the same perks of both houses, one for each at each level.
+    const even = hs && gs && hs.perks === gs.perks && hs.mate === gs.mate && hs.perks.split(',').length === hs.mate.split(',').length;
+    console.log('perks: host', hs?.perks, '/', hs?.mate, '| guest', gs?.perks, '/', gs?.mate);
+    // The mirror: only the host simulates, so only its fight holds the perks.
+    perkOk =
+      MODE === 'host'
+        ? perks.length > 0 && !!hs?.mate && hs.perks.split(',').length === hs.mate.split(',').length && !hs.draft
+        : perks.length > 0 && b.step > last + 120 && stall < 4 && !!even;
+  }
   if (MODE === 'host') {
     // The mirror: the guest only draws, so compare what it shows with the host.
     const look = (page) =>
@@ -568,6 +668,7 @@ async function chatTest(host, guest) {
       ok = ok && process.exitCode !== 1;
     }
   }
+  ok = ok && perkOk;
   console.log(ok ? 'E2E OK' : 'E2E FAILED');
   for (const p of procs) p.kill();
   process.exit(ok ? 0 : 1);

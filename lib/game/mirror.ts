@@ -89,12 +89,16 @@ export class HostFeed {
   // Wraps the effect helpers of the fight so each one is also recorded.
   attach(b: Battle) {
     b.hostRemote = true;
-    const tap = <K extends 'burst' | 'ring' | 'label' | 'debris' | 'banner' | 'addTrauma'>(
+    const tap = <
+      K extends 'burst' | 'ring' | 'label' | 'debris' | 'banner' | 'addTrauma',
+    >(
       name: K,
       code: string,
     ) => {
       const original = (b[name] as (...a: unknown[]) => unknown).bind(b);
-      (b as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
+      (b as unknown as Record<string, unknown>)[name] = (
+        ...args: unknown[]
+      ) => {
         if (this.fx.length < 240) this.fx.push([code, ...args]);
         return original(...args);
       };
@@ -108,7 +112,8 @@ export class HostFeed {
     const damage = b.damageNumber.bind(b);
     b.damageNumber = (e: Enemy, amount: number, crit: boolean) => {
       const k = this.known.get(e);
-      if (k && this.fx.length < 240) this.fx.push(['h', k.uid, r2(amount), crit]);
+      if (k && this.fx.length < 240)
+        this.fx.push(['h', k.uid, r2(amount), crit]);
       return damage(e, amount, crit);
     };
     // The sounds too, through a stand-in: the shared audio engine stays as it is.
@@ -134,7 +139,11 @@ export class HostFeed {
     this.acc = 0;
     const key = relay && ++this.sinceKey >= RELAY_KEY_EVERY;
     if (key) this.sinceKey = 0;
-    this.link.send({ t: 'snap', sid: this.sid, s: this.snapshot(b, false, key) });
+    this.link.send({
+      t: 'snap',
+      sid: this.sid,
+      s: this.snapshot(b, false, key),
+    });
   }
   snapshot(b: Battle, end = false, key = false): Snap {
     // A snapshot that holds everything: each enemy as if it were new.
@@ -152,7 +161,8 @@ export class HostFeed {
       const delta: Fields = {};
       for (const [key, v] of Object.entries(now))
         if (JSON.stringify(v) !== JSON.stringify(k.sent[key])) delta[key] = v;
-      for (const key of Object.keys(k.sent)) if (!(key in now)) delta[key] = null;
+      for (const key of Object.keys(k.sent))
+        if (!(key in now)) delta[key] = null;
       if (Object.keys(delta).length) {
         en[k.uid] = delta;
         k.sent = now;
@@ -248,6 +258,9 @@ export class HostFeed {
       b.stick2 = { x: m.x / 100, y: m.y / 100 };
       if (m.f & 1) b.allyDash();
       if (m.f & 2) b.allyPulse();
+    } else if (m.t === 'perk' && m.who === 1) {
+      // The guest took a perk for its own house: the host's fight takes it.
+      this.battle?.chooseMatePerk(m.id as never);
     } else if (m.t === 'over') this.onOver?.();
   }
   battle: Battle | null = null;
@@ -314,6 +327,11 @@ export class MirrorClient {
   press(kind: 'dash' | 'pulse') {
     if (kind === 'dash') this.dash = true;
     else this.pulse = true;
+  }
+  // The guest takes a perk for its own house; only the host's fight changes.
+  choose(id: string) {
+    if (this.link.open)
+      this.link.send({ t: 'perk', sid: this.sid, id, who: 1 });
   }
   // How many messages of each kind have arrived (for tracing a lost one).
   seen: Record<string, number> = {};
@@ -382,8 +400,21 @@ export class MirrorClient {
     this.latest = s.n;
     this.lastAt = performance.now();
     b.elapsed = s.el;
-    const [x, y, vx, vy, fx, fy, dashing, inv, muzzle, angle, ring, haste, audit] =
-      s.h;
+    const [
+      x,
+      y,
+      vx,
+      vy,
+      fx,
+      fy,
+      dashing,
+      inv,
+      muzzle,
+      angle,
+      ring,
+      haste,
+      audit,
+    ] = s.h;
     this.house = { x, y };
     if (this.fresh) {
       b.x = x;
@@ -400,10 +431,48 @@ export class MirrorClient {
     b.hasteTime = haste;
     b.auditTime = audit;
     const a = s.a as unknown as
-      | [string, number, number, number, number, number, number, boolean, number, number, number, number, number, number, number, number, number, number]
+      | [
+          string,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          boolean,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+        ]
       | null;
     if (a) {
-      const [hero, ax, ay, avx, avy, hp, max, down, downTime, revive, dashA, invA, hasteA, fax, fay, mz, aim, walk] = a;
+      const [
+        hero,
+        ax,
+        ay,
+        avx,
+        avy,
+        hp,
+        max,
+        down,
+        downTime,
+        revive,
+        dashA,
+        invA,
+        hasteA,
+        fax,
+        fay,
+        mz,
+        aim,
+        walk,
+      ] = a;
       this.mate = { x: ax, y: ay };
       const old = b.ally;
       b.ally = {
@@ -527,10 +596,7 @@ export class MirrorClient {
         return;
       }
       case 's':
-        return b.audio.play(
-          a[0] as never,
-          (a[1] ?? undefined) as never,
-        );
+        return b.audio.play(a[0] as never, (a[1] ?? undefined) as never);
     }
   }
 }

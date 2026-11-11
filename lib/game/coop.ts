@@ -127,8 +127,9 @@ export const GUEST = {
   cap: 3,
   // A lost fight still pays one for every `per` kills, at most one.
   lostCap: 1,
-  // The share of the host's cores at the end of the raid.
-  share: 0.5,
+  // The share of the host's cores at the end of the raid: the same as the
+  // host's (both players get as many cores for a raid made together).
+  share: 1,
 } as const;
 export function guestFightCores(
   won: boolean,
@@ -140,8 +141,11 @@ export function guestFightCores(
     ? GUEST.win + (leader ? GUEST.leader : 0) + Math.min(GUEST.cap, hits)
     : Math.min(GUEST.lostCap, hits);
 }
-export function guestRunCores(hostCores: number): number {
-  return Math.max(0, Math.ceil(hostCores * GUEST.share));
+// At the end of the raid the guest gets as many cores as the host; what the
+// fights of this raid already paid it is an advance on that (so a guest who
+// leaves early keeps what it earned, and the two end up even).
+export function guestRunCores(hostCores: number, advance = 0): number {
+  return Math.max(0, Math.ceil(hostCores * GUEST.share) - Math.max(0, advance));
 }
 
 // Online, where the raid goes next is decided by both players: each one picks
@@ -219,10 +223,7 @@ export function readBallot(m: unknown): Ballot | null {
 
 // The partner a run may bring: any head of ОСББ already opened by the profile
 // (the same hero as the first player is allowed). '' means "alone".
-export function coopHero(
-  wins: number,
-  id: unknown,
-): string {
+export function coopHero(wins: number, id: unknown): string {
   if (typeof id !== 'string') return '';
   const hero = CHARACTERS.find((c) => c.id === id);
   return hero && hero.win <= wins ? hero.id : '';
@@ -266,5 +267,10 @@ export function spreadFix(
   const ex = Math.max(0, Math.abs(dx) - maxX) * Math.sign(dx),
     ey = Math.max(0, Math.abs(dy) - maxY) * Math.sign(dy);
   // `|| 0` keeps a negative zero out of the result.
-  return { ax: ex / 2 || 0, ay: ey / 2 || 0, bx: -ex / 2 || 0, by: -ey / 2 || 0 };
+  return {
+    ax: ex / 2 || 0,
+    ay: ey / 2 || 0,
+    bx: -ex / 2 || 0,
+    by: -ey / 2 || 0,
+  };
 }

@@ -187,3 +187,11 @@
   color: #f0c060;
   font-variant-numeric: tabular-nums;
 }
+/* Co-op: whose house the perk is for. */
+.perk-for {
+  display: block;
+  margin-top: 4px;
+  color: #9fd6c2;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}

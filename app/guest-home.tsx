@@ -25,11 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { HouseAside, PartnerHouse } from './house-aside';
 import { ItemCard, takenText } from './item-card';
-import {
-  EventOptions,
-  FurnitureCard,
-  TogetherRoles,
-} from './campaign-panels';
+import { EventOptions, FurnitureCard, TogetherRoles } from './campaign-panels';
 import { Currency } from './hud-parts';
 import { Residents } from './residents';
 
@@ -68,12 +64,14 @@ export function GuestPages({
     return (
       <>
         <p className="eyebrow">
-          <Check size={16} /> ЗДОБИЧ
+          <Check size={16} />{' '}
+          {view.kind === 'chest' ? 'СКРИНЮ ВІДКРИТО' : 'ЗДОБИЧ'}
         </p>
         <h2>Знайшли дещо корисне.</h2>
         <p className="lead">
-          У кожного будинку своя полиця: кожен бере по одному предмету зі
-          свого ряду.
+          {view.kind === 'chest'
+            ? 'У скрині знахідка для кожного будинку: твоя у твоєму ряду.'
+            : 'У кожного будинку своя полиця: кожен бере по одному предмету зі свого ряду.'}
         </p>
         {view.eventResult && (
           <div className="mission-banner" role="status">
@@ -122,24 +120,40 @@ export function GuestPages({
           )}
         </div>
         <div className="reward-cards">
-          {(view.mateLoot ?? []).map((loot, i) => (
-            <ItemCard
-              key={'m' + loot.id}
-              item={ITEM_BY_ID[loot.id]}
-              disabled={!fits(loot.id)}
-              onClick={() => session.take('reward', i, loot.id)}
-              footer={
-                fits(loot.id) ? (
-                  <>
-                    <span>Забрати собі</span>
-                    <Plus size={18} />
-                  </>
-                ) : (
-                  <span>Немає місця</span>
-                )
-              }
-            />
-          ))}
+          {(view.mateLoot ?? []).map((loot, i) =>
+            loot.kind === 'furniture' ? (
+              FURNITURE_BY_ID[loot.id] && (
+                <FurnitureCard
+                  key={'mf' + loot.id}
+                  id={loot.id}
+                  disabled={(view.mate?.furniture.length ?? 0) >= 30}
+                  onClick={() => session.take('reward', i, loot.id)}
+                  footer={
+                    (view.mate?.furniture.length ?? 0) >= 30
+                      ? 'Запас меблів повний'
+                      : 'Забрати собі'
+                  }
+                />
+              )
+            ) : (
+              <ItemCard
+                key={'m' + loot.id}
+                item={ITEM_BY_ID[loot.id]}
+                disabled={!fits(loot.id)}
+                onClick={() => session.take('reward', i, loot.id)}
+                footer={
+                  fits(loot.id) ? (
+                    <>
+                      <span>Забрати собі</span>
+                      <Plus size={18} />
+                    </>
+                  ) : (
+                    <span>Немає місця</span>
+                  )
+                }
+              />
+            ),
+          )}
         </div>
       </>
     );
@@ -317,8 +331,8 @@ export function GuestAside({
           <DialogTitle>Твій будинок / Квартири й обладнання</DialogTitle>
           <DialogDescription>
             Спільні стіни створюють бонуси й конфлікти. Обери квартиру, щоб
-            переставити її. Обладнання став у вільні клітинки всередині
-            квартир. Зміни бачить і господар.
+            переставити її. Обладнання став у вільні клітинки всередині квартир.
+            Зміни бачить і господар.
           </DialogDescription>
           <Residents
             run={mine}

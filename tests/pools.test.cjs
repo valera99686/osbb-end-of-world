@@ -52,7 +52,7 @@ test("The second house is a house of its own: its hero's room and a kit of canno
   assert.equal(M.withMate(joined, '').mate, undefined);
 });
 
-test('The two houses are measured by their own neighbours and modules, the perks shared', () => {
+test('The two houses are measured by their own neighbours, modules and perks', () => {
   const meta = veteran();
   const run = coopRun('flora', meta);
   const first = M.statsFor(run, meta),
@@ -65,12 +65,14 @@ test('The two houses are measured by their own neighbours and modules, the perks
   const fitted = M.withMateHouse(run, { ...house, items });
   assert.equal(M.statsFor(fitted, meta).damage, first.damage, 'the first house is untouched');
   assert.equal(M.mateStats(fitted, meta).damage, second.damage + 14 - 8);
-  const perked = { ...fitted, perks: ['ricochet'] };
-  assert.equal(
-    M.mateStats(perked, meta).damage - M.mateStats(fitted, meta).damage,
-    M.statsFor(perked, meta).damage - M.statsFor(fitted, meta).damage,
-    'a level perk is shared',
-  );
+  // Each house takes its own level perks: the first one's do not reach the
+  // second, and the second one's stay with it.
+  const hostPerk = { ...fitted, perks: ['searchlight'] };
+  assert.equal(M.statsFor(hostPerk, meta).range, M.statsFor(fitted, meta).range + 70);
+  assert.equal(M.mateStats(hostPerk, meta).range, M.mateStats(fitted, meta).range, 'not the second house');
+  const matePerk = { ...fitted, mate: { ...fitted.mate, perks: ['searchlight'] } };
+  assert.equal(M.mateStats(matePerk, meta).range, M.mateStats(fitted, meta).range + 70);
+  assert.equal(M.statsFor(matePerk, meta).range, M.statsFor(fitted, meta).range, 'not the first house');
 });
 
 test('A module given to the second house takes a free slot, or waits in its backpack', () => {
@@ -113,7 +115,7 @@ test('A module given to the second house takes a free slot, or waits in its back
   assert.equal(M.giveMate(run, meta, 'nonsense'), run);
 });
 
-test('A co-op reward is two rows of modules with none in common, and the coins come twice as many', () => {
+test('A co-op reward is two rows of finds with none in common, and the coins come twice as many', () => {
   const meta = veteran();
   const soloBase = M.makeRun(meta, 'mechanic', 0, 5),
     duoBase = coopRun('flora', meta);
@@ -121,12 +123,16 @@ test('A co-op reward is two rows of modules with none in common, and the coins c
     duo = afterFight(duoBase, meta);
   assert.deepEqual(solo.mateLoot, []);
   assert.equal(duo.mateLoot.length, 3);
-  assert.ok(duo.mateLoot.every((l) => l.kind === 'module'));
-  const mine = duo.loot.filter((l) => l.kind === 'module').map((l) => l.id);
+  const mine = duo.loot.map((l) => l.id);
   assert.ok(
     duo.mateLoot.every((l) => !mine.includes(l.id)),
     'the finds are shared out, not doubled',
   );
+  // Over many fights the second row holds furniture too, like the first one.
+  const kinds = new Set();
+  for (let seed = 1; seed < 40; seed++)
+    for (const l of afterFight({ ...duoBase, seed }, meta).mateLoot) kinds.add(l.kind);
+  assert.deepEqual([...kinds].sort(), ['furniture', 'module']);
   assert.equal(
     duo.coins - duoBase.coins,
     C.COOP.money * (solo.coins - soloBase.coins),
@@ -134,6 +140,28 @@ test('A co-op reward is two rows of modules with none in common, and the coins c
   assert.equal(M.earned({ coop: '' }, 10), 10);
   assert.equal(M.earned({ coop: 'flora' }, 10), 10 * C.COOP.money);
   assert.equal(M.earned({ coop: 'flora' }, -30), -30, 'costs are not doubled');
+});
+
+test('The second house takes furniture from its row; an event that gives furniture gives it a row too', () => {
+  const meta = veteran();
+  const duo = afterFight(coopRun('flora', meta), meta);
+  const row = { ...duo, mateLoot: [{ kind: 'furniture', id: 'firedoor' }], picked: {} };
+  const before = M.mateRun(row).furniture.length;
+  const took = M.giveMateFurniture(row, 0);
+  assert.equal(M.mateRun(took).furniture.length, before + 1);
+  assert.equal(M.mateRun(took).furniture.at(-1).id, 'firedoor');
+  assert.equal(took.furniture.length, row.furniture.length, 'the first house is untouched');
+  assert.equal(took.picked.mate, 'firedoor');
+  assert.deepEqual(took.mateLoot, []);
+  assert.equal(M.giveMateFurniture(took, 0), took, 'a row is taken once');
+  assert.equal(M.giveMateFurniture({ ...row, mateLoot: [{ kind: 'module', id: 'airbag' }] }, 0).mate, row.mate, 'a module is not furniture');
+  // An event's furniture: a row for the second house too, of furniture only.
+  const ev = M.mateRow(duo, meta, 1, 405, [], false, false, 'furniture');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].kind, 'furniture');
+  // It survives the view the guest is sent and a save.
+  const view = M.readView(JSON.parse(JSON.stringify(row)));
+  assert.deepEqual(view.mateLoot, [{ kind: 'furniture', id: 'firedoor' }]);
 });
 
 test('The rescued neighbours are shared out between the two houses, never taken twice', () => {

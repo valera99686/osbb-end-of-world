@@ -86,12 +86,7 @@ import {
 } from '@/lib/game/achievements';
 import { dateKey, heatChoices, runScore } from '@/lib/game/modes';
 import { resultQuip, tabTitle } from '@/lib/game/notices';
-import {
-  discover,
-  isQuietHour,
-  konamiStep,
-  tapStep,
-} from '@/lib/game/secrets';
+import { discover, isQuietHour, konamiStep, tapStep } from '@/lib/game/secrets';
 import { SettingsDialog } from './settings';
 import { StatsPage, AchievementsPage, ownedAchievements } from './records';
 import { Toasts, achievementToasts, type Toast } from './toasts';
@@ -126,12 +121,7 @@ import { HouseAside, PartnerHouse } from './house-aside';
 import { ChatDock } from './chat-dock';
 import { CvdFilters } from './cvd-filters';
 import { endVoice } from './voice-chat';
-import {
-  ItemCard,
-  rewardNote,
-  shopNote,
-  takenText,
-} from './item-card';
+import { ItemCard, rewardNote, shopNote, takenText } from './item-card';
 import {
   Dialog,
   DialogContent,
@@ -152,6 +142,7 @@ import {
   isStoryId,
   leaveScene,
   raidBeat,
+  raidBeatsAt,
   raidEnd,
   victoryChain,
   rescueQuote as storyRescueQuote,
@@ -187,6 +178,7 @@ import {
   withMate,
   mateRun,
   giveMate,
+  giveMateFurniture,
   buyFurnitureMate,
   acceptMateHouse,
   settleReward,
@@ -309,6 +301,9 @@ export default function Game() {
     [guestResult, setGuestResult] = useState<BattleResult | null>(null),
     // Cores the guest was paid for the last fight and for the host's raid.
     [guestEarned, setGuestEarned] = useState({ fight: 0, raid: 0 }),
+    // The guest's cores from the fights of the host's raid so far: an advance
+    // on its equal share at the end of the raid.
+    guestAdvance = useRef(0),
     [onlineRun, setOnlineRun] = useState(false),
     [queued, setQueued] = useState<Launch | null>(null),
     [toasts, setToasts] = useState<Toast[]>([]),
@@ -443,7 +438,10 @@ export default function Game() {
       setChapter(0);
       const stored = Number(localStorage.getItem('osbb.heat'));
       if (Number.isFinite(stored)) setHeat(Math.max(0, Math.floor(stored)));
-      const savedCoop = coopHero(loaded.wins, localStorage.getItem('osbb.coop'));
+      const savedCoop = coopHero(
+        loaded.wins,
+        localStorage.getItem('osbb.coop'),
+      );
       setCoopPick(savedCoop);
       if (savedCoop) setPlayMode('local');
       if (s.error) setNotice('Збереження пошкоджено. Створено новий профіль.');
@@ -699,6 +697,15 @@ export default function Game() {
     setSceneQueue(leaveScene(meta, sceneQueue, choice).queue);
     setMeta((m) => leaveScene(m, sceneQueue, choice).meta);
   }
+  // Online: the scenes this moment of a raid for two opens, whether or not
+  // this profile has seen them; the guest watches those new to its own.
+  function shareScenes(
+    ids: readonly (string | null | undefined)[],
+    partner = livePartner && onlineRun,
+  ) {
+    if (!partner || net?.role !== 'host') return;
+    for (const id of ids) if (id) net.sendScene(id);
+  }
   function playScene(id: string) {
     if (SCENE_BY_ID[id] || isStoryId(id)) {
       setSceneQueue([]);
@@ -717,7 +724,8 @@ export default function Game() {
   const coopChoice = coopHero(meta.wins, coopPick);
   // A guest is in the room and listening: the host's next raid is for two.
   const livePartner = net?.role === 'host' && net.phase === 'connected';
-  const nameOf = (id: string) => CHARACTERS.find((c) => c.id === id)?.name ?? id;
+  const nameOf = (id: string) =>
+    CHARACTERS.find((c) => c.id === id)?.name ?? id;
   // The second house in the texts: the partner's name online, else their hero.
   const mateName = run?.coop
     ? livePartner && net?.partner?.name
@@ -748,8 +756,10 @@ export default function Game() {
       };
       // The host's raid is over: the guest's profile gets its share.
       net.onGift = (g) => {
-        const pay = guestRunCores(g.cores),
+        // As many cores as the host; the fights already paid an advance.
+        const pay = guestRunCores(g.cores, guestAdvance.current),
           now = metaRef.current;
+        guestAdvance.current = 0;
         const next = {
           ...now,
           cores: now.cores + pay,
@@ -763,7 +773,11 @@ export default function Game() {
       // this profile; one that comes while another plays waits its turn.
       const watch = (id: string) => {
         const now = metaRef.current;
-        if (now.scenesSeen.includes(id) || !(SCENE_BY_ID[id] || isStoryId(id)))
+        if (
+          now.scenesSeen.includes(id) ||
+          now.sceneProgress?.id === id ||
+          !(SCENE_BY_ID[id] || isStoryId(id))
+        )
           return;
         if (now.sceneProgress)
           setSceneQueue((q) => (q.includes(id) ? q : [...q, id]));
@@ -869,6 +883,13 @@ export default function Game() {
       if (run.page === 'shop' && run.shopFurniture[m.index - 10] === m.id)
         buyFurnitureFor(m.id, 'mate');
     } else if (
+      m.source === 'reward' &&
+      run.page === 'reward' &&
+      run.mateLoot?.[m.index]?.id === m.id &&
+      run.mateLoot[m.index].kind === 'furniture'
+    )
+      giveFurnitureToMate(m.index);
+    else if (
       m.source === 'reward'
         ? run.page === 'reward' && run.mateLoot?.[m.index]?.id === m.id
         : run.page === 'shop' && run.offers[m.index] === m.id
@@ -899,10 +920,9 @@ export default function Game() {
   // The guest sees the map whenever the host does; a fork is voted on.
   const mapOpen = livePartner && screen === 'play' && run?.page === 'map';
   const voting =
-    mapOpen &&
-    run.path.length <= run.step &&
-    availableColumns(run).length > 1;
-  const voteKey = mapOpen && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
+    mapOpen && run.path.length <= run.step && availableColumns(run).length > 1;
+  const voteKey =
+    mapOpen && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
   const [guestSilent, setGuestSilent] = useState(false);
   useEffect(() => {
     if (net?.role !== 'host') return;
@@ -919,7 +939,8 @@ export default function Game() {
     screen === 'play' &&
     run?.page === 'event' &&
     !run.eventDone;
-  const eventKey = eventOpen && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
+  const eventKey =
+    eventOpen && run ? `${run.seed}-${run.chapter}-${run.step}` : '';
   useEffect(() => {
     if (net?.role !== 'host' || !eventKey || !run) return;
     setGuestSilent(false);
@@ -992,6 +1013,8 @@ export default function Game() {
     return () => clearTimeout(timer);
   }, [hostSays, guestFight?.sid]);
   function closeOnline() {
+    // A new room is a new raid: no advance carries over.
+    guestAdvance.current = 0;
     roomHandle.current?.close();
     roomHandle.current = null;
     net?.close();
@@ -1017,7 +1040,9 @@ export default function Game() {
         error: (why) => room.fail(why),
       });
     } catch {
-      room.fail('net:Не вдалося завантажити мережевий модуль. Перевір інтернет.');
+      room.fail(
+        'net:Не вдалося завантажити мережевий модуль. Перевір інтернет.',
+      );
     }
   }
   async function joinOnline(code: string) {
@@ -1036,7 +1061,9 @@ export default function Game() {
         note: (text) => room.note(text),
       });
     } catch {
-      room.fail('net:Не вдалося завантажити мережевий модуль. Перевір інтернет.');
+      room.fail(
+        'net:Не вдалося завантажити мережевий модуль. Перевір інтернет.',
+      );
     }
   }
   function pickCoop(hero: string) {
@@ -1073,6 +1100,7 @@ export default function Game() {
       setScreen('play');
       if (!meta.scenesSeen.includes(`arrival-${run.chapter}`))
         playScene(`arrival-${run.chapter}`);
+      shareScenes([`arrival-${run.chapter}`]);
       return;
     }
     launch({ mode: 'campaign', character, heat: heatChoice });
@@ -1106,6 +1134,10 @@ export default function Game() {
     if (mate && CHARACTERS.some((c) => c.id === mate))
       started = withMate(started, mate);
     setOnlineRun(!!started.coop && !!mate);
+    shareScenes(
+      chapter === 0 ? ['goal', `arrival-${chapter}`] : [`arrival-${chapter}`],
+      !!started.coop && !!mate,
+    );
     setBuyFor('host');
     setRun(started);
     const begun = startDaily(base, started);
@@ -1149,6 +1181,15 @@ export default function Game() {
         looped = next.loop > b.run.loop;
       // The boss's last word, then the new location; each only the first time.
       const chain = victoryChain(meta, b.run.chapter, looped, bossId);
+      // The guest is offered the whole chain, seen here or not.
+      shareScenes(
+        victoryChain(
+          { ...meta, scenesSeen: [] },
+          b.run.chapter,
+          looped,
+          bossId,
+        ),
+      );
       setRun(next);
       setSceneQueue(chain.slice(1));
       setMeta((m) => ({
@@ -1208,6 +1249,7 @@ export default function Game() {
       const beat = meta.sceneProgress
         ? null
         : raidBeat(meta, b.run.chapter, b.run.step);
+      shareScenes(raidBeatsAt(meta, b.run.chapter, b.run.step));
       if (beat) {
         setSceneQueue([]);
         setMeta((m) => ({ ...m, sceneProgress: { id: beat, index: 0 } }));
@@ -1259,7 +1301,8 @@ export default function Game() {
   // Furniture from the shop for one of the two houses.
   function buyFurnitureFor(id: string, who: 'host' | 'mate') {
     if (!run) return;
-    const next = who === 'mate' ? buyFurnitureMate(run, id) : buyFurniture(run, id);
+    const next =
+      who === 'mate' ? buyFurnitureMate(run, id) : buyFurniture(run, id);
     if (next === run) return;
     const index = 10 + run.shopFurniture.indexOf(id);
     setRun({ ...next, boughtBy: { ...next.boughtBy, [index]: who } });
@@ -1300,6 +1343,18 @@ export default function Game() {
     if (source === 'reward') next = settleReward(next, 'mate', id);
     setRun(next);
     ping(`${item.name} — ${mateName}.`);
+  }
+  // The second house takes the piece of furniture from its row of a reward.
+  function giveFurnitureToMate(index: number) {
+    const loot = run?.mateLoot?.[index];
+    if (!run || loot?.kind !== 'furniture') return;
+    const next = giveMateFurniture(run, index);
+    if (next === run) {
+      ping(`У ${mateName} запас меблів заповнений.`);
+      return;
+    }
+    setRun(next);
+    ping(`${FURNITURE_BY_ID[loot.id]?.name ?? loot.id} — ${mateName}.`);
   }
   function acquireToBag() {
     if (!run || !pending) return;
@@ -1419,9 +1474,7 @@ export default function Game() {
     </HouseAside>
   );
   return (
-    <main
-      className={`game-shell ${inCombat ? 'in-combat' : ''}`}
-    >
+    <main className={`game-shell ${inCombat ? 'in-combat' : ''}`}>
       <header className="topbar">
         <button
           className="brand"
@@ -1443,23 +1496,23 @@ export default function Game() {
             : screen === 'guest'
               ? 'ОНЛАЙН-КІМНАТА'
               : screen === 'workshop'
-              ? 'МАЙСТЕРНЯ'
-              : screen === 'codex'
-                ? 'КОДЕКС ЗНАХІДОК'
-                : screen === 'lore'
-                  ? 'АРХІВ БУДИНКУ'
-                  : screen === 'case'
-                    ? 'СПРАВА 04:17'
-                    : screen === 'stats'
-                      ? 'СТАТИСТИКА'
-                      : screen === 'achievements'
-                        ? 'ДОСЯГНЕННЯ'
-                        : LOCATIONS[run?.chapter ?? 0].name +
-                          (run?.mode === 'endless'
-                            ? ` · КОЛО ${run.loop + 1}`
-                            : run?.mode === 'daily'
-                              ? ' · ДЕННИЙ'
-                              : '')}
+                ? 'МАЙСТЕРНЯ'
+                : screen === 'codex'
+                  ? 'КОДЕКС ЗНАХІДОК'
+                  : screen === 'lore'
+                    ? 'АРХІВ БУДИНКУ'
+                    : screen === 'case'
+                      ? 'СПРАВА 04:17'
+                      : screen === 'stats'
+                        ? 'СТАТИСТИКА'
+                        : screen === 'achievements'
+                          ? 'ДОСЯГНЕННЯ'
+                          : LOCATIONS[run?.chapter ?? 0].name +
+                            (run?.mode === 'endless'
+                              ? ` · КОЛО ${run.loop + 1}`
+                              : run?.mode === 'daily'
+                                ? ' · ДЕННИЙ'
+                                : '')}
         </span>
         <div className="top-actions">
           {screen !== 'play' && <Currency amount={meta.cores} cores />}
@@ -1588,8 +1641,9 @@ export default function Game() {
             {run && (
               <div className="hub-resume">
                 <b>Рейд триває:</b> {LOCATIONS[run.chapter].name}, крок{' '}
-                {run.step + 1}. Голова ОСББ: {RESIDENT_BY_ID[run.character].name},
-                врятовано {run.rescued.length}. <RunBadge run={run} />
+                {run.step + 1}. Голова ОСББ:{' '}
+                {RESIDENT_BY_ID[run.character].name}, врятовано{' '}
+                {run.rescued.length}. <RunBadge run={run} />
                 <button
                   type="button"
                   className="secondary stop-raid"
@@ -1684,54 +1738,60 @@ export default function Game() {
             )}
             {veteran && <NoticeBoard />}
             {veteran && (
-            <div className="hub-links">
-              <button
-                className="text-button"
-                onClick={() => setScreen('workshop')}
-              >
-                <Cog size={18} /> Майстерня
-              </button>
-              <button
-                className="text-button"
-                onClick={() => setScreen('codex')}
-              >
-                <BookOpen size={18} /> Кодекс{' '}
-                <span className="tiny-count">
-                  {meta.unlocked.length}/{ITEMS.length}
-                </span>
-              </button>
-              <button className="text-button" onClick={() => setScreen('lore')}>
-                <ScrollText size={18} /> Історія{' '}
-                <span className="tiny-count">
-                  {
-                    LIBRARY_IDS.filter((id) => meta.scenesSeen.includes(id))
-                      .length
-                  }
-                  /{LIBRARY_IDS.length}
-                </span>
-              </button>
-              <button className="text-button" onClick={() => setScreen('case')}>
-                <Search size={18} /> Справа 04:17{' '}
-                <span className="tiny-count">
-                  {meta.clues?.length ?? 0}/{CLUES.length}
-                </span>
-              </button>
-              <button
-                className="text-button"
-                onClick={() => setScreen('achievements')}
-              >
-                <Award size={18} /> Досягнення{' '}
-                <span className="tiny-count">
-                  {ownedAchievements(meta)}/{ACHIEVEMENTS.length}
-                </span>
-              </button>
-              <button
-                className="text-button"
-                onClick={() => setScreen('stats')}
-              >
-                <ChartColumn size={18} /> Статистика
-              </button>
-            </div>
+              <div className="hub-links">
+                <button
+                  className="text-button"
+                  onClick={() => setScreen('workshop')}
+                >
+                  <Cog size={18} /> Майстерня
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setScreen('codex')}
+                >
+                  <BookOpen size={18} /> Кодекс{' '}
+                  <span className="tiny-count">
+                    {meta.unlocked.length}/{ITEMS.length}
+                  </span>
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setScreen('lore')}
+                >
+                  <ScrollText size={18} /> Історія{' '}
+                  <span className="tiny-count">
+                    {
+                      LIBRARY_IDS.filter((id) => meta.scenesSeen.includes(id))
+                        .length
+                    }
+                    /{LIBRARY_IDS.length}
+                  </span>
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setScreen('case')}
+                >
+                  <Search size={18} /> Справа 04:17{' '}
+                  <span className="tiny-count">
+                    {meta.clues?.length ?? 0}/{CLUES.length}
+                  </span>
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setScreen('achievements')}
+                >
+                  <Award size={18} /> Досягнення{' '}
+                  <span className="tiny-count">
+                    {ownedAchievements(meta)}/{ACHIEVEMENTS.length}
+                  </span>
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setScreen('stats')}
+                >
+                  <ChartColumn size={18} /> Статистика
+                </button>
+              </div>
             )}
             {install.canInstall && (
               <div className="hub-secondary">
@@ -1948,9 +2008,11 @@ export default function Game() {
                     </h2>
                     <p className="lead">
                       {run.kind === 'chest'
-                        ? run.loot.length > 1
-                          ? 'Подвійне дно: у скрині дві знахідки, забери одну.'
-                          : 'У скрині один випадковий предмет.'
+                        ? run.coop
+                          ? 'У скрині знахідка для кожного будинку: кожен бере зі свого ряду.'
+                          : run.loot.length > 1
+                            ? 'Подвійне дно: у скрині дві знахідки, забери одну.'
+                            : 'У скрині один випадковий предмет.'
                         : run.coop
                           ? 'У кожного будинку своя полиця: кожен бере по одному предмету.'
                           : 'Вибери один предмет.'}{' '}
@@ -1981,11 +2043,14 @@ export default function Game() {
                         </div>
                       )}
                     {run.coop && (
-                      <div className={`reward-owner host${run.picked?.host ? ' done' : ''}`}>
+                      <div
+                        className={`reward-owner host${run.picked?.host ? ' done' : ''}`}
+                      >
                         <b>Для тебе</b>
                         {run.picked?.host ? (
                           <span className="took">
-                            <Check size={14} /> взяв: {takenText(run.picked.host)}
+                            <Check size={14} /> взяв:{' '}
+                            {takenText(run.picked.host)}
                           </span>
                         ) : (
                           <span>обери один</span>
@@ -2030,7 +2095,9 @@ export default function Game() {
                     </div>
                     {run.coop && (
                       <>
-                        <div className={`reward-owner mate${run.picked?.mate ? ' done' : ''}`}>
+                        <div
+                          className={`reward-owner mate${run.picked?.mate ? ' done' : ''}`}
+                        >
                           <b>Для {mateName}</b>
                           {run.picked?.mate ? (
                             <span className="took">
@@ -2043,6 +2110,25 @@ export default function Game() {
                         </div>
                         <div className="reward-cards">
                           {(run.mateLoot ?? []).map((loot, i) => {
+                            if (loot.kind === 'furniture') {
+                              const room =
+                                (run.mate?.furniture.length ?? 0) < 30;
+                              return (
+                                <FurnitureCard
+                                  key={'mf' + loot.id}
+                                  id={loot.id}
+                                  disabled={!room || livePartner}
+                                  onClick={() => giveFurnitureToMate(i)}
+                                  footer={
+                                    livePartner
+                                      ? `Обирає ${mateName}`
+                                      : room
+                                        ? `Віддати: ${mateName}`
+                                        : 'Запас меблів повний'
+                                  }
+                                />
+                              );
+                            }
                             const fits = giveMate(run, meta, loot.id) !== run;
                             return (
                               <ItemCard
@@ -2088,7 +2174,8 @@ export default function Game() {
                         ping(`Лут продано. +${pay} монет.`);
                       }}
                     >
-                      Продати знахідки за {earned(run, 10)} монет <ArrowRight size={16} />
+                      Продати знахідки за {earned(run, 10)} монет{' '}
+                      <ArrowRight size={16} />
                     </button>
                   </>
                 )}
@@ -2231,10 +2318,7 @@ export default function Game() {
                     run={run}
                     meta={meta}
                     onChange={setRun}
-                    names={[
-                      'Перший гравець',
-                      mateName || 'Другий гравець',
-                    ]}
+                    names={['Перший гравець', mateName || 'Другий гравець']}
                     vote={
                       eventOpen && net
                         ? ballot && ballot.step === run.step
@@ -2273,8 +2357,9 @@ export default function Game() {
           )}
         </>
       )}
-      {screen === 'guest' && net?.role === 'guest' && (
-        guestFight ? (
+      {screen === 'guest' &&
+        net?.role === 'guest' &&
+        (guestFight ? (
           <Suspense
             fallback={<section className="battle-screen" aria-busy="true" />}
           >
@@ -2296,6 +2381,7 @@ export default function Game() {
                   Math.max(0, r.run.kills - guestFight.run.kills),
                 );
                 setGuestEarned({ fight: pay, raid: 0 });
+                guestAdvance.current += pay;
                 if (pay) setMeta((m) => ({ ...m, cores: m.cores + pay }));
                 setGuestResult(r);
                 setGuestFight(null);
@@ -2314,8 +2400,7 @@ export default function Game() {
             earned={guestEarned}
             onLeave={closeOnline}
           />
-        )
-      )}
+        ))}
       {screen === 'workshop' && (
         <Suspense fallback={null}>
           <Workshop
@@ -2689,18 +2774,19 @@ export default function Game() {
               джойстик ліворуч. Стрільба автоматична.
             </p>
             <p>
-              <b>По мережі.</b> У Притулку «Хто грає?» → «Вдвох по мережі»: господар створює
-              кімнату й каже другові код із п’яти символів, той вводить його в
-              «Приєднатися». Господар веде рейд, гість у боях веде другий будинок
-              і отримує ядра у свій профіль. Працює між ПК і телефонами; потрібні
-              інтернет і однакова версія гри.
+              <b>По мережі.</b> У Притулку «Хто грає?» → «Вдвох по мережі»:
+              господар створює кімнату й каже другові код із п’яти символів, той
+              вводить його в «Приєднатися». Господар веде рейд, гість у боях
+              веде другий будинок і отримує ядра у свій профіль. Працює між ПК і
+              телефонами; потрібні інтернет і однакова версія гри.
             </p>
             <p>
-              <b>Вдвох.</b> У Притулку («Хто грає?» → «Вдвох тут») можна ввімкнути другого гравця на тому ж
-              пристрої. Перший веде будинок (WASD, пробіл, E), другий — другий
-              будинок на ногах зі стрілками (/ — ривок, . — вміння свого
-              героя) або з другим геймпадом чи джойстиком на екрані. Якщо він
-              упав, підведи будинок до нього й постій 2,5 с. Ворогів у такому рейді більше.
+              <b>Вдвох.</b> У Притулку («Хто грає?» → «Вдвох тут») можна
+              ввімкнути другого гравця на тому ж пристрої. Перший веде будинок
+              (WASD, пробіл, E), другий — другий будинок на ногах зі стрілками
+              (/ — ривок, . — вміння свого героя) або з другим геймпадом чи
+              джойстиком на екрані. Якщо він упав, підведи будинок до нього й
+              постій 2,5 с. Ворогів у такому рейді більше.
             </p>
             <p>
               <b>02 / Уникай шкоди.</b> Пробіл — ривок із коротким захистом. E —
@@ -2910,8 +2996,7 @@ export default function Game() {
         <ChatDock
           session={net}
           name={
-            net.partner?.name ||
-            (net.role === 'host' ? 'Гість' : 'Господар')
+            net.partner?.name || (net.role === 'host' ? 'Гість' : 'Господар')
           }
         />
       )}

@@ -85,12 +85,79 @@ test('A draft holds the fight until a card is taken, and queued levels follow', 
   assert.ok(b.elapsed > t);
 });
 
+test('In co-op each house takes its own perk: the fight waits for both', () => {
+  const meta = { ...M.initialMeta(), wins: 8 },
+    run = M.makeRun(meta, 'mechanic', 0, 7, { coop: 'flora' });
+  run.kind = 'battle';
+  run.step = 3;
+  const drafts = [];
+  const b = new Battle(null, run, meta, audio, () => {}, () => {}, {
+    onPerkDraft: (offers, level, mateOffers) => drafts.push({ offers, mateOffers }),
+  });
+  b.spawnTimer = b.shotTimer = b.droneTimer = 999;
+  const range = { house: b.stats.range, mate: b.mateStats.range };
+  b.run.xp = 999;
+  b.update(1 / 60);
+  assert.equal(drafts.length, 1);
+  assert.ok(drafts[0].mateOffers?.length === 3, 'the second house has its own three cards');
+  b.choosePerk(drafts[0].offers[0]);
+  assert.ok(b.choosing, 'the first pick alone does not resume the fight');
+  const t = b.elapsed;
+  b.tick(0.3);
+  assert.equal(b.elapsed, t);
+  b.chooseMatePerk('nonsense');
+  assert.ok(b.mateDrafting, 'only an offered card can be taken');
+  // The second house takes a perk the first one did not: only its stats change.
+  const pick = drafts[0].mateOffers.find((id) => id !== drafts[0].offers[0]);
+  b.chooseMatePerk(pick);
+  assert.ok(!b.choosing);
+  assert.deepEqual(b.run.perks, [drafts[0].offers[0]]);
+  assert.deepEqual(b.run.mate.perks, [pick]);
+  const mateOnly = M.statsFor(M.mateRun(b.run), meta);
+  assert.deepEqual(b.mateStats, mateOnly);
+  if (pick === 'searchlight') assert.equal(b.mateStats.range, range.mate + 70);
+  if (drafts[0].offers[0] !== 'searchlight') assert.equal(b.stats.range, range.house);
+  b.tick(0.1);
+  b.tick(0.02);
+  assert.ok(b.elapsed > t, 'then the fight runs again');
+});
+
+test("The second house's own perks act on the partner: blanket, second wind, saws", () => {
+  const meta = { ...M.initialMeta(), wins: 8 },
+    run = M.makeRun(meta, 'mechanic', 0, 7, { coop: 'flora' });
+  run.kind = 'battle';
+  run.mate = { ...run.mate, perks: ['blanket', 'second_wind', 'patrol'] };
+  const b = new Battle(null, run, meta, audio, () => {}, () => {}, {});
+  b.spawnTimer = b.shotTimer = b.droneTimer = 999;
+  const a = b.ally;
+  assert.equal(a.shields, 1, 'the blanket stops one blow');
+  assert.equal(b.hurtAlly(30, 0, 0), 0);
+  assert.equal(a.hp, a.max);
+  b.hurtAlly(a.max + 50, 0, 0);
+  assert.ok(!a.down && a.hp > 0, 'the second wind keeps the partner up once');
+  b.hurtAlly(a.max + 50, 0, 0);
+  assert.ok(a.down, 'but only once a fight');
+  assert.equal(b.mateStats.orbit, b.stats.orbit + 1, 'the saw is the second house’s');
+  assert.equal(b.pk('blanket'), 0, 'and none of it is the first house’s');
+});
+
 test('Balance bots take the first offer at once', () => {
   const b = battle({ options: { autoPerks: true } });
   b.run.xp = 999;
   b.update(1 / 60);
   assert.equal(b.run.perks.length, 1);
   assert.equal(b.drafting, null);
+  // Two houses: both take one.
+  const meta = { ...M.initialMeta(), wins: 8 },
+    run = M.makeRun(meta, 'mechanic', 0, 7, { coop: 'flora' });
+  run.kind = 'battle';
+  const duo = new Battle(null, run, meta, audio, () => {}, () => {}, { autoPerks: true });
+  duo.spawnTimer = duo.shotTimer = duo.droneTimer = 999;
+  duo.run.xp = 999;
+  duo.update(1 / 60);
+  assert.equal(duo.run.perks.length, 1);
+  assert.equal(duo.run.mate.perks.length, 1);
+  assert.ok(!duo.choosing);
 });
 
 test('Скарга № 311 pierces and Рикошет jumps to another enemy', () => {

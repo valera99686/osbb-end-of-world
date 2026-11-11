@@ -513,8 +513,11 @@ test('What the guest of an online room earns: by fights and by the raid, never n
   assert.equal(C.guestFightCores(false, false, 14), 0);
   assert.equal(C.guestFightCores(false, false, 400), G.lostCap, 'a lost fight pays little');
   assert.equal(C.guestFightCores(true, false, -5), G.win);
-  assert.equal(C.guestRunCores(10), 5);
-  assert.equal(C.guestRunCores(7), 4, 'rounded up');
+  // The raid: as many as the host, less what the fights already paid.
+  assert.equal(C.guestRunCores(10), 10);
+  assert.equal(C.guestRunCores(10, 4), 6, 'the fights were an advance');
+  assert.equal(C.guestRunCores(10, 4) + 4, 10, 'the two end up even');
+  assert.equal(C.guestRunCores(3, 7), 0, 'never negative');
   assert.equal(C.guestRunCores(0), 0);
   assert.equal(C.guestRunCores(-3), 0);
 });

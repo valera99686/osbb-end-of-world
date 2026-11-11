@@ -243,8 +243,16 @@ export function OnlinePanel({
             >
               {(
                 [
-                  ['sync', 'Обидва рахують', 'Найточніше й найлегше для мережі. Слабкий пристрій гальмує обох.'],
-                  ['host', 'Хост рахує', 'Господар рахує бій, гість керує й дивиться. Гість відчуває затримку зв’язку, зате розсинхрону немає.'],
+                  [
+                    'sync',
+                    'Обидва рахують',
+                    'Найточніше й найлегше для мережі. Слабкий пристрій гальмує обох.',
+                  ],
+                  [
+                    'host',
+                    'Хост рахує',
+                    'Господар рахує бій, гість керує й дивиться. Гість відчуває затримку зв’язку, зате розсинхрону немає.',
+                  ],
                 ] as const
               ).map(([id, name, text]) => (
                 <button
@@ -292,9 +300,7 @@ export function OnlinePanel({
       )}
       {session?.role === 'host' && session.phase === 'connected' && (
         <p>
-          <b>
-            Напарник підключений: {heroName(session.partner?.hero ?? '')}.
-          </b>{' '}
+          <b>Напарник підключений: {heroName(session.partner?.hero ?? '')}.</b>{' '}
           Тисни «Вирушити в рейд»: друг буде поруч у кожному бою.
           {session.via === 'relay' &&
             ' З’єднання йде через резервний канал: затримка більша, а бій рахуєш лише ти.'}
@@ -303,7 +309,9 @@ export function OnlinePanel({
       {session?.role === 'guest' && session.phase === 'joining' && (
         <p>{session.status || 'З’єднуємо з кімнатою…'}</p>
       )}
-      {session?.error && <p className="online-error">{netErrorText(session.error)}</p>}
+      {session?.error && (
+        <p className="online-error">{netErrorText(session.error)}</p>
+      )}
       {session && session.phase === 'closed' && !session.error && (
         <p>Кімнату закрито.</p>
       )}
@@ -342,68 +350,69 @@ export function GuestRoom({
     view &&
     (view.page === 'reward' || view.page === 'shop' || view.page === 'event');
   const card = (
-      <div className={`guest-card${view ? ' wide' : ''}`}>
-        <span className="micro">
-          <Globe size={14} /> КІМНАТА {session.code}
-        </span>
-        <h2>
-          {!voting
-            ? 'Господар веде рейд'
-            : single
-              ? 'Карта рейду'
-              : 'Куди йти — вирішуєте вдвох'}
-        </h2>
-        <p className="guest-status">
-          {session.status || 'Чекаємо, поки господар дійде до бою.'}
-        </p>
-        {voting && map && ballot && (
-          <Suspense fallback={null}>
-            <RouteTree
-              key={`${map.seed}-${map.chapter}-${map.step}`}
-              run={map}
-              onEnter={() => {}}
-              vote={{
-                mine: ballot.guest,
-                partner: ballot.host,
-                partnerName: 'Господар',
-                done: ballot.done,
-                onVote: (col) => session.voteGuest(col),
-                locked: single
-                  ? 'Єдиний шлях: господар вирушає, а ти йдеш за ним.'
-                  : undefined,
-              }}
-            />
-          </Suspense>
-        )}
-        {view && page && (
-          <GuestPages session={session} view={view} meta={meta} />
-        )}
-        {result && (
-          <div className="guest-result">
-            <b>{result.won ? 'Бій виграно' : 'Бій програно'}</b>
-            <span>Ворогів знищено: {result.run.kills}</span>
-            <span>Монет у спільній скарбниці: {Math.floor(result.run.coins)}</span>
-            <span className="guest-cores">Ядра тобі за бій: +{earned.fight}</span>
-          </div>
-        )}
-        {earned.raid > 0 && (
-          <div className="guest-result">
-            <b>Рейд господаря завершено</b>
-            <span className="guest-cores">
-              Ядра тобі за рейд: +{earned.raid}
-            </span>
-          </div>
-        )}
-        <p>
-          Коли господар почне бій, він відкриється тут сам. Ти ведеш
-          другий будинок: рух, ривок і вміння твого героя. Нагороди,
-          магазин і мешканці діляться на два будинки, каса спільна; карту
-          веде господар, а куди йти, вирішуєте вдвох.
-        </p>
-        <button type="button" className="secondary" onClick={onLeave}>
-          <LogOut size={16} /> Вийти з кімнати
-        </button>
-      </div>
+    <div className={`guest-card${view ? ' wide' : ''}`}>
+      <span className="micro">
+        <Globe size={14} /> КІМНАТА {session.code}
+      </span>
+      <h2>
+        {!voting
+          ? 'Господар веде рейд'
+          : single
+            ? 'Карта рейду'
+            : 'Куди йти — вирішуєте вдвох'}
+      </h2>
+      <p className="guest-status">
+        {session.status || 'Чекаємо, поки господар дійде до бою.'}
+      </p>
+      {voting && map && ballot && (
+        <Suspense fallback={null}>
+          <RouteTree
+            key={`${map.seed}-${map.chapter}-${map.step}`}
+            run={map}
+            onEnter={() => {}}
+            vote={{
+              mine: ballot.guest,
+              partner: ballot.host,
+              partnerName: 'Господар',
+              done: ballot.done,
+              onVote: (col) => session.voteGuest(col),
+              locked: single
+                ? 'Єдиний шлях: господар вирушає, а ти йдеш за ним.'
+                : undefined,
+            }}
+          />
+        </Suspense>
+      )}
+      {view && page && <GuestPages session={session} view={view} meta={meta} />}
+      {result && (
+        <div className="guest-result">
+          <b>{result.won ? 'Бій виграно' : 'Бій програно'}</b>
+          <span>Ворогів знищено: {result.run.kills}</span>
+          <span>
+            Монет у спільній скарбниці: {Math.floor(result.run.coins)}
+          </span>
+          <span className="guest-cores">Ядра тобі за бій: +{earned.fight}</span>
+        </div>
+      )}
+      {earned.raid > 0 && (
+        <div className="guest-result">
+          <b>Рейд господаря завершено</b>
+          <span className="guest-cores">
+            Ядра тобі за рейд: +{earned.raid} (разом із ядрами за бої стільки ж,
+            скільки в господаря)
+          </span>
+        </div>
+      )}
+      <p>
+        Коли господар почне бій, він відкриється тут сам. Ти ведеш другий
+        будинок: рух, ривок і вміння твого героя. Нагороди, магазин і мешканці
+        діляться на два будинки, каса спільна; карту веде господар, а куди йти,
+        вирішуєте вдвох.
+      </p>
+      <button type="button" className="secondary" onClick={onLeave}>
+        <LogOut size={16} /> Вийти з кімнати
+      </button>
+    </div>
   );
   if (!view || !house.mine)
     return (

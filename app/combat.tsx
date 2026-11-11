@@ -40,7 +40,7 @@ import {
   combatBark,
   type SpeakerId,
 } from '@/lib/game/story';
-import { statsFor, type Meta, type Run } from '@/lib/game/model';
+import { mateRun, statsFor, type Meta, type Run } from '@/lib/game/model';
 import { heroAbility, type HeroAbility } from '@/lib/game/heroes';
 import { P2_CODES, P2_KEYS } from '@/lib/game/coop';
 import { Lockstep, STALL_WARN, type ShareMode } from '@/lib/game/net';
@@ -73,6 +73,9 @@ const ABILITY_ICONS: Record<HeroAbility['id'], LucideIcon> = {
 // Online both ends stand still while the pick is made: it may take this long,
 // then the first card is taken, so that nobody waits for ever.
 const DRAFT_SECONDS = 12;
+// A guest of the mirror who stays silent: the host takes its first card for it
+// this many seconds after its own time is up (only the host simulates there).
+const MIRROR_GRACE = 12;
 const SECOND_HINT: Record<'dash' | 'pulse', string> = {
   dash: '/',
   pulse: '.',
@@ -169,9 +172,15 @@ export function Combat({
     // Where a floating stick is drawn (in the fight screen's own pixels).
     [float1, setFloat1] = useState<{ x: number; y: number } | null>(null),
     [float2, setFloat2] = useState<{ x: number; y: number } | null>(null),
-    [draft, setDraft] = useState<{ offers: PerkId[]; level: number } | null>(
-      null,
-    ),
+    // The open drafts of a level-up: the first house's and, in co-op, the
+    // second one's (null once taken). Each player takes the perk of their own.
+    [draft, setDraft] = useState<{
+      offers: PerkId[] | null;
+      mateOffers: PerkId[] | null;
+      level: number;
+    } | null>(null),
+    // A guest of the mirror has sent its pick (the host's answer is on its way).
+    [sent, setSent] = useState(''),
     [bark, setBark] = useState<{
       who: SpeakerId;
       text: string;
@@ -186,8 +195,6 @@ export function Combat({
   const alive = useRef(true),
     opened = useRef(false);
   const [draftLeft, setDraftLeft] = useState(DRAFT_SECONDS);
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
   useEffect(() => {
     // The host asks the guest to build the very same fight and waits for it.
     alive.current = true;
@@ -295,7 +302,13 @@ export function Combat({
         sync,
         feed,
         client,
-        onPerkTaken: () => setDraft(null),
+        onPerkTaken: (who) =>
+          setDraft((d) => {
+            if (!d) return d;
+            const next =
+              who === 0 ? { ...d, offers: null } : { ...d, mateOffers: null };
+            return next.offers || next.mateOffers ? next : null;
+          }),
         settings: meta.settings,
         introQuote:
           run.kind === 'boss' || run.kind === 'miniboss'
@@ -319,9 +332,13 @@ export function Combat({
           else if (beat.kind === 'phase' || beat.kind === 'stagger')
             say(beat.kind, true);
         },
-        onPerkDraft: (offers, level) => {
+        onPerkDraft: (offers, level, mateOffers) => {
           audio.play('rare');
-          setDraft({ offers, level });
+          setDraft({
+            offers: offers.length ? offers : null,
+            mateOffers,
+            level,
+          });
         },
         onPause: () => {
           // Settings hold the arena: Start must not flip the pause under them.
@@ -550,15 +567,53 @@ export function Combat({
   }
   // The fight is shared with a partner who is really there.
   const shared = !!net && sid !== null && sid > 0 && !!net.link;
-  function takePerk(id: PerkId) {
+  // Which draft this screen answers. Alone and two on one screen: the first
+  // house's, then the second one's. Online: the host its own house, the guest
+  // its own (a guest of the mirror reads the drafts from the host's numbers).
+  const mirrorGuest = shared && net?.role === 'guest' && startMode === 'host';
+  const hostOffers = mirrorGuest
+    ? (hud.hostDraft ?? null)
+    : (draft?.offers ?? null);
+  const mateOffers = mirrorGuest
+    ? (hud.mateDraft ?? null)
+    : (draft?.mateOffers ?? null);
+  const draftLevel = draft?.level ?? hud.level;
+  const mateKey = mateOffers ? `${draftLevel}:${mateOffers.join()}` : '';
+  const mine: { offers: PerkId[]; who: 0 | 1 } | null = !shared
+    ? hostOffers
+      ? { offers: hostOffers, who: 0 }
+      : mateOffers
+        ? { offers: mateOffers, who: 1 }
+        : null
+    : net?.role === 'guest'
+      ? mateOffers && sent !== mateKey
+        ? { offers: mateOffers, who: 1 }
+        : null
+      : hostOffers
+        ? { offers: hostOffers, who: 0 }
+        : null;
+  const drafting = !!draft || !!hud.drafting;
+  const partnerPicks = shared && drafting && !mine;
+  const mineRef = useRef(mine);
+  useEffect(() => {
+    mineRef.current = mine;
+  });
+  function takePerk(id: PerkId, who: 0 | 1) {
     audio.play('ui');
-    setDraft(null);
+    const b = engine.current;
+    if (!b) return;
+    if (b.client) {
+      // The guest of a mirror asks; the host's fight takes it.
+      b.client.choose(id);
+      setSent(mateKey);
+      return;
+    }
     // Online both ends take the pick at the same moment.
-    engine.current?.sync?.choose(id);
-    engine.current?.choosePerk(id);
+    b.sync?.choose(id);
+    if (who === 0) b.choosePerk(id);
+    else b.chooseMatePerk(id);
   }
-  const drafting = !!draft || hud.drafting,
-    draftKey = draft?.level ?? hud.level;
+  const draftKey = `${draftLevel}`;
   useEffect(() => {
     if (!shared || !drafting || paused || hold) {
       setDraftLeft(DRAFT_SECONDS);
@@ -566,31 +621,50 @@ export function Combat({
     }
     const start = performance.now();
     setDraftLeft(DRAFT_SECONDS);
+    let tookMine = false;
     const timer = window.setInterval(() => {
       const left = DRAFT_SECONDS - (performance.now() - start) / 1000;
       setDraftLeft(Math.max(0, Math.ceil(left)));
       if (left > 0) return;
-      window.clearInterval(timer);
-      const open = draftRef.current;
-      if (open && net?.role !== 'guest') takePerk(open.offers[0]);
+      // Time is up: this player's card is taken for them.
+      const own = mineRef.current;
+      if (own && !tookMine) {
+        tookMine = true;
+        takePerk(own.offers[0], own.who);
+      }
+      // A silent guest of the mirror: the host takes the first card for it.
+      const b = engine.current;
+      if (b?.feed && b.mateDrafting && left <= -MIRROR_GRACE)
+        b.chooseMatePerk(b.mateDrafting[0]);
+      if (!b?.choosing) window.clearInterval(timer);
     }, 250);
     return () => window.clearInterval(timer);
   }, [shared, drafting, paused, hold, draftKey]);
   const remaining = Math.max(0, Math.ceil(hud.duration - hud.time));
   return (
     <section className={`battle-screen${duo ? ' duo' : ''}`} ref={screen}>
-      {(draft || hud.drafting) && !paused && !hold && net?.role === 'guest' && (
+      {partnerPicks && !paused && !hold && (
         <div className="net-note" role="status">
-          Друг обирає покращення… ще {draftLeft} с
+          Друг обирає покращення для свого будинку… ще {draftLeft} с
         </div>
       )}
-      {draft && !paused && !hold && net?.role !== 'guest' && (
+      {mine && !paused && !hold && (
         <PerkDraft
-          run={engine.current?.run ?? run}
-          offers={draft.offers}
-          level={draft.level}
+          key={`${mine.who}:${draftLevel}`}
+          run={(mine.who === 1 ? mateRun : (r: Run) => r)(
+            engine.current?.run ?? run,
+          )}
+          offers={mine.offers}
+          level={draftLevel}
+          owner={
+            !run.coop
+              ? undefined
+              : shared
+                ? 'Для твого будинку'
+                : `Гравець ${mine.who + 1} · ${CHARACTERS.find((c) => c.id === (mine.who === 1 ? run.coop : run.character))?.name ?? ''}: для свого будинку`
+          }
           waiting={shared ? draftLeft : undefined}
-          onPick={takePerk}
+          onPick={(id) => takePerk(id, mine.who)}
         />
       )}
       {(sid === null || netNote) && (

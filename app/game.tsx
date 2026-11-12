@@ -77,6 +77,8 @@ import {
   MonitorDown,
   Route,
   Users,
+  Coffee,
+  ShoppingBag,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import {
@@ -128,6 +130,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import { DemoOffer, DemoShop, type OfferId } from './demo-offers';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
 import { Glyph } from './glyph';
 import { APARTMENT_SLOTS } from '@/lib/game/equipment';
@@ -276,10 +279,14 @@ export default function Game() {
       | 'achievements'
       | 'case'
       | 'guest'
+      | 'shop'
     >('hub');
   const [character, setCharacter] = useState('mechanic'),
     [chapter, setChapter] = useState(0),
     [help, setHelp] = useState(false),
+    // The proposed purchases, shown where they would live (docs/finmodel.md):
+    // demo windows, nothing is sold.
+    [offer, setOffer] = useState<OfferId | null>(null),
     [settingsOpen, setSettingsOpen] = useState(false),
     [combatPaused, setCombatPaused] = useState(false),
     [heat, setHeat] = useState(0),
@@ -356,6 +363,7 @@ export default function Game() {
     (ready && !meta.tutorialDone) ||
     settingsOpen ||
     help ||
+    !!offer ||
     abandon ||
     (housingOpen && !!run) ||
     !!pending ||
@@ -588,7 +596,10 @@ export default function Game() {
         return;
       }
       if (run?.page === 'combat' && screen === 'play') return;
-      if (help) {
+      if (offer) {
+        e.preventDefault();
+        setOffer(null);
+      } else if (help) {
         e.preventDefault();
         setHelp(false);
       } else if (result) {
@@ -611,6 +622,7 @@ export default function Game() {
     run?.page,
     screen,
     help,
+    offer,
     settingsOpen,
     housingOpen,
     meta.sceneProgress,
@@ -1520,6 +1532,8 @@ export default function Game() {
                     ? 'АРХІВ БУДИНКУ'
                     : screen === 'case'
                       ? 'СПРАВА 04:17'
+                      : screen === 'shop'
+                        ? 'МАГАЗИН (ДЕМО)'
                       : screen === 'stats'
                         ? 'СТАТИСТИКА'
                         : screen === 'achievements'
@@ -1532,6 +1546,16 @@ export default function Game() {
                                 : '')}
         </span>
         <div className="top-actions">
+          {screen === 'hub' && (
+            <button
+              className="icon-button coffee-button"
+              aria-label="Кава для ОСББ (демо)"
+              title="Кава для ОСББ (демо)"
+              onClick={() => setOffer('coffee')}
+            >
+              <Coffee size={18} />
+            </button>
+          )}
           {screen !== 'play' && <Currency amount={meta.cores} cores />}
           <button
             className="icon-button"
@@ -1810,18 +1834,22 @@ export default function Game() {
                 </button>
               </div>
             )}
-            {install.canInstall && (
-              <div className="hub-secondary">
-                {install.canInstall && (
-                  <button
-                    className="text-button small"
-                    onClick={install.install}
-                  >
-                    <MonitorDown size={16} /> Встановити гру
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="hub-secondary">
+              <button
+                className="demo-shop-link"
+                onClick={() => setScreen('shop')}
+              >
+                <ShoppingBag size={16} /> Магазин ОСББ (демо)
+              </button>
+              {install.canInstall && (
+                <button
+                  className="text-button small"
+                  onClick={install.install}
+                >
+                  <MonitorDown size={16} /> Встановити гру
+                </button>
+              )}
+            </div>
           </div>
           <div className="chapter-plaque">
             <span className="micro">НАСТУПНА ЗУПИНКА</span>
@@ -1838,6 +1866,17 @@ export default function Game() {
                   {run && run.chapter > i && <Check size={16} />}
                 </li>
               ))}
+              <li className="demo-locked">
+                <button
+                  className="text-button small"
+                  onClick={() => setOffer('chapter')}
+                  aria-label="Доповнення «Сусідній будинок» (демо)"
+                >
+                  <b>0{LOCATIONS.length + 1}</b>
+                  <span>Сусідній будинок · доповнення</span>
+                  <Lock size={15} />
+                </button>
+              </li>
             </ol>
           </div>
           <div className="hub-bottom">
@@ -2418,9 +2457,11 @@ export default function Game() {
             onLeave={closeOnline}
           />
         ))}
+      {screen === 'shop' && <DemoShop onBack={back} onOffer={setOffer} />}
       {screen === 'workshop' && (
         <Suspense fallback={null}>
           <Workshop
+            onOffer={setOffer}
             meta={meta}
             onChange={setMeta}
             onBack={back}
@@ -2733,6 +2774,17 @@ export default function Game() {
                   <Play size={17} /> Переглянути кінцівку
                 </button>
               )}
+              {result.won && (
+                <button
+                  className="text-button small demo-offer-link"
+                  onClick={() => {
+                    setResult(null);
+                    setOffer('coffee');
+                  }}
+                >
+                  <Coffee size={16} /> Сподобалось? Пригости ОСББ кавою (демо)
+                </button>
+              )}
             </>
           )}
           <button className="primary" onClick={() => setResult(null)}>
@@ -2740,6 +2792,7 @@ export default function Game() {
           </button>
         </DialogContent>
       </Dialog>
+      <DemoOffer offer={offer} onClose={() => setOffer(null)} />
       <Dialog open={help} onOpenChange={setHelp}>
         <DialogContent className="game-modal help-modal">
           <DialogTitle>Як пережити ще один день</DialogTitle>

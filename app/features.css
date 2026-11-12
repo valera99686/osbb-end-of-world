@@ -1672,3 +1672,150 @@ html[data-cvd='deutan'] {
 html[data-cvd='tritan'] {
   filter: url(#cvd-tritan);
 }
+
+/* The proposed «Кава для ОСББ» (docs/finmodel.md): a demo window in the
+   Shelter, nothing is sold. */
+.coffee-button {
+  color: var(--amber);
+}
+.coffee-modal[data-slot='dialog-content'] {
+  max-width: 460px;
+  width: min(92vw, 460px);
+}
+.coffee-modal [data-slot='dialog-title'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.coffee-offer {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  background: #15222b;
+}
+.coffee-offer b {
+  font-size: calc(22px * var(--text-scale, 1));
+  color: var(--amber);
+  white-space: nowrap;
+}
+.coffee-offer span {
+  font-size: calc(13px * var(--text-scale, 1));
+  line-height: 1.6;
+  color: #c1d1d7;
+}
+.coffee-modal button.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.demo-offer-link {
+  align-self: center;
+  color: var(--amber);
+}
+.campaign-itinerary li.demo-locked > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  color: var(--amber);
+  font: inherit;
+  text-align: left;
+}
+.campaign-itinerary li.demo-locked b {
+  border-style: dashed;
+  border-color: var(--amber);
+}
+.modifier-card.demo-offer {
+  border-style: dashed;
+}
+.modifier-card.demo-offer .modifier-icon {
+  color: var(--amber);
+}
+/* The demo shop of the main menu (app/demo-offers.tsx). */
+.hub-secondary .demo-shop-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  background: rgba(224, 165, 74, 0.1);
+  color: var(--amber);
+  font-size: calc(14px * var(--text-scale, 1));
+  font-weight: 600;
+}
+.hub-secondary .demo-shop-link:hover {
+  background: rgba(224, 165, 74, 0.2);
+}
+.demo-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  margin: 18px 0 20px;
+}
+.demo-shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--amber);
+  border-radius: 10px;
+  background: #15222b;
+}
+.demo-shop-card h3 {
+  margin: 0;
+}
+.demo-shop-card p {
+  margin: 0;
+  font-size: calc(13px * var(--text-scale, 1));
+  line-height: 1.6;
+  color: #c1d1d7;
+}
+.demo-shop-card .demo-shop-honest {
+  color: #86a0ab;
+  flex: 1;
+}
+.demo-shop-icon {
+  color: var(--amber);
+}
+.demo-shop-price {
+  font-size: calc(24px * var(--text-scale, 1));
+  color: var(--amber);
+}
+.demo-shop-card button.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.hub-secondary .demo-shop-link {
+  cursor: pointer;
+}
+.demo-shop-section {
+  margin-top: 26px;
+}
+.demo-shop-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.demo-shop-heading h3 {
+  margin: 0;
+}
+.demo-shop-heading span {
+  font-size: calc(12px * var(--text-scale, 1));
+  color: #86a0ab;
+}
+.demo-shop-section .demo-shop-grid {
+  margin: 14px 0 0;
+}

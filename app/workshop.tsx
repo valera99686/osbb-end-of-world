@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { ArrowLeft, Check, Hexagon, Lock, ArrowRight } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Hexagon,
+  Lock,
+  ArrowRight,
+  BatteryCharging,
+} from 'lucide-react';
+import type { OfferId } from './demo-offers';
 import { RESEARCH } from '@/lib/game/data';
 import {
   BLUEPRINTS,
@@ -20,11 +28,14 @@ export function Workshop({
   onChange,
   onBack,
   onMessage,
+  onOffer,
 }: {
   meta: Meta;
   onChange: (m: Meta) => void;
   onBack: () => void;
   onMessage: (s: string) => void;
+  // Opens the demo window of a proposed purchase (docs/finmodel.md).
+  onOffer?: (id: OfferId) => void;
 }) {
   const [filter, setFilter] = useState('all');
   const available = BLUEPRINTS.filter(
@@ -233,6 +244,18 @@ export function Workshop({
             </article>
           );
         })}
+        {onOffer && (
+          <article className="modifier-card demo-offer">
+            <span className="modifier-icon">
+              <BatteryCharging size={24} />
+            </span>
+            <h3>Запасний генератор</h3>
+            <p>Раз за рейд упалий будинок підводиться з половиною міцності.</p>
+            <button className="secondary" onClick={() => onOffer('generator')}>
+              80 грн · демо
+            </button>
+          </article>
+        )}
       </div>
       <div className="workshop-section-title">
         <h3>Спадщина рейдів</h3>

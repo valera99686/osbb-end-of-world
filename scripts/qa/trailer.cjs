@@ -9,7 +9,9 @@
 //   python scripts/qa/narrate.py --out OUT/narration [--asr PYTHON]   (OmniVoice environment)
 //   node scripts/qa/trailer.cjs voice DIR            (b1.mp3 ... of the Eleven engine, made ready)
 //   NARRATION=narration-eleven node scripts/qa/trailer.cjs edit   (OUT/osbb-trailer-voiced.mp4)
-// Takes: prologue, run, boss, house, duo, online. OUT defaults to ./trailer-out.
+// PERK_HOLD=4200 (capture) keeps the perk draft open longer; PERK_AT=<s> (edit) is where it
+// opens in raw/run.mp4.
+// Takes: prologue, run, boss, howto, house, duo, online, shop. OUT defaults to ./trailer-out.
 const fs = require('node:fs');
 const path = require('node:path');
 const { launch, sleep, closeAll, film } = require('./cdp.cjs');
@@ -75,7 +77,9 @@ async function play(p, seconds, { second = false, onPerk } = {}) {
     if (await p.eval(`!!document.querySelector('.perk-card')`)) {
       if (held) await p.key(held, false);
       held = null;
-      await sleep(1800);
+      // PERK_HOLD: how long the draft stays open on the film (ms), so the shot of it
+      // in the edit lasts as long as the voice talks about it.
+      await sleep(Number(process.env.PERK_HOLD) || 1800);
       onPerk?.(t);
       await p.eval(`document.querySelector('.perk-card')?.click(); 0`);
       await sleep(600);
@@ -284,6 +288,34 @@ const TAKES = {
     await sleep(3000);
     await Promise.all([finish(host, 'online-host'), finish(guest, 'online-guest')]);
   },
+  // The demo shop of the main menu (nothing is sold): the button, the cards, the honest
+  // verdict of a purchase.
+  async shop() {
+    const p = await open({ scenesSeen: ['prologue', 'origins', 'arrival-0'] });
+    const y = await p.eval(`Math.max(0, document.querySelector('.demo-shop-link').getBoundingClientRect().top + scrollY - 520)`);
+    await p.eval(`window.scrollTo(0, ${y}); 0`);
+    await sleep(700);
+    await rec(p, 'shop');
+    await sleep(1600);
+    // The shop opens where the menu was scrolled to: start it from its top, before the
+    // first frame of it is painted.
+    await p.eval(
+      `document.querySelector('.demo-shop-link').click(); requestAnimationFrame(() => window.scrollTo(0, 0)); 0`,
+    );
+    await sleep(150);
+    await p.eval('window.scrollTo(0, 0); 0');
+    await sleep(3200);
+    const cores = await p.eval(
+      `(()=>{const h=[...document.querySelectorAll('.demo-shop-heading h3')].find((e)=>e.innerText==='Ядра'); return h.getBoundingClientRect().top + scrollY - 110})()`,
+    );
+    await scroll(p, cores, 2600);
+    await sleep(2400);
+    await p.eval(
+      `(()=>{const c=[...document.querySelectorAll('.demo-shop-card')].find((e)=>/Запасний генератор/.test(e.innerText)); c.querySelector('.text-button').click(); 0})()`,
+    );
+    await sleep(4600);
+    await finish(p, 'shop');
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -337,11 +369,16 @@ function edit() {
     { id: 'howto', src: 'howto', ss: 6.0, a: part('b3', 'b4', 0.36), b: cut.b4, keys: true },
     { id: 'house', src: 'house', ss: 1.5, a: cut.b4, b: part('b4', 'b5', 0.55) },
     { id: 'fightC', src: 'run', ss: 44, a: part('b4', 'b5', 0.55), b: cut.b5 },
-    { id: 'perk', src: 'run', ss: 29.8, a: cut.b5, b: part('b5', 'b6', 0.45) },
+    // PERK_AT: the second of raw/run.mp4 where the perk draft opens (it moves with the
+    // fight: look at a contact sheet of the clip after a new capture).
+    { id: 'perk', src: 'run', ss: Number(process.env.PERK_AT) || 29.8, a: cut.b5, b: part('b5', 'b6', 0.45) },
     { id: 'boss', src: 'boss', ss: 1.0, a: part('b5', 'b6', 0.45), b: cut.b6 },
     { id: 'duo', src: 'duo', ss: 8, a: cut.b6, b: part('b6', 'b7', 0.33) },
     { id: 'online', kind: 'split', a: part('b6', 'b7', 0.33), b: cut.b7 },
-    { id: 'stats', kind: 'stats', a: cut.b7, b: cut.b8 },
+    { id: 'stats', kind: 'stats', a: cut.b7, b: cut.b9 },
+    // b9, the price and the donations (said before the end, b8): the demo shop.
+    { id: 'shopA', src: 'shop', ss: Number(process.env.SHOP_A) || 0.4, a: cut.b9, b: part('b9', 'b8', 0.52) },
+    { id: 'shopB', src: 'shop', ss: Number(process.env.SHOP_B) || 6.5, a: part('b9', 'b8', 0.52), b: cut.b8 },
     { id: 'end', kind: 'end', a: cut.b8, b: total },
   ];
   // Piece k+1 starts FADE/2 before the cut, so a cut is the middle of its cross-fade.
@@ -428,7 +465,7 @@ function edit() {
       chain += ',' + dt('кінця світу', `fontsize=120:fontcolor=${AMBER}:x=(w-text_w)/2:y=380:alpha='min(1,max(0,(t-${t1}-0.3)/0.6))'`);
       chain += ',' + dt('Грай у браузері: valera99686.github.io/osbb-end-of-world', `fontsize=46:fontcolor=white:box=1:boxcolor=0x000000@0.55:boxborderw=18:x=(w-text_w)/2:y=600:alpha='min(1,max(0,(t-${t1}-1.0)/0.5))'`);
       chain += ',' + dt('Android APK у Releases на GitHub  ·  Вдвох по мережі: листування й розмови прямо в грі', `fontsize=34:fontcolor=white:x=(w-text_w)/2:y=700:alpha='min(1,max(0,(t-${t1}-1.4)/0.5))'`);
-      chain += ',' + dt('Версія 0.37.0', `fontsize=30:fontcolor=${TEAL}:x=(w-text_w)/2:y=775:alpha='min(1,max(0,(t-${t1}-1.8)/0.5))'`);
+      chain += ',' + dt(`Версія ${require('../../package.json').version}`, `fontsize=30:fontcolor=${TEAL}:x=(w-text_w)/2:y=775:alpha='min(1,max(0,(t-${t1}-1.8)/0.5))'`);
       filters.push(`${chain},fade=t=out:st=${(s.d - 1.2).toFixed(2)}:d=1.2[${out}]`);
     } else {
       const room = Math.max(1, clipLen(s.src) - s.ss - 0.1);
@@ -532,7 +569,7 @@ function edit() {
     filters.push(`${chain},aformat=channel_layouts=stereo,adelay=${ms(when)}|${ms(when)}[sx${n}]`);
     sfx.push(`[sx${n}]`);
   };
-  for (const id of ['b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8'])
+  for (const id of ['b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b9', 'b8'])
     addSfx('anoisesrc=d=0.7:c=pink:r=48000:a=0.9,highpass=f=500,lowpass=f=7500,afade=t=in:st=0:d=0.35,afade=t=out:st=0.35:d=0.35,volume=0.32', cut[id] - 0.35);
   // The hit on "А потім світ закінчився!" and on the end card.
   const hit = 'sine=f=52:d=1.1:r=48000,afade=t=out:st=0.02:d=1.05,volume=1.5';

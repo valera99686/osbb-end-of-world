@@ -11,7 +11,8 @@
 //   NARRATION=narration-eleven node scripts/qa/trailer.cjs edit   (OUT/osbb-trailer-voiced.mp4)
 // PERK_HOLD=4200 (capture) keeps the perk draft open longer; PERK_AT=<s> (edit) is where it
 // opens in raw/run.mp4.
-// Takes: prologue, run, boss, howto, house, duo, online, shop. OUT defaults to ./trailer-out.
+// Takes: prologue, run, boss, howto, house, duo, online, shop, party and the four leaders
+// (leader-commandant, leader-signalman, leader-architect, leader-chronarch). OUT defaults to ./trailer-out.
 const fs = require('node:fs');
 const path = require('node:path');
 const { launch, sleep, closeAll, film } = require('./cdp.cjs');
@@ -316,7 +317,96 @@ const TAKES = {
     await sleep(4600);
     await finish(p, 'shop');
   },
+  // One leader's fight, to show its mechanic: the dev build's raid is put on the fight, the
+  // presentation skipped and the house made unhurtable for the film.
+  // `fightAt` in the log is the second of the clip where the fight clock starts.
+  async 'leader-commandant'() {
+    await leaderTake('leader-commandant', 'boss', 0, 0, 11);
+  },
+  async 'leader-signalman'() {
+    await leaderTake('leader-signalman', 'boss', 0, 2, 11);
+  },
+  async 'leader-architect'() {
+    await leaderTake('leader-architect', 'boss', 2, 0, 15);
+  },
+  async 'leader-chronarch'() {
+    await leaderTake('leader-chronarch', 'boss', 2, 2, 19);
+  },
+  // A room of four: the host is filmed, three guests (not filmed) join by the code; the host
+  // counts the fight (the lockstep of four pages on one screen would be too slow).
+  async party() {
+    const seen = { scenesSeen: ['prologue', 'origins', 'arrival-0'] };
+    const host = await open(seen);
+    const guests = [];
+    for (let i = 0; i < 3; i++) guests.push(await open(seen));
+    await rec(host, 'party');
+    const t0 = Date.now();
+    await sleep(1000);
+    await Promise.all([host, ...guests].map((p) => p.click('По мережі', 'button.play-mode')));
+    await sleep(1400);
+    await host.eval(`document.querySelector('.online-more')?.setAttribute('open', '')`);
+    await host.click('Хост рахує', '.share-option');
+    await sleep(900);
+    await host.click('Створити кімнату');
+    const code = await host.until('the code', `document.querySelector('.room-code b')?.textContent`);
+    await sleep(1800);
+    for (const [i, guest] of guests.entries()) {
+      await guest.click('Приєднатися');
+      await sleep(700);
+      await guest.eval(
+        `(()=>{const i=document.querySelector('.online-join input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i, ${JSON.stringify(code)}); i.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+      );
+      await sleep(700);
+      await guest.click('^Зайти$');
+      await host.until(`guest ${i + 1}`, `/Підключено: ${i + 1} із/.test(document.body.innerText)`, 60000);
+      await sleep(1500);
+    }
+    await sleep(2200);
+    log('party: the room is full at', ((Date.now() - t0) / 1000).toFixed(1), 's');
+    await host.eval(`document.querySelector('.start-button').click()`);
+    await sleep(2500);
+    await skipScenes(host, 5);
+    await host.until('the map', `!!document.querySelector('button.tree-go')`, 30000);
+    await sleep(2200);
+    await host.eval(`document.querySelector('button.tree-go').click()`);
+    await host.until('host fight', `!!window.__battle`, 60000);
+    for (const g of guests) await g.until('guest fight', `!!window.__battle`, 60000);
+    await sleep(2200);
+    log('party: the fight starts at', ((Date.now() - t0) / 1000).toFixed(1), 's');
+    await play(host, 16);
+    await finish(host, 'party');
+  },
 };
+
+// A boss fight on its own page (see TAKES['leader-*']).
+async function leaderTake(name, kind, chapter, variant, seconds) {
+  const p = await open({ scenesSeen: ['prologue', 'origins', 'arrival-0'] });
+  await p.eval(`document.querySelector('.start-button').click()`);
+  await sleep(2500);
+  await skipScenes(p, 4);
+  await p.until('the map', `!!document.querySelector('button.tree-go')`, 15000);
+  await rec(p, name);
+  const t0 = Date.now();
+  await sleep(600);
+  const patch = {
+    page: 'combat',
+    kind,
+    chapter,
+    step: 9,
+    bossVariants: [0, 1, 2].map((c) => (c === chapter ? variant : 0)),
+  };
+  await p.eval(`window.__osbbRun(${JSON.stringify(patch)}); 0`);
+  await p.until('the fight', `!!document.querySelector('canvas.battle-canvas')`, 20000);
+  // The presentation holds the fight: a key skips it.
+  await sleep(900);
+  await p.key('Enter');
+  await sleep(300);
+  await p.key('Enter');
+  await p.eval(`if (window.__battle) window.__battle.invincible = 1e9; 0`);
+  log(name, 'fightAt', ((Date.now() - t0) / 1000 + 0.6).toFixed(1));
+  await play(p, seconds);
+  await finish(p, name);
+}
 
 // ---------------------------------------------------------------------------
 // The edit: the picture is cut to the voice. narrate.py speaks scripts/qa/narration.json
@@ -371,10 +461,18 @@ function edit() {
     { id: 'fightC', src: 'run', ss: 44, a: part('b4', 'b5', 0.55), b: cut.b5 },
     // PERK_AT: the second of raw/run.mp4 where the perk draft opens (it moves with the
     // fight: look at a contact sheet of the clip after a new capture).
-    { id: 'perk', src: 'run', ss: Number(process.env.PERK_AT) || 29.8, a: cut.b5, b: part('b5', 'b6', 0.45) },
-    { id: 'boss', src: 'boss', ss: 1.0, a: part('b5', 'b6', 0.45), b: cut.b6 },
-    { id: 'duo', src: 'duo', ss: 8, a: cut.b6, b: part('b6', 'b7', 0.33) },
-    { id: 'online', kind: 'split', a: part('b6', 'b7', 0.33), b: cut.b7 },
+    { id: 'perk', src: 'run', ss: Number(process.env.PERK_AT) || 29.8, a: cut.b5, b: part('b5', 'b10', 0.45) },
+    { id: 'boss', src: 'boss', ss: 1.0, a: part('b5', 'b10', 0.45), b: cut.b10 },
+    // b10, the bosses' tricks: four leaders, a few seconds of each (LEADER_*: the second of its clip).
+    { id: 'leaderA', src: 'leader-commandant', ss: Number(process.env.LEADER_A) || 5, a: cut.b10, b: part('b10', 'b6', 0.24) },
+    { id: 'leaderB', src: 'leader-signalman', ss: Number(process.env.LEADER_B) || 5, a: part('b10', 'b6', 0.24), b: part('b10', 'b6', 0.5) },
+    { id: 'leaderC', src: 'leader-architect', ss: Number(process.env.LEADER_C) || 12, a: part('b10', 'b6', 0.5), b: part('b10', 'b6', 0.76) },
+    { id: 'leaderD', src: 'leader-chronarch', ss: Number(process.env.LEADER_D) || 14, a: part('b10', 'b6', 0.76), b: cut.b6 },
+    { id: 'duo', src: 'duo', ss: 8, a: cut.b6, b: part('b6', 'b7', 0.24) },
+    { id: 'online', kind: 'split', a: part('b6', 'b7', 0.24), b: part('b6', 'b7', 0.56) },
+    // Four in a room: the host's screen with three guests (take `party`: PARTY_A the room, PARTY_B the fight).
+    { id: 'partyA', src: 'party', ss: Number(process.env.PARTY_A) || 15.5, a: part('b6', 'b7', 0.56), b: part('b6', 'b7', 0.7) },
+    { id: 'partyB', src: 'party', ss: Number(process.env.PARTY_B) || 36, a: part('b6', 'b7', 0.7), b: cut.b7 },
     { id: 'stats', kind: 'stats', a: cut.b7, b: cut.b9 },
     // b9, the price and the donations (said before the end, b8): the demo shop.
     { id: 'shopA', src: 'shop', ss: Number(process.env.SHOP_A) || 0.4, a: cut.b9, b: part('b9', 'b8', 0.52) },
@@ -569,7 +667,7 @@ function edit() {
     filters.push(`${chain},aformat=channel_layouts=stereo,adelay=${ms(when)}|${ms(when)}[sx${n}]`);
     sfx.push(`[sx${n}]`);
   };
-  for (const id of ['b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b9', 'b8'])
+  for (const id of ['b2', 'b3', 'b4', 'b5', 'b10', 'b6', 'b7', 'b9', 'b8'])
     addSfx('anoisesrc=d=0.7:c=pink:r=48000:a=0.9,highpass=f=500,lowpass=f=7500,afade=t=in:st=0:d=0.35,afade=t=out:st=0.35:d=0.35,volume=0.32', cut[id] - 0.35);
   // The hit on "А потім світ закінчився!" and on the end card.
   const hit = 'sine=f=52:d=1.1:r=48000,afade=t=out:st=0.02:d=1.05,volume=1.5';

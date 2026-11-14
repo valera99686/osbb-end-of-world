@@ -55,6 +55,13 @@ import {
   propBody,
 } from './arena';
 import { drawEnemy, drawEnemyGhost } from './enemy-art';
+import { MECH_TYPE } from './leader-mech';
+import {
+  drawHelper,
+  drawLeaderMechanic,
+  drawMarks,
+  leaderAlpha,
+} from './leader-view';
 import { fast } from './sprites';
 import { heroAbility } from './heroes';
 import { pacer } from './pace';
@@ -671,6 +678,7 @@ function draw(this: Battle) {
       }
     } else if (!this.onScreen(e, actor.dying, visible)) continue;
     else if (e.type === COURIER) this.drawCourier(c, e, actor.dying);
+    else if (e.type === MECH_TYPE) drawHelper(c, this, e, actor.dying);
     else {
       const affix = this.affixStyle(e);
       if (affix && e.trail && !actor.dying)
@@ -686,6 +694,12 @@ function draw(this: Battle) {
             this.run.bossVariants[this.run.chapter],
             this.minibossVariant,
           );
+      // The relay hunter fades out of sight at a distance.
+      const see = isLeader(e.type) ? leaderAlpha(e) : 1;
+      if (see < 1) {
+        c.save();
+        c.globalAlpha = see;
+      }
       drawEnemy(
         c,
         e,
@@ -697,6 +711,8 @@ function draw(this: Battle) {
         colorblind,
         affix,
       );
+      if (see < 1) c.restore();
+      if (!actor.dying && isLeader(e.type)) drawLeaderMechanic(c, this, e);
       if (!actor.dying && (e.stagger ?? 0) > 0) this.drawStagger(c, e);
       if (!actor.dying && (e.burn ?? 0) > 0)
         this.glowAt(
@@ -717,6 +733,7 @@ function draw(this: Battle) {
     }
   }
   propsBefore(Infinity);
+  drawMarks(c, this);
   if (this.muzzle > 0 && !wrecked) this.drawMuzzle(c);
   for (const [at, st] of this.orbiters()) {
     for (let i = 0; i < st.drones; i++) {

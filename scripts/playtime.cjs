@@ -130,7 +130,7 @@ function raid(meta, seed, hero = 'mechanic', heat = 0, log) {
       t.fight += b.elapsed;
       t.fights++;
       if (process.env.TRACE)
-        console.log(`  ${run.chapter + 1}:${run.step + 1} ${run.kind} ${b.elapsed.toFixed(0)}s ${b.endReason} hp ${Math.round(b.run.hp)}/${Math.round(b.stats.health)} lvl ${b.run.level} kills ${b.run.kills}`);
+        console.log(`  ${run.chapter + 1}:${run.step + 1} ${run.kind}${run.kind === 'boss' ? '#' + run.bossVariants[run.chapter] : run.kind === 'miniboss' ? '#' + M.minibossVariant(run) : ''} ${b.elapsed.toFixed(0)}s ${b.endReason} hp ${Math.round(b.run.hp)}/${Math.round(b.stats.health)} lvl ${b.run.level} kills ${b.run.kills}`);
       if (run.kind === 'boss' || run.kind === 'miniboss') t.off += OFF.fightIntro;
       if (!res) res = { run: b.run, won: false, boss: run.kind === 'boss' };
       if (!res.won) {

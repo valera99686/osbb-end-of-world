@@ -163,5 +163,5 @@ test('The partner\'s microphone is told, and forgotten when the link goes', () =
 });
 
 test('The chat protocol is a new one', () => {
-  assert.equal(N.NET_PROTOCOL, 8);
+  assert.equal(N.NET_PROTOCOL, 9);
 });

@@ -12,6 +12,19 @@ export interface Hazard {
   slow?: number;
   // Volatile-affix wreck: bursts with debris when it goes off.
   blast?: boolean;
+  // A rectangle of half-sides rw x rh around (x, y) instead of a circle or a
+  // line (walls, floor plans and curtains of the leaders' mechanics).
+  rw?: number;
+  rh?: number;
+  // A zone that belongs to a leader's mechanic: it is not cut when the list of
+  // zones is trimmed, and the mechanic finds it again by this name.
+  key?: string;
+  // Switched off for a while (pulsing wires): neither hurts nor pulls.
+  off?: boolean;
+  // Pulls whoever stands inside toward its centre, pixels a second.
+  pull?: number;
+  // Leaves a spore mark on whoever it hurts (see Battle.marks).
+  mark?: boolean;
 }
 export interface BossPattern {
   name: string;
@@ -164,7 +177,9 @@ export function bossPattern(
   return result;
 }
 export function hazardContains(h: Hazard, x: number, y: number): boolean {
-  if (h.age < 0 || h.age >= h.duration) return false;
+  if (h.off || h.age < 0 || h.age >= h.duration) return false;
+  if (h.rw !== undefined && h.rh !== undefined)
+    return Math.abs(x - h.x) < h.rw + 18 && Math.abs(y - h.y) < h.rh + 18;
   if (h.x2 === undefined || h.y2 === undefined)
     return Math.hypot(x - h.x, y - h.y) < h.radius + 18;
   const dx = h.x2 - h.x,
@@ -197,9 +212,15 @@ export function drawHazard(
     armed = h.age >= 0,
     marked = !!style.colorblind,
     width = armed ? (line ? h.radius * 2 : 4) : 2;
+  const rect = h.rw !== undefined && h.rh !== undefined;
+  // Wires that are switched off stay on the floor, only fainter.
+  const dim = h.off ? 0.35 : 1;
   const shape = (radius = h.radius) => {
     c.beginPath();
-    if (x2 !== undefined && y2 !== undefined) {
+    if (rect) {
+      const k = h.radius > 0 ? radius / h.radius : 1;
+      c.rect(h.x - h.rw! * k, h.y - h.rh! * k, h.rw! * 2 * k, h.rh! * 2 * k);
+    } else if (x2 !== undefined && y2 !== undefined) {
       c.moveTo(h.x, h.y);
       c.lineTo(x2, y2);
     } else c.arc(h.x, h.y, radius, 0, Math.PI * 2);
@@ -208,23 +229,24 @@ export function drawHazard(
   c.setLineDash(armed ? [] : [7, 7]);
   if (marked) {
     c.strokeStyle = '#05080a';
-    c.globalAlpha = 0.7;
+    c.globalAlpha = 0.7 * dim;
     c.lineWidth = width + 4;
     shape();
     c.stroke();
   }
   c.strokeStyle = marked ? COLORBLIND_HAZARD : h.color;
   c.fillStyle = marked ? COLORBLIND_HAZARD : h.color;
-  c.globalAlpha = armed ? 0.85 : marked ? 0.8 : 0.45;
+  c.globalAlpha = (armed ? 0.85 : marked ? 0.8 : 0.45) * dim;
   c.lineWidth = width;
   shape();
   c.stroke();
   if (!line) {
-    c.globalAlpha = armed ? (marked ? 0.3 : 0.22) : marked ? 0.12 : 0.08;
+    c.globalAlpha =
+      (armed ? (marked ? 0.3 : 0.22) : marked ? 0.12 : 0.08) * dim;
     c.fill();
     if (!armed) {
       c.setLineDash([]);
-      c.globalAlpha = marked ? 0.8 : 0.55;
+      c.globalAlpha = (marked ? 0.8 : 0.55) * dim;
       shape(h.radius * Math.max(0, 1 + h.age / 1.6));
       c.stroke();
     }

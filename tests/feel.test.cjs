@@ -220,7 +220,7 @@ test('Leader intro holds attacks for a second, and bossNoHit counts clean kills 
     }
     for (let i = 0; i < 10; i++) b.update(0.025);
     assert.ok(leader.windup || leader.timer > 0, kind);
-    b.damage(leader, leader.max);
+    b.damage(leader, leader.max * 10);
     assert.equal(done().result.run.bossNoHit, 1);
     assert.equal(done().result.run.battleDamage, 0);
     assert.ok(done().result.run.maxBattleKills >= 1);
@@ -231,7 +231,7 @@ test('Leader intro holds attacks for a second, and bossNoHit counts clean kills 
   assert.equal(b.run.damageTaken, 5);
   assert.equal(b.run.battleDamage, 5);
   const boss = b.enemies.find((e) => e.type === 99);
-  b.damage(boss, boss.max);
+  b.damage(boss, boss.max * 10);
   assert.equal(done().result.run.bossNoHit, 0);
 });
 
@@ -243,7 +243,7 @@ test('A live battle plays its outro before onEnd; low health warns on a timer', 
   b.update(0.025);
   b.spawn(0);
   const boss = b.enemies.find((e) => e.type === 99);
-  b.damage(boss, boss.max);
+  b.damage(boss, boss.max * 10);
   assert.equal(done().ended, 0);
   assert.equal(b.enemies.length, 0, 'the victory sweep clears the field');
   assert.equal(hud.boss, 0);
@@ -495,7 +495,7 @@ test('Pausing during the outro hands over the result at once, exactly once', () 
     b.running = true;
     b.update(0.025);
     const boss = b.enemies.find((e) => e.type === 99);
-    if (won) b.damage(boss, boss.max);
+    if (won) b.damage(boss, boss.max * 10);
     else {
       b.run.hp = 0;
       b.finish(false);

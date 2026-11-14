@@ -929,8 +929,15 @@ export function Combat({
             · {Math.ceil(hud.boss)} / {hud.bossMax}
           </span>
           <small className="boss-attack-cue">
-            ФАЗА {hud.bossPhase + 1} · {hud.bossAttack || 'Готується до атаки'}
+            {hud.bossPhase >= 2 ? 'ЛЮТЬ' : `ФАЗА ${hud.bossPhase + 1}`} ·{' '}
+            {hud.bossAttack || 'Готується до атаки'}
           </small>
+          {hud.mech && (
+            <small className="boss-mech-cue">
+              <b>{hud.mech.name}</b>: {hud.mech.note}
+              {hud.marks?.[net?.role === 'guest' ? net.seat : 0] ? ` · Мітки ${Math.min(3, hud.marks[net?.role === 'guest' ? net.seat : 0])}/3` : ''}
+            </small>
+          )}
           <Meter
             value={hud.boss}
             max={hud.bossMax}

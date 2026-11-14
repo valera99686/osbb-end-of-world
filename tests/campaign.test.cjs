@@ -725,13 +725,13 @@ test('Miniboss fights have distinct telegraphed attacks, require a kill and awar
       engine.invincible = 200;
       for (let i = 0; i < 600; i++) engine.update(0.025);
       assert.ok(engine.bossAttack);
-      assert.ok(engine.enemies.length <= 7);
+      assert.ok(engine.enemies.filter((e) => e.type !== 97).length <= 7);
       assert.ok(
         engine.enemies.every(
           (e) => Number.isFinite(e.x) && Number.isFinite(e.hp),
         ),
       );
-      engine.damage(leader, leader.max);
+      engine.damage(leader, leader.max * 10);
       assert.equal(result.won, true);
       assert.equal(result.boss, false);
       const reward = M.battleRewards(result.run, meta);

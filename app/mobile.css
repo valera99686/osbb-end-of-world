@@ -265,6 +265,13 @@
   :root .boss-attack-cue {
     display: none;
   }
+  :root .boss-mech-cue {
+    font-size: 9px;
+    margin: 0 0 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   /* The hint of the first seconds: small, at the foot, above the radio. */
   :root .battle-hint {
     top: auto;

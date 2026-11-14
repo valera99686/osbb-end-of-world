@@ -204,6 +204,10 @@ export interface Enemy {
   // left of the stagger that follows it.
   staggerAt?: number;
   stagger?: number;
+  // A leader: the key of its mechanic (leader-mech.ts). A helper of one:
+  // what kind it is. `mech` holds the mechanic's timers and counters.
+  tag?: string;
+  mech?: Record<string, number | number[]>;
 }
 export interface SpawnOptions {
   // undefined rolls the usual affix chance; null forces a plain enemy.
@@ -341,6 +345,10 @@ export interface Hud {
   enemies: number;
   bossAttack: string;
   bossPhase: number;
+  // The leader's own mechanic: its name and the line under the bar.
+  mech?: { name: string; note: string };
+  // Spore marks by seat (0 is the first house), while there are any.
+  marks?: number[];
   // Squad fights only (the canvas draws them too): current wave (1-based,
   // 0 before the first), wave count, kills still needed, squad name.
   wave?: number;

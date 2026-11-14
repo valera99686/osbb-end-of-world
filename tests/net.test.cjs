@@ -466,7 +466,7 @@ test('A host that is not connected cannot open a fight', async () => {
 });
 
 const MR = require('../.test-build/mirror.js');
-function mirrorPair(latency = 1) {
+function mirrorPair(latency = 1, kind) {
   const wire = pipe(latency);
   const host = new S.NetSession('host', 'a', hero('mechanic'));
   const guest = new S.NetSession('guest', 'a', hero('nina'));
@@ -479,6 +479,7 @@ function mirrorPair(latency = 1) {
   const huds = [];
   const ends = [];
   const run = M.makeRun(meta, 'mechanic', 0, 9, { coop: 'nina' });
+  if (kind) run.kind = kind;
   const feed = new MR.HostFeed(1, host.link);
   // As in Combat: the end of the host's fight is told to the guest.
   const hostBattle = new Battle(null, run, meta, spy(heard.host), () => {}, (r) => feed.finish(hostBattle, r), { feed });
@@ -886,4 +887,26 @@ test('A relayed link makes the host count the fights alone; the guest is told ho
   guest.note('Пробуємо резервний канал…');
   assert.equal(guest.status, 'Пробуємо резервний канал…');
   assert.equal(changes, 1);
+});
+
+test("The guest of a mirror sees a leader's mechanic: its key, its helpers, the line for the bar and the zones", () => {
+  const m = mirrorPair(1, 'boss');
+  m.turn(4);
+  const h = m.hostBattle,
+    g = m.guestBattle;
+  const lead = (b) => b.enemies.find((e) => e.type === 99);
+  assert.ok(lead(h) && lead(g), 'both see the boss');
+  assert.equal(lead(g).tag, lead(h).tag, 'its mechanic key came over');
+  assert.ok(lead(g).tag.length > 3);
+  const helpers = (b) => b.enemies.filter((e) => e.type === 97);
+  assert.ok(helpers(h).length > 0 || h.hazards.some((z) => z.key), 'the mechanic has made something');
+  assert.equal(helpers(g).length, helpers(h).length, 'the helpers are the same');
+  for (const e of helpers(g)) assert.ok(typeof e.tag === 'string' && e.mech && Number.isFinite(e.hp));
+  const hud = m.huds.at(-1);
+  assert.equal(hud.mech.name, h.hud().mech.name, "the line under the bar is the host's");
+  assert.equal(
+    g.hazards.filter((z) => z.key).length,
+    h.hazards.filter((z) => z.key).length,
+    'the zones of the mechanic are all over',
+  );
 });

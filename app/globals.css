@@ -565,6 +565,16 @@ h3 {
   letter-spacing: 0.8px;
   margin: 5px 0 7px;
 }
+.boss-mech-cue {
+  display: block;
+  color: #b9d6e6;
+  font-size: 11px;
+  margin: 0 0 7px;
+}
+.boss-mech-cue b {
+  color: #ffd98a;
+  font-weight: 700;
+}
 .item-shape-label {
   display: flex;
   align-items: center;

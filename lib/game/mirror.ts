@@ -267,7 +267,10 @@ export class HostFeed implements FeedLike, FightLink {
         .filter((d) => d.value > 0)
         .slice(-200)
         .map((d) => [r2(d.x), r2(d.y), KIND[d.kind], d.value]),
-      hz: b.hazards.slice(-40).map((h) => ({ ...h })),
+      hz: [
+        ...b.hazards.filter((h) => h.key),
+        ...b.hazards.filter((h) => !h.key).slice(-40),
+      ].map((h) => ({ ...h })),
       ex: b.explosives.map((p) => [
         p.blown ? 1 : 0,
         p.fuse > 0 ? 1 : 0,

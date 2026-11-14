@@ -1,5 +1,6 @@
 import {
   AFFIX_BY_ID,
+  type AffixId,
   BATTLE_EVENTS,
   ELITE_AFFIXES,
   type HeatEffects,
@@ -85,6 +86,24 @@ import {
   minibossFor,
   minibossPattern,
 } from './minibosses';
+import {
+  MECH_TYPE,
+  endLeader,
+  leaderArmor,
+  leaderAttack,
+  leaderFrozen,
+  leaderNote,
+  leaderPhase,
+  leaderShift,
+  leaderTempo,
+  leaderTurn,
+  miniKey,
+  minionDied,
+  startLeader,
+  tickLeader,
+  type MechHost,
+  type MinionTag,
+} from './leader-mech';
 import {
   type Meta,
   type Run,
@@ -420,6 +439,11 @@ export class Battle {
   // Fresh packs: an arrow on the screen edge while they are off screen.
   incoming: { x: number; y: number; life: number; color: string }[] = [];
   minibossVariant: number;
+  // Spore marks, roots and their clocks by seat (leader-mech.ts).
+  marks = [0, 0, 0, 0];
+  markAt = [0, 0, 0, 0];
+  rooted = [0, 0, 0, 0];
+  mechCache?: MechHost;
   rng: () => number;
   // Visual-only randomness; particles never shift the combat rolls.
   fx: () => number;
@@ -1093,6 +1117,8 @@ export class Battle {
     this.dashing = 0.22;
     this.invincible = 0.55;
     this.dashKill = 0.8;
+    this.marks[0] = 0;
+    this.rooted[0] = 0;
     if (this.pk('shock_dash')) this.shockAt = 0.22;
     this.run.dashes++;
     this.audio.play('dash');
@@ -1253,6 +1279,8 @@ export class Battle {
     a.dashing = 0.22;
     a.invincible = Math.max(a.invincible, 0.55);
     a.dashKill = 0.8;
+    this.marks[a.seat] = 0;
+    this.rooted[a.seat] = 0;
     if (this.pkm('shock_dash', a.seat)) a.shockAt = 0.22;
     this.audio.play('dash', { volume: 0.7 });
     this.burst(a.x, a.y, '#f0c466', 12);
@@ -1795,7 +1823,7 @@ export class Battle {
     if (
       !def ||
       (!opts.force &&
-        this.enemies.filter((e) => e.hp > 0).length >=
+        this.enemies.filter((e) => e.hp > 0 && e.type !== MECH_TYPE).length >=
           (this.run.kind === 'miniboss'
             ? 7
             : leaderFight
@@ -2154,6 +2182,7 @@ export class Battle {
       a.stats.speed *
       COOP.speed *
       slow *
+      (this.rooted[a.seat] > 0 ? 0 : 1) *
       (a.hasteTime > 0 ? EXPRESS.haste : 1);
     const fromX = a.x,
       fromY = a.y;
@@ -2210,11 +2239,14 @@ export class Battle {
   ) {
     if (e.hp <= 0) return;
     if (
-      (e.type === 7 || this.mirrored(e)) &&
+      e.type === 7 &&
       incomingAngle !== undefined &&
       Math.cos(incomingAngle + Math.PI - e.aim) > 0.25
     )
       amount *= 0.55;
+    // What the leader's mechanic lets through (armour, a time stop...).
+    if (isLeader(e.type))
+      amount *= leaderArmor(this.mechHost(), e, incomingAngle);
     if (e.affix === 'armored') amount *= 0.75;
     if ((e.stagger ?? 0) > 0) amount *= STAGGER_DAMAGE;
     e.hp -= amount;
@@ -2224,6 +2256,11 @@ export class Battle {
     }
     if (this.settings.damageNumbers) this.damageNumber(e, amount, crit);
     if (e.hp <= 0) {
+      // A leader's helper is no kill: no crystal, no coin, no combo.
+      if (e.type === MECH_TYPE) {
+        this.helperDown(e);
+        return;
+      }
       this.run.kills++;
       this.battleKills++;
       this.run.maxBattleKills = Math.max(
@@ -2346,6 +2383,7 @@ export class Battle {
           color: ENEMY_DEFS[e.type].color,
         });
       if (isLeader(e.type)) {
+        endLeader(this.mechHost(), e);
         if (e.type === MINIBOSS_TYPE)
           this.run.minibossKills = (this.run.minibossKills ?? 0) + 1;
         // With two leaders the first one's fall is only a beat: the fight
@@ -2463,9 +2501,9 @@ export class Battle {
     this.audio.play('explosion');
   }
   // Crossing half health: a readable beat before the harder pattern set.
-  phaseShift(e: Enemy) {
+  phaseShift(e: Enemy, phase = 1) {
     const style = this.leaderStyle(e.type);
-    this.banner('ФАЗА 2', style.name, style.color, 1.6);
+    this.banner(phase >= 2 ? 'ЛЮТЬ' : 'ФАЗА 2', style.name, style.color, 1.6);
     this.onBeat?.({ kind: 'phase', leader: this.leaderRef(e.type) });
     this.freeze(0.08);
     this.slow(0.6, 0.35);
@@ -2534,11 +2572,26 @@ export class Battle {
       });
     if (isLeader(e.type) && e.pendingBoss) {
       const pattern = e.pendingBoss;
+      // The leader's mechanic may add to the attack, and to its echoes.
+      const host = this.mechHost();
+      leaderAttack(host, e, pattern);
+      const echo = e.pendingEcho ?? [];
+      if (echo.length)
+        leaderAttack(host, e, {
+          ...pattern,
+          name: '',
+          shots: [],
+          summons: [],
+          hazards: echo,
+        });
       for (const s of pattern.shots) shot(s.angle, s.speed, s.damage);
-      this.hazards.push(...pattern.hazards, ...(e.pendingEcho ?? []));
+      this.hazards.push(...pattern.hazards, ...echo);
       e.pendingEcho = undefined;
       for (const type of pattern.summons) this.spawn(type);
-      e.timer = pattern.cooldown * this.heat.bossTime;
+      e.timer =
+        pattern.cooldown *
+        this.heat.bossTime *
+        leaderTempo(e.type === 99, e.phase);
       if (pattern.stagger) e.staggerAt = this.elapsed + pattern.stagger;
       e.pendingBoss = undefined;
       return;
@@ -2695,14 +2748,6 @@ export class Battle {
         break;
     }
   }
-  // The ch3 mirror agent: frontal mirrors like the shield bearer.
-  mirrored(e: Enemy) {
-    return (
-      e.type === MINIBOSS_TYPE &&
-      this.run.chapter === 2 &&
-      this.minibossVariant === 1
-    );
-  }
   // Where an attack released in `windup` seconds should land: the house
   // now, or for leading enemies, where it will be when the shot or zone
   // arrives on its current course.
@@ -2755,6 +2800,136 @@ export class Battle {
     e.lockedAim = Math.atan2(p.y - e.y, p.x - e.x);
   }
   // A heavy slam has landed: the leader reels and takes extra damage.
+  // ---- leaders' mechanics (leader-mech.ts) ----
+  leaderKey(kind: number) {
+    return kind === MINIBOSS_TYPE
+      ? miniKey(Math.min(2, this.run.chapter), this.minibossVariant)
+      : campaignBoss(this.run.chapter, this.run.bossVariants[this.run.chapter]).id;
+  }
+  // What a mechanic may ask of this fight.
+  mechHost(): MechHost {
+    if (this.mechCache) return this.mechCache;
+    const host = {
+      rng: () => this.rng(),
+      bodies: () => this.bodies(),
+      burst: (x: number, y: number, color: string, n: number) =>
+        this.burst(x, y, color, n),
+      minion: (tag: MinionTag, x: number, y: number, hp: number, speed = 0) =>
+        this.addHelper(tag, x, y, hp, speed),
+      spawnAt: (type: number, x: number, y: number, affix?: string) =>
+        void this.spawn(type, {
+          x,
+          y,
+          ...(affix ? { affix: affix as AffixId } : {}),
+        }),
+      shoot: (x: number, y: number, angle: number, speed: number, damage: number) =>
+        this.bullets.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed * this.heat.projectileSpeed,
+          vy: Math.sin(angle) * speed * this.heat.projectileSpeed,
+          life: 6,
+          damage,
+          enemy: true,
+          crit: false,
+          age: 0,
+        }),
+      heal: (e: Enemy, amount: number) => {
+        e.hp = Math.min(e.max, e.hp + amount);
+      },
+      stagger: (e: Enemy, seconds: number) => {
+        this.staggerStart(e);
+        e.stagger = seconds;
+      },
+      vanish: (m: Enemy) => {
+        m.hp = 0;
+      },
+    } as unknown as MechHost;
+    Object.defineProperties(host, {
+      elapsed: { get: () => this.elapsed },
+      chapter: { get: () => Math.min(2, this.run.chapter) },
+      party: { get: () => 1 + this.allies.length },
+      enemies: { get: () => this.enemies },
+      hazards: { get: () => this.hazards },
+    });
+    this.mechCache = host;
+    return host;
+  }
+  // A helper of the leader: antenna, cocoon, egg, valve, node, guard, decoy.
+  addHelper(tag: MinionTag, x: number, y: number, hp: number, speed: number) {
+    const life = Math.max(1, Math.round(hp));
+    const e: Enemy = {
+      x: Math.max(50, Math.min(1550, x)),
+      y: Math.max(50, Math.min(950, y)),
+      hp: life,
+      max: life,
+      r: tag === 'egg' ? 15 : tag === 'guard' ? 17 : 24,
+      type: MECH_TYPE,
+      speed,
+      hit: 0,
+      timer: 99,
+      phase: 0,
+      walk: 0,
+      facing: 1,
+      aim: 0,
+      attack: 0,
+      visualSeed: this.spawnCount++,
+      pattern: 0,
+      tag,
+      mech: {},
+    };
+    this.enemies.push(e);
+    return e;
+  }
+  // A helper is shot down: the mechanic hears of it; nothing else counts.
+  helperDown(e: Enemy) {
+    this.burst(e.x, e.y, '#cfe8ff', 12);
+    this.ring(e.x, e.y, 56, '#cfe8ff', 0.3, 3);
+    const leader = this.enemies.find((o) => o.hp > 0 && isLeader(o.type));
+    if (leader) minionDied(this.mechHost(), leader, e);
+  }
+  // Helpers walk (decoys) or stand (the rest); the mechanic may place them.
+  helperMove(e: Enemy, dt: number) {
+    const goal = this.goalOf(e);
+    const dx = goal.x - e.x,
+      dy = goal.y - e.y,
+      dist = Math.hypot(dx, dy) || 1;
+    e.aim = Math.atan2(dy, dx);
+    if (Math.abs(dx) > 8) e.facing = dx < 0 ? -1 : 1;
+    if (e.speed > 0 && dist > e.r + 60) {
+      e.x = Math.max(40, Math.min(1560, e.x + (dx / dist) * e.speed * dt));
+      e.y = Math.max(40, Math.min(960, e.y + (dy / dist) * e.speed * dt));
+      e.walk += (dt * e.speed) / 12;
+    }
+  }
+  // A zone that pulls: whoever stands in it is drawn toward its middle.
+  pullBy(h: Hazard, dt: number) {
+    const pull = (b: { x: number; y: number }, dashing: number) => {
+      if (dashing > 0 || !hazardContains(h, b.x, b.y)) return;
+      const dx = h.x - b.x,
+        dy = h.y - b.y,
+        d = Math.hypot(dx, dy);
+      if (d < 30) return;
+      const step = Math.min(d - 30, (h.pull ?? 0) * dt);
+      b.x += (dx / d) * step;
+      b.y += (dy / d) * step;
+    };
+    pull(this, this.dashing);
+    for (const a of this.allies) if (!a.down && !a.away) pull(a, a.dashing);
+  }
+  // A spore mark on a house; the third one roots it for a moment.
+  addMark(seat: number) {
+    this.marks[seat] += 1;
+    this.markAt[seat] = this.elapsed;
+    if (this.marks[seat] < 3) return;
+    this.marks[seat] = 0;
+    this.rooted[seat] = 1.5;
+    const body = seat ? this.allyOf(seat) : this;
+    if (!body) return;
+    this.burst(body.x, body.y, '#9ccf6a', 16);
+    this.ring(body.x, body.y, 70, '#9ccf6a', 0.4, 4);
+    this.label(body.x, body.y - 62, 'ВКОРІНИВСЯ', '#9ccf6a');
+  }
   staggerStart(e: Enemy) {
     e.stagger = STAGGER_TIME;
     e.hit = 0.12;
@@ -3662,6 +3837,10 @@ export class Battle {
     this.invincible -= dt;
     this.dashing -= dt;
     this.pulseRing = Math.max(0, this.pulseRing - dt);
+    for (let s = 0; s < 4; s++) {
+      if (this.rooted[s] > 0) this.rooted[s] -= dt;
+      if (this.marks[s] && this.elapsed - this.markAt[s] > 8) this.marks[s] = 0;
+    }
     this.explosionCd -= dt;
     this.pickupGap -= dt;
     if (this.combo) {
@@ -3706,7 +3885,11 @@ export class Battle {
       haste = this.hasteTime > 0 ? EXPRESS.haste : 1;
     this.x = Math.max(
       55,
-      Math.min(1545, this.x + dx * this.stats.speed * slow * haste * dt),
+      Math.min(
+        1545,
+        this.x +
+          dx * this.stats.speed * slow * haste * (this.rooted[0] > 0 ? 0 : 1) * dt,
+      ),
     );
     this.y = Math.max(
       55,
@@ -3764,7 +3947,8 @@ export class Battle {
     if (leaderFight && !this.bossSpawned) {
       const kind = this.run.kind === 'miniboss' ? MINIBOSS_TYPE : 99;
       // One leader whatever the party: tougher by its size (coop.ts PARTY).
-      this.spawn(kind);
+      const leader = this.spawn(kind);
+      if (leader) startLeader(this.mechHost(), leader, this.leaderKey(kind));
       this.bossSpawned = true;
     }
     if (!leaderFight) this.updateSquad();
@@ -3827,6 +4011,12 @@ export class Battle {
         this.orbitHit(e, dt);
         continue;
       }
+      if (e.type === MECH_TYPE) {
+        // A leader's helper: it stands, or drifts, and never touches the house.
+        this.helperMove(e, dt);
+        this.orbitHit(e, dt);
+        continue;
+      }
       if (e.affix === 'swift') {
         e.trailAt = (e.trailAt ?? 0) - dt;
         if (e.trailAt <= 0) {
@@ -3856,8 +4046,8 @@ export class Battle {
       const turn =
         def?.behavior === 'shield'
           ? SHIELD_TURN
-          : this.mirrored(e)
-            ? SHIELD_TURN * 0.8
+          : leader
+            ? leaderTurn(e) * SHIELD_TURN
             : 0;
       if (turn) {
         const diff = Math.atan2(ey, ex) - e.aim,
@@ -3865,21 +4055,31 @@ export class Battle {
           step = turn * dt;
         e.aim += Math.max(-step, Math.min(step, wrapped));
       } else e.aim = Math.atan2(ey, ex);
+      let frozen = false;
       if (leader) {
-        const phase = e.hp < e.max * 0.5 ? 1 : 0;
-        if (phase > e.phase) this.phaseShift(e);
-        e.phase = phase;
+        const host = this.mechHost();
+        // Never back: a leader that heals does not fall into its phase twice.
+        const phase = Math.max(e.phase, leaderPhase(e, e.type === 99));
+        if (phase > e.phase) {
+          e.phase = phase;
+          this.phaseShift(e, phase);
+          leaderShift(host, e, phase);
+        }
+        tickLeader(host, e, dt);
+        frozen = leaderFrozen(host, e);
         if (e.staggerAt !== undefined && this.elapsed >= e.staggerAt) {
           e.staggerAt = undefined;
           this.staggerStart(e);
         }
       }
-      // A staggered leader stands still and holds its next attack.
-      const stunned = (e.stagger ?? 0) > 0;
-      if (stunned) e.stagger = Math.max(0, e.stagger! - dt);
+      // A staggered leader, or one whose time has stopped, stands still and
+      // holds its next attack.
+      const staggered = (e.stagger ?? 0) > 0;
+      const stunned = staggered || frozen;
+      if (staggered) e.stagger = Math.max(0, e.stagger! - dt);
       // Overload also speeds up regular enemies' weapons.
-      else e.timer -= over && !leader ? dt * 1.6 : dt;
-      if ((e.windup ?? 0) > 0) {
+      else if (!frozen) e.timer -= over && !leader ? dt * 1.6 : dt;
+      if ((e.windup ?? 0) > 0 && !frozen) {
         e.windup = Math.max(0, e.windup! - dt);
         if (def && e.windup > AIM_LOCK && TRACKING.includes(def.behavior))
           this.track(e, def, e.windup);
@@ -4017,7 +4217,13 @@ export class Battle {
       const armed = hazard.age >= 0;
       hazard.age += dt;
       if (!armed && hazard.age >= 0) this.hazardFired(hazard);
-      if (this.invincible <= 0 && hazardContains(hazard, this.x, this.y)) {
+      if (hazard.pull) this.pullBy(hazard, dt);
+      // A zone of no damage (the pull of a magnet, water) only does what else it does.
+      if (
+        this.invincible <= 0 &&
+        hazard.damage > 0 &&
+        hazardContains(hazard, this.x, this.y)
+      ) {
         const taken = this.hurt(
           Math.max(
             2,
@@ -4026,14 +4232,17 @@ export class Battle {
           0.7,
           0.38,
         );
-        if (taken)
+        if (taken) {
           this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
+          if (hazard.mark) this.addMark(0);
+        }
       }
       for (const partner of this.allies) {
         if (
           partner.down ||
           partner.away ||
           partner.invincible > 0 ||
+          hazard.damage <= 0 ||
           !hazardContains(hazard, partner.x, partner.y)
         )
           continue;
@@ -4046,14 +4255,18 @@ export class Battle {
           0.38,
           partner,
         );
-        if (taken)
+        if (taken) {
           this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
+          if (hazard.mark) this.addMark(partner.seat);
+        }
       }
     }
     // The echoes of a leader's attack under every player ask for more room.
-    this.hazards = this.hazards
-      .filter((h) => h.age < h.duration)
-      .slice(-(40 + 15 * this.allies.length));
+    const live = this.hazards.filter((h) => h.age < h.duration);
+    this.hazards = [
+      ...live.filter((h) => h.key),
+      ...live.filter((h) => !h.key).slice(-(40 + 15 * this.allies.length)),
+    ];
     const magnets = this.enemies.filter(
       (e) => e.hp > 0 && e.affix === 'magnetic',
     );
@@ -4352,9 +4565,13 @@ export class Battle {
       pulse: this.pulseCd,
       boss: leaders.reduce((sum, l) => sum + Math.max(0, l.hp), 0),
       bossMax: leaders.reduce((sum, l) => sum + l.max, 0),
-      enemies: this.enemies.length,
+      enemies: this.enemies.filter((e) => e.type !== MECH_TYPE).length,
       bossAttack: this.bossAttack,
       bossPhase: leaders.reduce((top, l) => Math.max(top, l.phase), 0),
+      ...(leaders[0] && leaderNote(leaders[0]) ? { mech: leaderNote(leaders[0]) } : {}),
+      ...(this.marks.some((m) => m > 0) || this.rooted.some((r) => r > 0)
+        ? { marks: this.marks.map((m, s) => (this.rooted[s] > 0 ? 3 : m)) }
+        : {}),
       ...(this.encounter
         ? {
             wave: this.wave + 1,
@@ -4464,6 +4681,7 @@ export class Battle {
   // beside the house while the drone winds up off screen.
   onScreen(e: Enemy, dying: number, visible: Visible) {
     if (e.type === COURIER) return visible(e.x, e.y, 80);
+    if (e.type === MECH_TYPE) return visible(e.x, e.y, 80);
     const reach = enemyReach(
       e,
       this.run.chapter,

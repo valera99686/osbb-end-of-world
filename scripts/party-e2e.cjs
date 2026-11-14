@@ -5,6 +5,7 @@
 //   PLAYERS=4 node scripts/party-e2e.cjs [seconds] [sync|host]
 //   REJOIN=guest ...                  (a guest closes its tab in the fight and comes back)
 //   REJOIN=host  ...                  (the host reloads the page mid-raid and resumes the room)
+//   FIGHT=boss LEADER=0:2 ...         (the first fight is a leader's: chapter:variant)
 // Needs Chrome at the usual path and an internet connection (the broker).
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -130,7 +131,9 @@ const read = (page) =>
     stalled: (b.sync||b.client||b.feed||{}).stalled ?? 0,
     rec: window.__rec, kills: b.run.kills, elapsed: b.elapsed,
     allies: b.allies.map(a => ({seat: a.seat, hero: a.hero, x: Math.round(a.x), y: Math.round(a.y), away: !!a.away, down: !!a.down})),
-    enemies: b.enemies.length, ended: b.ended } : null})()`);
+    enemies: b.enemies.length, ended: b.ended,
+    lead: (b.enemies.find(e => e.type === 99 || e.type === 98) || {}).tag || '',
+    helpers: b.enemies.filter(e => e.type === 97).length } : null})()`);
 
 (async () => {
   const targets = [];
@@ -376,7 +379,21 @@ const read = (page) =>
     for (const p of procs) p.kill();
     process.exit(good ? 0 : 1);
   }
-  await host.eval(`document.querySelector('button.tree-go').click()`);
+  // FIGHT=boss|miniboss (and LEADER=chapter:variant, e.g. 0:2): the first fight
+  // is a leader's, to see its mechanic run in lockstep at every end.
+  if (process.env.FIGHT) {
+    const [chapter, variant] = (process.env.LEADER || '0:0').split(':').map(Number);
+    const step = process.env.FIGHT === 'boss' ? 9 : 5;
+    const patch = {
+      page: 'combat',
+      kind: process.env.FIGHT,
+      chapter,
+      step,
+      bossVariants: [0, 1, 2].map((c) => (c === chapter ? variant : 0)),
+      minibossVariants: { [`${chapter}:${step}:0`]: variant },
+    };
+    await host.eval(`window.__osbbRun(${JSON.stringify(patch)}); 0`);
+  } else await host.eval(`document.querySelector('button.tree-go').click()`);
   for (const page of pages)
     await until(
       page.name + ' fight',

@@ -77,7 +77,7 @@ test('Freezing the arena during a boss-win outro hands the win over at once', ()
   b.update(0.025);
   b.spawn(0);
   const boss = b.enemies.find((e) => e.type === 99);
-  b.damage(boss, boss.max);
+  b.damage(boss, boss.max * 10);
   assert.equal(reported.length, 0, 'the victory outro is playing');
   // Combat freezes the engine for Settings, blur and the pause menu alike.
   b.paused = true;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { waitingNames, type VoteMate } from './vote';
 import {
   Coins,
   Home,
@@ -16,6 +17,7 @@ import {
   canChooseEvent,
   resolveEvent,
   nextNode,
+  partySize,
   type Run,
   type Meta,
 } from '@/lib/game/model';
@@ -57,8 +59,8 @@ export function FurnitureCard({
 // go to a coin (coop.ts Ballot). Without it, one player just presses.
 export interface EventVote {
   mine: number | null;
-  partner: number | null;
-  partnerName: string;
+  // The other players: what each has picked.
+  mates: VoteMate[];
   // The choices that may be picked now.
   options: number[];
   done?: { col: number; coin: boolean };
@@ -106,8 +108,11 @@ function voteNote(vote: EventVote): string {
       ? 'Ви обрали різне: вирішила монетка.'
       : 'Ви обрали те саме. Діємо.';
   if (vote.mine === null)
-    return 'Обери один варіант. Збіглося з другом — діє, ні — вирішить монетка.';
-  return vote.partner === null ? `Чекаємо: ${vote.partnerName}…` : '';
+    return vote.mates.length > 1
+      ? 'Обери один варіант. Діє той, якого обрало більше гравців, а коли порівну, вирішить монетка.'
+      : 'Обери один варіант. Збіглося з другом — діє, ні — вирішить монетка.';
+  const waiting = waitingNames(vote.mates);
+  return waiting ? `Чекаємо: ${waiting}…` : '';
 }
 // The choices of an event, for the host and for the guest alike.
 export function EventOptions({
@@ -135,10 +140,17 @@ export function EventOptions({
             <b>{label}</b>
             <span>{detail}</span>
             <Icon size={22} />
-            {vote && (vote.mine === i || vote.partner === i) && (
+            {vote && (vote.mine === i || vote.mates.some((m) => m.col === i)) && (
               <em className="event-votes">
                 {vote.mine === i && <i className="me">ти</i>}
-                {vote.partner === i && <i className="mate">{vote.partnerName}</i>}
+                {vote.mates.map(
+                  (mate, k) =>
+                    mate.col === i && (
+                      <i className="mate" key={k}>
+                        {mate.name}
+                      </i>
+                    ),
+                )}
               </em>
             )}
           </button>
@@ -152,9 +164,10 @@ export function EventOptions({
     </>
   );
 }
-// A meeting for two players: each has a role and does their part with a press;
-// nothing happens until both have. `mine` is the role this screen plays (null:
-// both, two players at one device).
+// A meeting for the players of a raid (two to four): each has a role and does
+// their part with a press; nothing happens until all of them have. `mine` is
+// the role this screen plays (null: both, two players at one device). The
+// players who are not here are marked done (nobody waits for them).
 export function TogetherRoles({
   roles,
   names,
@@ -166,20 +179,20 @@ export function TogetherRoles({
   note,
   onAct,
 }: {
-  roles: [string, string];
-  names: [string, string];
+  roles: string[];
+  names: string[];
   prize: string;
-  done: [boolean, boolean];
-  mine: 0 | 1 | null;
+  done: boolean[];
+  mine: number | null;
   open?: boolean;
   finished?: boolean;
   note?: string;
-  onAct: (role: 0 | 1) => void;
+  onAct: (role: number) => void;
 }) {
   return (
     <div className="together">
       <p className="together-badge">
-        <Users size={16} /> Потрібні обоє
+        <Users size={16} /> {roles.length > 2 ? 'Потрібні всі' : 'Потрібні обоє'}
       </p>
       <div className="together-roles">
         {roles.map((label, i) => {
@@ -189,7 +202,7 @@ export function TogetherRoles({
               key={i}
               className={`together-role${done[i] ? ' done' : ''}${here ? ' mine' : ''}`}
               disabled={!here || done[i] || finished || !open}
-              onClick={() => onAct(i as 0 | 1)}
+              onClick={() => onAct(i)}
             >
               <small>{names[i]}</small>
               <b>{label}</b>
@@ -207,8 +220,10 @@ export function TogetherRoles({
       <p className="together-prize">Нагорода: {prize}</p>
       <p className="event-vote-note" role="status">
         {note ??
-          (done[0] && done[1]
-            ? 'Обоє готові: діємо!'
+          (done.every(Boolean)
+            ? roles.length > 2
+              ? 'Усі готові: діємо!'
+              : 'Обоє готові: діємо!'
             : 'Без обох не вийде: поки другий не зробить свою частину, нічого не станеться.')}
       </p>
     </div>
@@ -225,12 +240,15 @@ export function CampaignEventPanel({
   meta: Meta;
   onChange: (run: Run) => void;
   vote?: EventVote;
-  // Who plays the two roles of a meeting for two (first, second).
-  names?: [string, string];
+  // Who plays the roles of a meeting for the party, by seat.
+  names?: string[];
 }) {
   const rest = run.kind === 'rest',
     event = eventFor(run),
     together = rest ? undefined : event.together;
+  // As many roles as there are houses in the raid.
+  const players = partySize(run);
+  const roles = together?.roles.slice(0, Math.max(2, players)) ?? [];
   // Two players at one device: who has done their part.
   const [local, setLocal] = useState<[boolean, boolean]>([false, false]);
   return (
@@ -244,7 +262,7 @@ export function CampaignEventPanel({
       <p className="lead">
         {rest
           ? 'Зупини двигун на кілька хвилин: полагодь будинок або пошукай припаси.'
-          : event.text}
+          : event.text + (together && players > 2 ? ` ${together.extra}` : '')}
       </p>
       {run.eventDone ? (
         <div className="mission-banner" role="status">
@@ -253,10 +271,17 @@ export function CampaignEventPanel({
         </div>
       ) : together ? (
         <TogetherRoles
-          roles={together.roles}
+          roles={roles}
           names={names ?? ['Перший гравець', 'Другий гравець']}
           prize={event.choices[0].detail}
-          done={vote ? [vote.mine !== null, vote.partner !== null] : local}
+          done={
+            vote
+              ? [
+                  vote.mine !== null,
+                  ...vote.mates.map((m) => m.col !== null || m.away),
+                ]
+              : local
+          }
           mine={vote ? 0 : null}
           open={vote ? vote.options.includes(0) : true}
           finished={!!vote?.done}

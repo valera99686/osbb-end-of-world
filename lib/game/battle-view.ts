@@ -31,6 +31,7 @@ import {
   glow,
   isLeader,
   rgba,
+  type Ally,
   type Bullet,
   type Enemy,
   type Particle,
@@ -38,7 +39,7 @@ import {
 } from './battle-core';
 import { COLORBLIND_HAZARD, STAGGER_TIME, drawHazard } from './bosses';
 import { COMBO_CAP, comboMultiplier } from './modes';
-import { COOP } from './coop';
+import { COOP, SEAT_COLORS } from './coop';
 import { ENEMY_DEFS, LOCATIONS, campaignBoss } from './encounters';
 import { FAMILY, ITEM_BY_ID } from './data';
 import { MINIBOSS_TYPE, minibossFor } from './minibosses';
@@ -309,8 +310,8 @@ function drawHouse(
   c.lineCap = 'butt';
   const flicker = this.invincible > 0 && Math.floor(this.elapsed * 16) % 2;
   if (flicker) c.globalAlpha = 0.55;
-  const mate = this.drawingMate,
-    house = mate ? mateRun(this.run) : this.run;
+  const seat = this.drawingSeat,
+    house = seat ? mateRun(this.run, seat) : this.run;
   const key = [
     this.stats.weapon,
     this.stats.evolution,
@@ -319,7 +320,7 @@ function drawHouse(
       .join(','),
     (house.residents ?? []).map((r) => r.id).join(','),
   ].join('|');
-  if ((mate ? this.mateFacade : this.facade)?.key !== key) {
+  if ((seat ? this.mateFacades[seat] : this.facade)?.key !== key) {
     let canvas: HTMLCanvasElement | null = null;
     if (typeof document !== 'undefined') {
       canvas = document.createElement('canvas');
@@ -332,11 +333,11 @@ function drawHouse(
         this.paintFacade(fc, house);
       } else canvas = null;
     }
-    if (mate) this.mateFacade = { key, canvas };
+    if (seat) this.mateFacades[seat] = { key, canvas };
     else this.facade = { key, canvas };
   }
   c.translate(0, bob);
-  const made = mate ? this.mateFacade : this.facade;
+  const made = seat ? this.mateFacades[seat] : this.facade;
   if (made?.canvas) c.drawImage(fast(made.canvas), -38, -76, 76, 104);
   else {
     c.save();
@@ -352,10 +353,18 @@ function drawHouse(
 // ring of their hero's colour on the ground, a plate with the player number
 // and a health bar. When down, the house lies dim in the yard and a ring
 // shows how far the revive has come.
-function drawAlly(this: Battle, c: CanvasRenderingContext2D) {
-  const a = this.ally;
+function drawAlly(
+  this: Battle,
+  c: CanvasRenderingContext2D,
+  a: Ally | null = this.ally,
+) {
   if (!a) return;
-  const color = heroAbility(a.hero).color,
+  // With more than two players each has the colour of their seat; for two it
+  // is the colour of the hero.
+  const color =
+      this.allies.length > 1
+        ? SEAT_COLORS[a.seat]
+        : heroAbility(a.hero).color,
     TAU = Math.PI * 2;
   // The house is drawn from the first house's own state (legs, muzzle,
   // flicker): lend it the partner's for the moment.
@@ -368,8 +377,8 @@ function drawAlly(this: Battle, c: CanvasRenderingContext2D) {
     stats: this.stats,
   };
   // Its own weapon and modules on the facade.
-  this.stats = this.mateStats;
-  this.drawingMate = true;
+  this.stats = a.stats;
+  this.drawingSeat = a.seat;
   this.vx = a.down ? 0 : a.vx;
   this.vy = a.down ? 0 : a.vy;
   this.muzzle = a.muzzle;
@@ -377,12 +386,12 @@ function drawAlly(this: Battle, c: CanvasRenderingContext2D) {
   this.invincible = a.invincible;
   c.save();
   c.translate(a.x, a.y);
-  if (a.down) c.globalAlpha = 0.5;
+  if (a.down || a.away) c.globalAlpha = 0.5;
   try {
     this.drawHouse(c, 0, a.down ? 8 : 0, a.down ? 0.94 : 1);
   } finally {
     this.stats = own.stats;
-    this.drawingMate = false;
+    this.drawingSeat = 0;
   }
   c.globalAlpha = 1;
   this.vx = own.vx;
@@ -431,7 +440,13 @@ function drawAlly(this: Battle, c: CanvasRenderingContext2D) {
   c.font = `800 11px ${FONT}`;
   c.textAlign = 'center';
   c.textBaseline = 'middle';
-  c.fillText('2', a.down ? 0 : -38, a.down ? -107.5 : -95.5);
+  c.fillText(String(a.seat + 1), a.down ? 0 : -38, a.down ? -107.5 : -95.5);
+  // With several players each house has the name of its player over it.
+  if (a.name && this.allies.length > 1) {
+    c.fillStyle = color;
+    c.font = `700 10px ${FONT}`;
+    c.fillText(a.name.slice(0, 10), 0, a.down ? -122 : -110);
+  }
   c.restore();
   c.textAlign = 'start';
   c.textBaseline = 'alphabetic';
@@ -472,10 +487,25 @@ function draw(this: Battle) {
   c.fillStyle = '#0b171e';
   c.fillRect(0, 0, w, h);
   const zoom = Math.max(0.55, Math.min(1.08, Math.min(w / 850, h / 570)));
-  // With a partner the camera sits between the two of them.
-  const lean = this.ally ? this.allyFocus * 0.5 : 0,
-    focusX = this.ally ? this.x + (this.ally.x - this.x) * lean : this.x,
-    focusY = this.ally ? this.y + (this.ally.y - this.y) * lean : this.y;
+  // The camera is on the house this device plays, and leans toward the others
+  // (halfway to the middle of those on their feet: between two, between the
+  // two of them).
+  const me: { x: number; y: number } =
+    (this.seat && this.allyOf(this.seat)) || this;
+  const others = [this as { x: number; y: number }, ...this.allies].filter(
+    (o) => o !== me && !(o as Ally).down && !(o as Ally).away,
+  );
+  const lean = this.allies.length && others.length ? this.allyFocus * 0.5 : 0,
+    focusX =
+      me.x +
+      ((others.reduce((sum, o) => sum + o.x, 0) / (others.length || 1)) -
+        me.x) *
+        lean,
+    focusY =
+      me.y +
+      ((others.reduce((sum, o) => sum + o.y, 0) / (others.length || 1)) -
+        me.y) *
+        lean;
   const cameraX = Math.max(
     w / 2 / zoom - 25,
     Math.min(1625 - w / 2 / zoom, focusX),
@@ -547,13 +577,9 @@ function draw(this: Battle) {
     visible,
   );
   drawArenaLight(c, this.x, this.y - 10, '#ffd79a');
-  if (this.ally && !this.ally.down)
-    drawArenaLight(
-      c,
-      this.ally.x,
-      this.ally.y - 6,
-      heroAbility(this.ally.hero).color,
-    );
+  for (const a of this.allies)
+    if (!a.down && !a.away)
+      drawArenaLight(c, a.x, a.y - 6, heroAbility(a.hero).color);
   this.ambient?.draw(c);
   this.drawAuras(c, visible);
   for (const hazard of this.hazards) drawHazard(c, hazard, this.settings);
@@ -582,7 +608,13 @@ function draw(this: Battle) {
     } else c.arc(d.x, d.y, d.kind === 'heal' ? 5 : 3, 0, Math.PI * 2);
     c.fill();
   }
-  const actors = [
+  const actors: {
+    y: number;
+    enemy: Enemy | null;
+    dying: number;
+    partner: boolean;
+    ally?: Ally;
+  }[] = [
     // Where each one stands on the ground (the house's shadow is 24 below
     // its centre, an enemy's feet are a little below its middle): what is
     // lower on the screen is nearer and is drawn later.
@@ -599,9 +631,13 @@ function draw(this: Battle) {
       partner: false,
     })),
     { y: this.y + 24, enemy: null, dying: 0, partner: false },
-    ...(this.ally
-      ? [{ y: this.ally.y + 24, enemy: null, dying: 0, partner: true }]
-      : []),
+    ...this.allies.map((ally) => ({
+      y: ally.y + 24,
+      enemy: null,
+      dying: 0,
+      partner: true,
+      ally,
+    })),
   ].sort((a, b) => a.y - b.y);
   const wrecked = this.ended && this.run.hp <= 0;
   // The standing props are drawn among them by depth: an object nearer to the
@@ -625,7 +661,7 @@ function draw(this: Battle) {
     propsBefore(actor.y);
     const e = actor.enemy;
     if (!e && actor.partner) {
-      if (!wrecked) this.drawAlly(c);
+      if (!wrecked && actor.ally) this.drawAlly(c, actor.ally);
     } else if (!e) {
       if (!wrecked) this.drawHouse(c, this.x, this.y);
       else if (this.outro > 0) {
@@ -783,7 +819,7 @@ function drawHitboxes(
   for (const p of this.explosives)
     if (!p.blown) for (const s of propBody(p)) ring(s.x, s.y, s.r, '#ff9a2e');
   ring(this.x, this.y, 24, '#4aa3ff');
-  if (this.ally) ring(this.ally.x, this.ally.y, 24, '#4aa3ff', true);
+  for (const a of this.allies) ring(a.x, a.y, 24, '#4aa3ff', true);
   for (const e of this.enemies) {
     if (e.hp <= 0 || !visible(e.x, e.y, e.r)) continue;
     ring(e.x, e.y, e.r, '#ffe14a');

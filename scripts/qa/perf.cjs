@@ -5,6 +5,8 @@
 // each animation frame took.
 //   npm run build && npx vite preview --config vite.game.config.ts --port 4173
 //   OSBB_URL=http://127.0.0.1:4173/ node scripts/qa/perf.cjs [rate ...]
+// PLAYERS=3 or 4 plays a fight with that many houses (the partners stand and
+// shoot where they are: it is what drawing and counting them costs).
 // A production build (the dev build is several times slower in React's own
 // checks). With `PROFILE=file.cpuprofile` the throttled run is profiled too
 // (open the file in Chrome DevTools, Performance).
@@ -16,6 +18,7 @@ const URL = process.env.OSBB_URL || 'http://127.0.0.1:4173/';
 const RATES = process.argv.slice(2).map(Number).filter((n) => n >= 1);
 const SECONDS = Number(process.env.SECONDS) || 14;
 const DUO = !!process.env.DUO;
+const PLAYERS = Math.max(1, Math.min(4, Number(process.env.PLAYERS) || 1));
 const log = (...a) => console.log(...a);
 
 // Frame intervals of the page, from requestAnimationFrame.
@@ -45,7 +48,17 @@ async function fight(port, rate) {
   p.dpr = 2;
   await p.go(URL, 1500);
   const prof = veteran({ scenesSeen: ['prologue', 'origins', 'arrival-0', 'goal'] });
-  await p.eval(`localStorage.setItem(${JSON.stringify(prof.key)}, ${JSON.stringify(prof.value)}); 0`);
+  let value = prof.value;
+  if (PLAYERS > 1) {
+    // A raid with that many houses, put into the save.
+    const path = require('node:path');
+    const T = path.resolve(__dirname, '../../.test-build');
+    const M = require(path.join(T, 'model.js'));
+    const save = JSON.parse(prof.value);
+    const run = M.withCrew(M.makeRun(save.meta, 'mechanic', 0, 7), ['flora', 'spark', 'nina'].slice(0, PLAYERS - 1));
+    value = M.saveData(save.meta, run);
+  }
+  await p.eval(`localStorage.setItem(${JSON.stringify(prof.key)}, ${JSON.stringify(value)}); 0`);
   await p.go(URL, 3500);
   await p.eval(`(()=>{const s=document.createElement('style'); s.textContent='.toast-stack,.achievement-toast{display:none!important}'; document.head.appendChild(s); 0})()`);
   if (DUO) await p.click('Вдвох тут', 'button.play-mode');

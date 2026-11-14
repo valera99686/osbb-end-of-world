@@ -26,7 +26,7 @@ const veteran = () => ({
 });
 const coopRun = (hero = 'flora', meta = veteran()) =>
   M.makeRun(meta, 'mechanic', 0, 5, { coop: hero });
-const mateIds = (run) => (run.mate?.items ?? []).filter(Boolean);
+const mateIds = (run) => (run.mates[0]?.items ?? []).filter(Boolean);
 const afterFight = (run, meta) =>
   M.battleRewards({ ...run, page: 'combat', path: [0], step: 0 }, meta);
 
@@ -38,18 +38,18 @@ test("The second house is a house of its own: its hero's room and a kit of canno
     ['cannon', 'engine', 'workshop'],
     'the first house keeps its own',
   );
-  assert.deepEqual(run.mate.residents.map((r) => r.id), ['flora']);
-  assert.deepEqual(run.mate.rescued, ['flora']);
+  assert.deepEqual(run.mates[0].residents.map((r) => r.id), ['flora']);
+  assert.deepEqual(run.mates[0].rescued, ['flora']);
   assert.deepEqual(run.residents.map((r) => r.id), ['mechanic']);
   assert.equal(
-    M.makeRun(veteran(), 'mechanic', 0, 5).mate,
+    M.makeRun(veteran(), 'mechanic', 0, 5).mates,
     undefined,
     'nothing when playing alone',
   );
   const joined = M.withMate(M.makeRun(veteran(), 'mechanic', 0, 5), 'spark');
   assert.equal(joined.coop, 'spark');
   assert.deepEqual(mateIds(joined), ['cannon', 'engine', 'generator']);
-  assert.equal(M.withMate(joined, '').mate, undefined);
+  assert.equal(M.withMate(joined, '').mates, undefined);
 });
 
 test('The two houses are measured by their own neighbours, modules and perks', () => {
@@ -70,7 +70,7 @@ test('The two houses are measured by their own neighbours, modules and perks', (
   const hostPerk = { ...fitted, perks: ['searchlight'] };
   assert.equal(M.statsFor(hostPerk, meta).range, M.statsFor(fitted, meta).range + 70);
   assert.equal(M.mateStats(hostPerk, meta).range, M.mateStats(fitted, meta).range, 'not the second house');
-  const matePerk = { ...fitted, mate: { ...fitted.mate, perks: ['searchlight'] } };
+  const matePerk = { ...fitted, mates: [{ ...fitted.mates[0], perks: ['searchlight'] }] };
   assert.equal(M.mateStats(matePerk, meta).range, M.mateStats(fitted, meta).range + 70);
   assert.equal(M.statsFor(matePerk, meta).range, M.statsFor(fitted, meta).range, 'not the first house');
 });
@@ -81,7 +81,7 @@ test('A module given to the second house takes a free slot, or waits in its back
   // Three slots, all taken by the kit: the module waits in the backpack.
   const bag = M.giveMate(run, meta, 'redline');
   assert.notEqual(bag, run);
-  assert.deepEqual(bag.mate.backpack.map((i) => i.id), ['redline']);
+  assert.deepEqual(bag.mates[0].backpack.map((i) => i.id), ['redline']);
   assert.equal(bag.backpack.length, run.backpack.length, 'the first house backpack is not touched');
   // With neighbours rescued the house has free slots and takes it at once.
   for (let i = 0; i < 3; i++) run = M.recruitBoth(run, meta).run;
@@ -90,26 +90,28 @@ test('A module given to the second house takes a free slot, or waits in its back
   ).length;
   assert.ok(rooms > 3, `the second house has grown (${rooms} slots)`);
   const placed = M.giveMate(run, meta, 'redline');
-  assert.ok(placed.mate.items.includes('redline'));
-  assert.equal(placed.mate.backpack.length, run.mate.backpack.length);
+  assert.ok(placed.mates[0].items.includes('redline'));
+  assert.equal(placed.mates[0].backpack.length, run.mates[0].backpack.length);
   // A full backpack, a fight, no partner, an unknown module: refused.
   let full = run;
   full = {
     ...full,
-    mate: {
-      ...full.mate,
-      items: full.mate.items.map((id) => id ?? 'cannon'),
-      backpack: Array.from({ length: E.STORAGE_LIMIT }, (_, i) => ({
-        uid: i + 1,
-        id: 'cannon',
-        x: 0,
-        y: 0,
-        rotation: 0,
-      })),
-    },
+    mates: [
+      {
+        ...full.mates[0],
+        items: full.mates[0].items.map((id) => id ?? 'cannon'),
+        backpack: Array.from({ length: E.STORAGE_LIMIT }, (_, i) => ({
+          uid: i + 1,
+          id: 'cannon',
+          x: 0,
+          y: 0,
+          rotation: 0,
+        })),
+      },
+    ],
   };
   assert.equal(M.giveMate(full, meta, 'redline'), full);
-  assert.equal(M.giveMate({ ...run, page: 'combat' }, meta, 'redline').mate, run.mate);
+  assert.equal(M.giveMate({ ...run, page: 'combat' }, meta, 'redline').mates, run.mates);
   const alone = { ...run, coop: '' };
   assert.equal(M.giveMate(alone, meta, 'redline'), alone);
   assert.equal(M.giveMate(run, meta, 'nonsense'), run);
@@ -121,47 +123,47 @@ test('A co-op reward is two rows of finds with none in common, and the coins com
     duoBase = coopRun('flora', meta);
   const solo = afterFight(soloBase, meta),
     duo = afterFight(duoBase, meta);
-  assert.deepEqual(solo.mateLoot, []);
-  assert.equal(duo.mateLoot.length, 3);
+  assert.deepEqual(solo.mateLoots, []);
+  assert.equal(duo.mateLoots[0].length, 3);
   const mine = duo.loot.map((l) => l.id);
   assert.ok(
-    duo.mateLoot.every((l) => !mine.includes(l.id)),
+    duo.mateLoots[0].every((l) => !mine.includes(l.id)),
     'the finds are shared out, not doubled',
   );
   // Over many fights the second row holds furniture too, like the first one.
   const kinds = new Set();
   for (let seed = 1; seed < 40; seed++)
-    for (const l of afterFight({ ...duoBase, seed }, meta).mateLoot) kinds.add(l.kind);
+    for (const l of afterFight({ ...duoBase, seed }, meta).mateLoots[0]) kinds.add(l.kind);
   assert.deepEqual([...kinds].sort(), ['furniture', 'module']);
   assert.equal(
     duo.coins - duoBase.coins,
-    C.COOP.money * (solo.coins - soloBase.coins),
+    C.PARTY[1].money * (solo.coins - soloBase.coins),
   );
   assert.equal(M.earned({ coop: '' }, 10), 10);
-  assert.equal(M.earned({ coop: 'flora' }, 10), 10 * C.COOP.money);
+  assert.equal(M.earned({ coop: 'flora' }, 10), 10 * C.PARTY[1].money);
   assert.equal(M.earned({ coop: 'flora' }, -30), -30, 'costs are not doubled');
 });
 
 test('The second house takes furniture from its row; an event that gives furniture gives it a row too', () => {
   const meta = veteran();
   const duo = afterFight(coopRun('flora', meta), meta);
-  const row = { ...duo, mateLoot: [{ kind: 'furniture', id: 'firedoor' }], picked: {} };
+  const row = { ...duo, mateLoots: [[{ kind: 'furniture', id: 'firedoor' }]], picked: {} };
   const before = M.mateRun(row).furniture.length;
   const took = M.giveMateFurniture(row, 0);
   assert.equal(M.mateRun(took).furniture.length, before + 1);
   assert.equal(M.mateRun(took).furniture.at(-1).id, 'firedoor');
   assert.equal(took.furniture.length, row.furniture.length, 'the first house is untouched');
-  assert.equal(took.picked.mate, 'firedoor');
-  assert.deepEqual(took.mateLoot, []);
+  assert.equal(took.picked[1], 'firedoor');
+  assert.deepEqual(took.mateLoots, [[]]);
   assert.equal(M.giveMateFurniture(took, 0), took, 'a row is taken once');
-  assert.equal(M.giveMateFurniture({ ...row, mateLoot: [{ kind: 'module', id: 'airbag' }] }, 0).mate, row.mate, 'a module is not furniture');
+  assert.equal(M.giveMateFurniture({ ...row, mateLoots: [[{ kind: 'module', id: 'airbag' }]] }, 0).mates, row.mates, 'a module is not furniture');
   // An event's furniture: a row for the second house too, of furniture only.
   const ev = M.mateRow(duo, meta, 1, 405, [], false, false, 'furniture');
   assert.equal(ev.length, 1);
   assert.equal(ev[0].kind, 'furniture');
   // It survives the view the guest is sent and a save.
   const view = M.readView(JSON.parse(JSON.stringify(row)));
-  assert.deepEqual(view.mateLoot, [{ kind: 'furniture', id: 'firedoor' }]);
+  assert.deepEqual(view.mateLoots, [[{ kind: 'furniture', id: 'firedoor' }]]);
 });
 
 test('The rescued neighbours are shared out between the two houses, never taken twice', () => {
@@ -169,7 +171,7 @@ test('The rescued neighbours are shared out between the two houses, never taken 
   let run = coopRun('flora', meta);
   const seen = new Set(['mechanic', 'flora']);
   for (let i = 0; i < 6; i++) {
-    const before = run.rescued.length + run.mate.rescued.length;
+    const before = run.rescued.length + run.mates[0].rescued.length;
     const got = M.recruitBoth(run, meta);
     run = got.run;
     if (!got.id) break;
@@ -180,17 +182,17 @@ test('The rescued neighbours are shared out between the two houses, never taken 
       seen.add(got.mateId);
       assert.notEqual(got.id, got.mateId);
     }
-    assert.equal(run.rescued.length + run.mate.rescued.length, before + 1 + (got.mateId ? 1 : 0));
-    assert.ok(run.rescued.every((id) => !run.mate.rescued.includes(id) || id === 'flora'), 'the houses have different people');
+    assert.equal(run.rescued.length + run.mates[0].rescued.length, before + 1 + (got.mateId ? 1 : 0));
+    assert.ok(run.rescued.every((id) => !run.mates[0].rescued.includes(id) || id === 'flora'), 'the houses have different people');
   }
-  assert.ok(run.mate.rescued.length > 1, 'the second house got neighbours too');
+  assert.ok(run.mates[0].rescued.length > 1, 'the second house got neighbours too');
   // Alone nothing changes: one neighbour per rescue.
   const alone = M.recruitBoth(M.makeRun(meta, 'mechanic', 0, 5), meta);
   assert.equal(alone.mateId, null);
   assert.ok(alone.id);
   // A rescue after a fight tells both.
   const after = afterFight({ ...coopRun('flora', meta), battleCount: 0 }, meta);
-  assert.ok(after.mate.rescued.length >= 1);
+  assert.ok(after.mates[0].rescued.length >= 1);
   assert.match(after.eventResult, /Урятовано/);
 });
 
@@ -198,46 +200,46 @@ test('The raid goes on once both houses have taken their find, and the screen kn
   const meta = veteran();
   let run = afterFight(coopRun('flora', meta), meta);
   const mine = run.loot[0].id,
-    yours = run.mateLoot[0].id;
-  run = M.settleReward(run, 'host', mine);
+    yours = run.mateLoots[0][0].id;
+  run = M.settleReward(run, 0, mine);
   assert.equal(run.page, 'reward', 'one row is still on the table');
   assert.equal(run.loot.length, 0);
-  assert.deepEqual(run.picked, { host: mine });
-  run = M.settleReward(run, 'mate', yours);
+  assert.deepEqual(run.picked, { 0: mine });
+  run = M.settleReward(run, 1, yours);
   assert.equal(run.page, 'map');
   assert.equal(run.step, 1);
-  assert.deepEqual(run.mateLoot, []);
+  assert.deepEqual(run.mateLoots, []);
   assert.deepEqual(run.picked, {}, 'the next stop starts clean');
   let alone = afterFight(M.makeRun(meta, 'mechanic', 0, 5), meta);
-  alone = M.settleReward(alone, 'host', alone.loot[0].id);
+  alone = M.settleReward(alone, 0, alone.loot[0].id);
   assert.equal(alone.page, 'map');
 });
 
 test("The second house, its neighbours and the rows survive a save", () => {
   const meta = veteran();
   let run = afterFight(coopRun('flora', meta), meta);
-  run = M.giveMate(run, meta, run.mateLoot[0].id);
-  run = { ...run, picked: { mate: run.mateLoot[0].id } };
+  run = M.giveMate(run, meta, run.mateLoots[0][0].id);
+  run = { ...run, picked: { 1: run.mateLoots[0][0].id } };
   const text = S.saveData(meta, run);
   const back = S.readSave(text);
   assert.ok(back.run, 'the save loads');
-  assert.deepEqual(back.run.mate.items, run.mate.items);
-  assert.deepEqual(back.run.mate.rescued, run.mate.rescued);
-  assert.deepEqual(back.run.mate.residents.map((r) => r.id), run.mate.residents.map((r) => r.id));
-  assert.deepEqual(back.run.mate.backpack.map((i) => i.id), run.mate.backpack.map((i) => i.id));
-  assert.deepEqual(back.run.mateLoot.map((l) => l.id), run.mateLoot.map((l) => l.id));
+  assert.deepEqual(back.run.mates[0].items, run.mates[0].items);
+  assert.deepEqual(back.run.mates[0].rescued, run.mates[0].rescued);
+  assert.deepEqual(back.run.mates[0].residents.map((r) => r.id), run.mates[0].residents.map((r) => r.id));
+  assert.deepEqual(back.run.mates[0].backpack.map((i) => i.id), run.mates[0].backpack.map((i) => i.id));
+  assert.deepEqual(back.run.mateLoots[0].map((l) => l.id), run.mateLoots[0].map((l) => l.id));
   assert.deepEqual(back.run.picked, run.picked);
   assert.equal(back.run.coop, 'flora');
   // A damaged house never crashes the load: the kit comes back.
   for (const bad of [7, 'x', null, { items: 5 }, { rescued: [], residents: [], items: [], backpack: 3 }]) {
     const broken = JSON.parse(text);
-    broken.run.mate = bad;
-    broken.run.mateLoot = ['x', { kind: 'module', id: 'zzz' }];
-    broken.run.boughtBy = { 99: 'host', a: 'mate', 1: 'who' };
+    broken.run.mates = [bad];
+    broken.run.mateLoots = [['x', { kind: 'module', id: 'zzz' }]];
+    broken.run.boughtBy = { 99: 0, a: 1, 1: 'who' };
     const again = S.readSave(JSON.stringify(broken));
     assert.ok(again.run, 'loads');
-    assert.deepEqual(again.run.mate.items.filter(Boolean), ['cannon', 'engine', 'greenhouse']);
-    assert.deepEqual(again.run.mateLoot, []);
+    assert.deepEqual(again.run.mates[0].items.filter(Boolean), ['cannon', 'engine', 'greenhouse']);
+    assert.deepEqual(again.run.mateLoots, [[]]);
     assert.deepEqual(again.run.boughtBy, {});
   }
 });
@@ -338,17 +340,17 @@ test('The guest is sent the host run to show, and what it asks is checked by the
   pump();
   const view = M.readView(guest.view);
   assert.ok(view, 'the guest reads the view');
-  assert.deepEqual(view.mateLoot.map((l) => l.id), run.mateLoot.map((l) => l.id));
-  assert.deepEqual(view.mate.items, run.mate.items);
-  assert.deepEqual(view.mate.residents.map((r) => r.id), run.mate.residents.map((r) => r.id));
-  assert.ok(view.mate.residents.some((r) => r.id === 'flora'));
+  assert.deepEqual(view.mateLoots[0].map((l) => l.id), run.mateLoots[0].map((l) => l.id));
+  assert.deepEqual(view.mates[0].items, run.mates[0].items);
+  assert.deepEqual(view.mates[0].residents.map((r) => r.id), run.mates[0].residents.map((r) => r.id));
+  assert.ok(view.mates[0].residents.some((r) => r.id === 'flora'));
   const heard = [];
   host.onTake = (m) => heard.push(m);
-  guest.take('reward', 0, run.mateLoot[0].id);
+  guest.take('reward', 0, run.mateLoots[0][0].id);
   guest.take('shop', 3, 'redline');
   pump();
   assert.deepEqual(heard, [
-    { source: 'reward', index: 0, id: run.mateLoot[0].id },
+    { source: 'reward', index: 0, id: run.mateLoots[0][0].id },
     { source: 'shop', index: 3, id: 'redline' },
   ]);
   const link = guest.link;
@@ -391,7 +393,7 @@ test('The host takes the guest rearranging its house only when nothing came from
   [swapped.items[used[0]], swapped.items[used[1]]] = [swapped.items[used[1]], swapped.items[used[0]]];
   const ok = ask(swapped);
   assert.ok(ok, 'a swap is taken');
-  assert.deepEqual(ok.mate.items, swapped.items);
+  assert.deepEqual(ok.mates[0].items, swapped.items);
   assert.deepEqual(ok.items, run.items, 'the first house is untouched');
   const scrapped = { ...house, items: house.items.map((id, i) => (i === used[0] ? null : id)) };
   assert.ok(ask(scrapped, run.coins, run.scrap + 2), 'scrapping a module pays scrap');
@@ -406,7 +408,7 @@ test('The host takes the guest rearranging its house only when nothing came from
   const grown = ask({ ...house, houseLevel: 1 }, run.coins - 200);
   assert.equal(grown, null, 'the coins would go below nothing');
   const paid = ask({ ...house, houseLevel: 1 }, run.coins - 50);
-  assert.ok(paid && paid.mate.houseLevel === 1 && paid.coins === 50);
+  assert.ok(paid && paid.mates[0].houseLevel === 1 && paid.coins === 50);
   assert.equal(ask('nonsense'), null);
   assert.equal(M.acceptMateHouse({ ...run, coop: '' }, { house, coins: 1, scrap: 1 }), null);
   assert.equal(M.acceptMateHouse({ ...run, page: 'combat' }, { house, coins: run.coins, scrap: run.scrap }), null);
@@ -419,19 +421,19 @@ test('A view that is not a run of the shape the screens read is not shown', () =
   assert.equal(M.readView(null), null);
   assert.equal(M.readView({ seed: 3 }), null);
   assert.equal(M.readView({ ...run, coop: '' }), null, 'a view is for two houses');
-  assert.equal(M.readView({ ...run, mate: undefined }), null);
+  assert.equal(M.readView({ ...run, mates: undefined }), null);
   assert.equal(M.readView({ ...run, residents: 'x' }), null);
   assert.equal(M.readView({ ...run, backpack: undefined }), null);
   assert.equal(M.readView({ ...run, page: 'nonsense' }), null);
   const shaped = M.readView({
     ...run,
-    mate: { ...run.mate, items: [1, 'zzz', 'cannon'], residents: [{ id: 'nobody' }, 5] },
-    mateLoot: [{ kind: 'module', id: 'zzz' }, { kind: 'module', id: 'redline' }, 5],
+    mates: [{ ...run.mates[0], items: [1, 'zzz', 'cannon'], residents: [{ id: 'nobody' }, 5] }],
+    mateLoots: [[{ kind: 'module', id: 'zzz' }, { kind: 'module', id: 'redline' }, 5]],
     picked: 4,
   });
-  assert.deepEqual(shaped.mate.items.filter(Boolean), ['cannon']);
-  assert.deepEqual(shaped.mate.residents.map((r) => r.id), ['flora'], 'the hero is always at home');
-  assert.deepEqual(shaped.mateLoot, [{ kind: 'module', id: 'redline' }]);
+  assert.deepEqual(shaped.mates[0].items.filter(Boolean), ['cannon']);
+  assert.deepEqual(shaped.mates[0].residents.map((r) => r.id), ['flora'], 'the hero is always at home');
+  assert.deepEqual(shaped.mateLoots, [[{ kind: 'module', id: 'redline' }]]);
   assert.deepEqual(shaped.picked, {});
   assert.ok(M.mateStats(shaped, veteran()).health > 0);
 });

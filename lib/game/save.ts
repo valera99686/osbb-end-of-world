@@ -28,16 +28,20 @@ import {
   STORY_REVISION,
 } from './cutscenes';
 import { ACHIEVEMENT_BY_ID } from './achievements';
-import { DATE_KEY, heatCap } from './modes';
+import { DATE_KEY, heatCap, pactOf } from './modes';
+import { MAX_PLAYERS } from './coop';
 import { isSecret } from './secrets';
 import {
   campaignTree,
   compactCampaignTree,
+  freshHouse,
   initialMeta,
   legacyTree,
   makeRun,
   mysteryKind,
+  readCrew,
   readHouse,
+  readRows,
   previousCampaignTree,
   previousMinibossCampaignTree,
   previousRandomCampaignTree,
@@ -657,10 +661,24 @@ export function readSave(raw: string | null): {
           else run = storedItem(run, id);
         }
       }
-      // Co-op: the second house keeps its own neighbours, rooms and modules; a
-      // save from before them (or a damaged one) keeps the kit makeRun gave it.
-      if (run.coop)
-        run.mate = readHouse(r.mate, run.chapter, run.coop) ?? run.mate;
+      // Co-op: every partner house keeps its own neighbours, rooms and
+      // modules; a save from before them (or a damaged one) keeps the kit
+      // makeRun gave the second house. A raid for two of an older version kept
+      // its one partner house in `mate`.
+      if (run.coop) {
+        const saved: unknown[] = Array.isArray(r.mates)
+          ? r.mates
+          : r.mate
+            ? [r.mate]
+            : [];
+        const start = run;
+        const kit = start.mates?.[0];
+        run.mates = readCrew(saved.length ? saved : [null], run.coop).map(
+          (hero, i) =>
+            readHouse(saved[i], start.chapter, hero) ??
+            (i === 0 && kit ? kit : freshHouse(start, hero)),
+        );
+      }
       for (const k of [
         'coins',
         'scrap',
@@ -690,7 +708,7 @@ export function readSave(raw: string | null): {
         run.minibossVariants[
           `${run.chapter}:${run.step}:${run.path[run.step]}`
         ] = 0;
-      run.page = ['map', 'shop', 'event', 'reward'].includes(r.page)
+      run.page = ['map', 'shop', 'event', 'reward', 'council'].includes(r.page)
         ? r.page
         : 'map';
       run.offers = Array.isArray(r.offers)
@@ -699,7 +717,7 @@ export function readSave(raw: string | null): {
               (id: string) =>
                 base.unlocked.includes(id) && blueprintPool(run!, id),
             )
-            .slice(0, 4)
+            .slice(0, 6)
         : [];
       run.reward = Array.isArray(r.reward)
         ? r.reward
@@ -711,47 +729,62 @@ export function readSave(raw: string | null): {
             (n: number) => Number.isInteger(n) && n >= 0 && n < 12,
           )
         : [];
-      run.mateLoot =
-        run.coop && Array.isArray(r.mateLoot)
-          ? r.mateLoot
-              .filter(
-                (l: { kind?: string; id?: string }) =>
-                  typeof l?.id === 'string' &&
-                  ((l.kind === 'module' && base.unlocked.includes(l.id)) ||
-                    (l.kind === 'furniture' && !!FURNITURE_BY_ID[l.id])),
-              )
-              .slice(0, 3)
-              .map((l: { kind: 'module' | 'furniture'; id: string }) => ({
-                kind: l.kind,
-                id: l.id,
-              }))
-          : [];
+      // The partners' rows of the reward (an older save had the one row of the
+      // second house in `mateLoot`).
+      run.mateLoots = run.coop
+        ? readRows(
+            Array.isArray(r.mateLoots)
+              ? r.mateLoots
+              : Array.isArray(r.mateLoot)
+                ? [r.mateLoot]
+                : [],
+            run.mates?.length ?? 0,
+          ).map((row) =>
+            row.filter(
+              (l) => l.kind !== 'module' || base.unlocked.includes(l.id),
+            ),
+          )
+        : [];
       const named = (v: unknown) =>
         typeof v === 'string' && (!!ITEM_BY_ID[v] || !!FURNITURE_BY_ID[v])
           ? v
           : undefined;
+      // Who took what goes by seat (0 is the first house); an older save named
+      // the two houses instead.
+      const took = (r.picked ?? {}) as Record<string, unknown>;
       run.picked = {};
-      for (const who of ['host', 'mate'] as const) {
-        const id = named(r.picked?.[who]);
-        if (id) run.picked[who] = id;
+      for (let seat = 0; seat < MAX_PLAYERS; seat++) {
+        const id = named(
+          took[seat] ?? (seat === 0 ? took.host : seat === 1 ? took.mate : null),
+        );
+        if (id) run.picked[seat] = id;
       }
       run.boughtBy = {};
-      for (const [k, who] of Object.entries(r.boughtBy ?? {}))
+      for (const [k, who] of Object.entries(r.boughtBy ?? {})) {
+        const seat = who === 'host' ? 0 : who === 'mate' ? 1 : who;
         if (
           Number.isInteger(+k) &&
           +k >= 0 &&
           +k < 12 &&
-          (who === 'host' || who === 'mate')
+          typeof seat === 'number' &&
+          Number.isInteger(seat) &&
+          seat >= 0 &&
+          seat < MAX_PLAYERS
         )
-          run.boughtBy[+k] = who;
+          run.boughtBy[+k] = seat;
+      }
       run.rerolls = finite(r.rerolls, 0, 50, 0);
+      // The decision of the council for this location, if it is one of ours.
+      if (pactOf(r.pact)) run.pact = r.pact;
       run.eventDone = !!r.eventDone;
       if (!run.loot.length && run.page === 'reward')
         run.loot = run.reward.map((id) => ({ kind: 'module', id }));
       for (const id of [
         ...run.items,
-        ...(run.mate?.items ?? []),
-        ...(run.mate?.backpack.map((i) => i.id) ?? []),
+        ...(run.mates ?? []).flatMap((m) => [
+          ...m.items,
+          ...m.backpack.map((i) => i.id),
+        ]),
         ...run.backpack.map((i) => i.id),
       ])
         if (id && !base.unlocked.includes(id)) base.unlocked.push(id);

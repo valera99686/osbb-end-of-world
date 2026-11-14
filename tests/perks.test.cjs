@@ -112,7 +112,7 @@ test('In co-op each house takes its own perk: the fight waits for both', () => {
   b.chooseMatePerk(pick);
   assert.ok(!b.choosing);
   assert.deepEqual(b.run.perks, [drafts[0].offers[0]]);
-  assert.deepEqual(b.run.mate.perks, [pick]);
+  assert.deepEqual(b.run.mates[0].perks, [pick]);
   const mateOnly = M.statsFor(M.mateRun(b.run), meta);
   assert.deepEqual(b.mateStats, mateOnly);
   if (pick === 'searchlight') assert.equal(b.mateStats.range, range.mate + 70);
@@ -126,7 +126,7 @@ test("The second house's own perks act on the partner: blanket, second wind, saw
   const meta = { ...M.initialMeta(), wins: 8 },
     run = M.makeRun(meta, 'mechanic', 0, 7, { coop: 'flora' });
   run.kind = 'battle';
-  run.mate = { ...run.mate, perks: ['blanket', 'second_wind', 'patrol'] };
+  run.mates = [{ ...run.mates[0], perks: ['blanket', 'second_wind', 'patrol'] }];
   const b = new Battle(null, run, meta, audio, () => {}, () => {}, {});
   b.spawnTimer = b.shotTimer = b.droneTimer = 999;
   const a = b.ally;
@@ -156,7 +156,7 @@ test('Balance bots take the first offer at once', () => {
   duo.run.xp = 999;
   duo.update(1 / 60);
   assert.equal(duo.run.perks.length, 1);
-  assert.equal(duo.run.mate.perks.length, 1);
+  assert.equal(duo.run.mates[0].perks.length, 1);
   assert.ok(!duo.choosing);
 });
 

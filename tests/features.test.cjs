@@ -304,6 +304,8 @@ test('Heat zero is neutral, every level makes things harder and prices follow', 
     shopCost: 1,
     bossTime: 1,
     coreBonus: 1,
+    coinGain: 1,
+    xpGain: 1,
   };
   assert.deepEqual(Modes.heatEffects(0), neutral);
   assert.deepEqual(Modes.heatEffects(NaN), neutral);

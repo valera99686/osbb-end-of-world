@@ -13,7 +13,7 @@ import {
   type VoiceLink,
 } from '@/lib/game/net';
 import { savedRelay } from './relay';
-import { joinRelay, listenRelay, type RelayHandle } from './relay-link';
+import { MAX_LINKS, joinRelay, listenRelay, type RelayHandle } from './relay-link';
 
 // Keeps our rooms apart from any other program using the same broker.
 const PREFIX = 'osbb17-';
@@ -25,6 +25,9 @@ const OPEN_TIMEOUT = 15000;
 // How often a room that lost its name on the broker asks for it back, and how
 // long a guest keeps looking for a room the broker does not know.
 const REVIVE_EVERY = 3000;
+// A room resumed asks for its old name this many times, this far apart.
+const RESUME_TRIES = 12;
+const RESUME_EVERY = 2500;
 const NOT_FOUND_WAIT = 14000;
 // The default servers of PeerJS include a free relay that no longer exists, so
 // the list is our own: public STUN, and the player's relay if they set one up.
@@ -45,8 +48,9 @@ class PeerVoice implements VoiceLink {
   private out: MediaConnection | null = null;
   private heard: MediaConnection | null = null;
   private answer = (call: MediaConnection) => {
-    // Only the partner of this link is listened to.
-    if (call.peer !== this.remote) return call.close();
+    // Only the partner of this link is listened to (the other links of the room
+    // have their own listeners on the same peer).
+    if (call.peer !== this.remote) return;
     this.heard?.close();
     this.heard = call;
     call.answer();
@@ -152,29 +156,30 @@ async function peerClass(): Promise<typeof Peer> {
 }
 
 // Opens a room: calls back with its code once the broker knows it, and with a
-// link each time a guest connects (a second guest is turned away while the
-// first one is in). The relay listens from the moment the room has a code.
+// link each time a guest connects (the room takes as many as MAX_LINKS; the
+// session behind it gives out the seats and turns away the rest). The relay
+// listens from the moment the room has a code.
 export async function createRoom(
   on: {
     code: (code: string) => void;
     guest: (link: Link) => void;
     error: (why: string) => void;
   },
+  // The code of a room that stood before (a raid being resumed): the guests
+  // know it, so it is asked for again for a good while before a new one is made.
+  wanted = '',
 ): Promise<Handle> {
   const PeerCtor = await peerClass();
   let peer: Peer | null = null;
   let closed = false;
-  let current: DataConnection | null = null;
+  const connections = new Set<DataConnection>();
   let relay: RelayHandle | null = null;
-  let relayLink: Link | null = null;
-  const taken = () => !!current?.open || !!relayLink?.open;
+  const taken = () => connections.size >= MAX_LINKS;
   const listen = (code: string) => {
     if (relay || closed) return;
     void listenRelay(code, {
-      taken,
       guest: (link) => {
         if (closed) return link.close();
-        relayLink = link;
         on.guest(link);
       },
     }).then((handle) => {
@@ -183,7 +188,10 @@ export async function createRoom(
     });
   };
   const attempt = (tries: number) => {
-    const code = makeCode();
+    // The old name may still be held by the broker for a few seconds after the
+    // page that had it was closed.
+    const again = !!wanted && tries < RESUME_TRIES;
+    const code = again ? wanted : makeCode();
     const p = new PeerCtor(PREFIX + code, options());
     peer = p;
     // Without the PeerJS broker there are no direct connections, but the relay
@@ -238,7 +246,10 @@ export async function createRoom(
       clearTimeout(timer);
       if (closed) return;
       const type = (e as { type?: string }).type;
-      if (type === 'unavailable-id' && tries < 6) {
+      if (type === 'unavailable-id' && again) {
+        p.destroy();
+        window.setTimeout(() => !closed && attempt(tries + 1), RESUME_EVERY);
+      } else if (type === 'unavailable-id' && tries < RESUME_TRIES + 6) {
         p.destroy();
         attempt(tries + 1);
       } else if (!p.open && type !== 'peer-unavailable') offline();
@@ -250,16 +261,18 @@ export async function createRoom(
     });
     p.on('connection', (conn) => {
       if (taken()) {
-        // The room is taken: say so and leave.
+        // The room is full: say so and leave.
         conn.on('open', () => {
           void conn.send({ t: 'refuse', why: 'busy' } satisfies Msg);
           setTimeout(() => conn.close(), 300);
         });
         return;
       }
-      current = conn;
+      connections.add(conn);
+      conn.on('close', () => connections.delete(conn));
+      conn.on('error', () => connections.delete(conn));
       conn.on('open', () => {
-        if (!closed && current === conn) on.guest(new PeerLink(conn, p));
+        if (!closed && connections.has(conn)) on.guest(new PeerLink(conn, p));
       });
     });
   };
@@ -271,7 +284,8 @@ export async function createRoom(
   return {
     close() {
       closed = true;
-      current?.close();
+      for (const conn of connections) conn.close();
+      connections.clear();
       peer?.destroy();
       relay?.close();
     },

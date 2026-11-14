@@ -217,7 +217,7 @@ const TAKES = {
     await rec(guest, 'online-guest');
     const both = (fn) => Promise.all([fn(host), fn(guest)]);
     await sleep(1200);
-    await both((p) => p.click('Вдвох по мережі', 'button.play-mode'));
+    await both((p) => p.click('По мережі', 'button.play-mode'));
     await sleep(1500);
     // Two pages filmed at once are slow for the lockstep that waits for the slower one:
     // the host counts the fight alone.
@@ -234,7 +234,7 @@ const TAKES = {
     );
     await sleep(1400);
     await guest.click('^Зайти$');
-    await host.until('connected', `/Напарник підключений/.test(document.body.innerText)`, 40000);
+    await host.until('connected', `/Підключено: 1 із/.test(document.body.innerText)`, 40000);
     await guest.until('the room', `!!document.querySelector('.guest-room')`, 40000);
     await sleep(2200);
     // The chat.
@@ -464,7 +464,7 @@ function edit() {
       chain += ',' + dt('ОСББ', `fontsize=230:fontcolor=white:x=(w-text_w)/2:y=140:alpha='min(1,max(0,(t-${t1})/0.6))'`);
       chain += ',' + dt('кінця світу', `fontsize=120:fontcolor=${AMBER}:x=(w-text_w)/2:y=380:alpha='min(1,max(0,(t-${t1}-0.3)/0.6))'`);
       chain += ',' + dt('Грай у браузері: valera99686.github.io/osbb-end-of-world', `fontsize=46:fontcolor=white:box=1:boxcolor=0x000000@0.55:boxborderw=18:x=(w-text_w)/2:y=600:alpha='min(1,max(0,(t-${t1}-1.0)/0.5))'`);
-      chain += ',' + dt('Android APK у Releases на GitHub  ·  Вдвох по мережі: листування й розмови прямо в грі', `fontsize=34:fontcolor=white:x=(w-text_w)/2:y=700:alpha='min(1,max(0,(t-${t1}-1.4)/0.5))'`);
+      chain += ',' + dt('Android APK у Releases на GitHub  ·  По мережі: листування й розмови прямо в грі', `fontsize=34:fontcolor=white:x=(w-text_w)/2:y=700:alpha='min(1,max(0,(t-${t1}-1.4)/0.5))'`);
       chain += ',' + dt(`Версія ${require('../../package.json').version}`, `fontsize=30:fontcolor=${TEAL}:x=(w-text_w)/2:y=775:alpha='min(1,max(0,(t-${t1}-1.8)/0.5))'`);
       filters.push(`${chain},fade=t=out:st=${(s.d - 1.2).toFixed(2)}:d=1.2[${out}]`);
     } else {

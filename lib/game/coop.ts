@@ -8,28 +8,96 @@ import type { HeatEffects } from './modes';
 // The rooms, perks, experience and coins are shared, and so is the life of the
 // raid (the first house's health). Every reward is two rows of finds, one for
 // each house, and the shop sells to either; money comes twice as fast.
+// A raid has one to four houses: the host's (seat 0) and up to three partners'
+// (seats 1..3; on one device there is one partner at most).
+export const MAX_PLAYERS = 4;
+// What a fight and a raid are made of for a party of 1..4 players. With two it
+// is what a raid for two has always been: twice the enemies, half the crystals
+// from the floor each, twice the money. With three and four the enemies do not
+// come three and four times as often (a phone would have to draw 200 of them):
+// fewer, and tougher, so the party has as much to shoot through as it has guns.
+// There is one leader whatever the party: tougher by the party's size, and its
+// marked zones open under every player standing (engine.ts leaderEcho).
+// Heat for enemies only: the ladder and the records of solo play are not
+// touched.
+// The colour of each seat's plate, ring and bar (amber, teal, red, violet),
+// used when there are more than two players.
+export const SEAT_COLORS = ['#e0b060', '#5fd3c4', '#ef6f5e', '#a98cf0'];
+export interface PartyScale {
+  // How much more often enemies come, and how many may be alive at once.
+  spawnRate: number;
+  enemyHealth: number;
+  // The one leader's health, the clock of its fight and the gap between its
+  // attacks (below 1 is faster).
+  leaderHealth: number;
+  leaderTime: number;
+  bossTime: number;
+  // The share of a crystal and of a coin from the floor that counts, and what
+  // every other gain of coins is multiplied by (one till kits out every house).
+  xp: number;
+  coins: number;
+  money: number;
+}
+export const PARTY: readonly PartyScale[] = [
+  {
+    spawnRate: 1,
+    enemyHealth: 1,
+    leaderHealth: 1,
+    leaderTime: 1,
+    bossTime: 1,
+    xp: 1,
+    coins: 1,
+    money: 1,
+  },
+  {
+    spawnRate: 2,
+    enemyHealth: 1,
+    leaderHealth: 1.8,
+    leaderTime: 1.25,
+    bossTime: 1,
+    xp: 0.5,
+    coins: 1,
+    money: 2,
+  },
+  {
+    spawnRate: 2.5,
+    enemyHealth: 1.2,
+    leaderHealth: 2.7,
+    leaderTime: 1.4,
+    bossTime: 1,
+    xp: 0.4,
+    coins: 1.2,
+    money: 3,
+  },
+  {
+    spawnRate: 3,
+    enemyHealth: 1.33,
+    leaderHealth: 3.6,
+    leaderTime: 1.5,
+    bossTime: 1,
+    xp: 1 / 3,
+    coins: 4 / 3,
+    money: 4,
+  },
+];
+// The scale for a party of `players` (1..4; anything else is the nearest).
+export function party(players: number): PartyScale {
+  const n = Number.isFinite(players) ? Math.round(players) : 1;
+  return PARTY[Math.max(1, Math.min(MAX_PLAYERS, n)) - 1];
+}
 export const COOP = {
-  // The second house's health and damage as a share of what its own build
-  // gives (a build of its own is already half of the finds, so no handicap).
+  // A partner house's health and damage as a share of what its own build
+  // gives (a build of its own is already its share of the finds, so no
+  // handicap).
   hp: 1,
   damage: 1,
   range: 1,
   fireGap: 1,
   speed: 1,
   regen: 0.5,
-  // The number of players a fight is made for. A fight with a partner has
-  // this many times the enemies (they come this much faster and in packs this
-  // much bigger) and this many leaders, each as tough as a lone player's one.
-  // Heat for enemies only: the ladder and the records of solo play are not
-  // touched.
-  players: 2,
-  enemyHealth: 1,
-  spawnRate: 2,
-  leaders: 2,
-  // Two leaders attack at once, and their patterns are made for one target:
-  // each one is a little weaker and swings a little less often.
-  leaderHealth: 0.9,
-  bossTime: 1.35,
+  // A leader's marked zone that opens under a player who is not its main
+  // target hurts this share of the pattern's own.
+  echoDamage: 1,
   // Revive: the house stands next to the fallen one for this long. Alone the
   // partner gets up after `autoRise` seconds with a part of their health.
   reviveSeconds: 2.5,
@@ -45,16 +113,6 @@ export const COOP = {
   spreadY: 560,
   // Radius around the partner that draws enemy fire like the house does.
   hitRadius: 24,
-  // Leaders have this much more time to fall: there are two of them, and the
-  // clock of a fight is made for one set of guns.
-  leaderTime: 1.25,
-  // Two guns kill a third more enemies, so crystals from the floor count at
-  // this share: the levels keep the pace of solo play.
-  xp: 0.5,
-  // Coins from the floor count in full and every other gain of coins is
-  // multiplied: two houses are kitted out from one till.
-  coins: 1,
-  money: 2,
   // Online, a link and a person react late: every hit leaves this many more
   // seconds of safety, for both players (it is part of the shared simulation).
   netGrace: 0.15,
@@ -148,10 +206,11 @@ export function guestRunCores(hostCores: number, advance = 0): number {
   return Math.max(0, Math.ceil(hostCores * GUEST.share) - Math.max(0, advance));
 }
 
-// Online, where the raid goes next is decided by both players: each one picks
-// a node of the same map. The same pick goes there; different picks are settled
-// by a coin, the same on both ends (it comes from the run's seed). A guest who
-// stays silent does not hold the host up for ever.
+// Online, where the raid goes next is decided by all the players: each one
+// picks a node of the same map. The pick most of them made goes there; a tie is
+// settled by a coin between the leaders, the same on every end (it comes from
+// the run's seed). A guest who stays silent does not hold the host up for ever,
+// and one who is not here does not count.
 export const VOTE = {
   // Seconds the host's pick waits for a silent guest.
   silent: 20,
@@ -160,42 +219,70 @@ export interface Ballot {
   // The step of the map and the columns that can be picked on it.
   step: number;
   options: number[];
-  host: number | null;
-  guest: number | null;
+  // The pick of each seat (0 is the host), null while it has not picked.
+  votes: (number | null)[];
+  // Seats that are not here: nobody waits for them.
+  away?: number[];
   // The verdict, once there is one.
   done?: { col: number; coin: boolean };
 }
-export function newBallot(step: number, options: readonly number[]): Ballot {
-  return { step, options: [...options], host: null, guest: null };
+export function newBallot(
+  step: number,
+  options: readonly number[],
+  seats = 2,
+  away: readonly number[] = [],
+): Ballot {
+  return {
+    step,
+    options: [...options],
+    votes: Array.from({ length: Math.max(2, Math.min(MAX_PLAYERS, seats)) }, () => null),
+    ...(away.length ? { away: [...away] } : {}),
+  };
 }
 // A pick counts only for a column of the step, and only until the verdict.
+// `who` is a seat (0 is the host; 'host' and 'guest' are seats 0 and 1).
 export function castVote(
   b: Ballot,
-  who: 'host' | 'guest',
+  who: 'host' | 'guest' | number,
   col: unknown,
 ): Ballot {
+  const seat = who === 'host' ? 0 : who === 'guest' ? 1 : who;
   if (
     b.done ||
+    !Number.isInteger(seat) ||
+    seat < 0 ||
+    seat >= b.votes.length ||
     typeof col !== 'number' ||
     !Number.isInteger(col) ||
     !b.options.includes(col)
   )
     return b;
-  return { ...b, [who]: col };
+  const votes = [...b.votes];
+  votes[seat] = col;
+  return { ...b, votes };
 }
-// The column the vote picks, and whether a coin settled a disagreement; null
-// while somebody has still to choose. The host's own pick is always needed.
+// The column the vote picks, and whether a coin settled a tie; null while
+// somebody here has still to choose. The host's own pick is always needed.
 export function ballotResult(
   b: Ballot,
   seed: number,
   silent = false,
 ): { col: number; coin: boolean } | null {
   if (b.done) return b.done;
-  if (b.host === null) return null;
-  if (b.guest === null) return silent ? { col: b.host, coin: false } : null;
-  if (b.host === b.guest) return { col: b.host, coin: false };
-  const flip = (Math.imul((seed >>> 0) + b.step * 7919, 2654435761) >>> 16) & 1;
-  return { col: flip ? b.guest : b.host, coin: true };
+  if (b.votes[0] === null) return null;
+  const counted = b.votes
+    .map((col, seat) => ({ col, seat }))
+    .filter((v) => !b.away?.includes(v.seat));
+  if (!silent && counted.some((v) => v.col === null)) return null;
+  const picks = counted.flatMap((v) => (v.col === null ? [] : [v.col]));
+  const tally = new Map<number, number>();
+  for (const col of picks) tally.set(col, (tally.get(col) ?? 0) + 1);
+  const top = Math.max(...tally.values());
+  // The leaders, in the order of the seats that picked them first.
+  const leaders = [...tally].filter(([, n]) => n === top).map(([col]) => col);
+  if (leaders.length === 1) return { col: leaders[0], coin: false };
+  const flip = Math.imul((seed >>> 0) + b.step * 7919, 2654435761) >>> 16;
+  return { col: leaders[flip % leaders.length], coin: true };
 }
 // A ballot that came over the wire, or null if it is not one.
 export function readBallot(m: unknown): Ballot | null {
@@ -203,18 +290,31 @@ export function readBallot(m: unknown): Ballot | null {
   const v = m as Record<string, unknown>;
   const ints = (x: unknown): x is number =>
     typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < 64;
-  const pick = (x: unknown) => (x === null ? null : ints(x) ? x : undefined);
-  if (!ints(v.step) || !Array.isArray(v.options) || !v.options.every(ints))
+  if (
+    !ints(v.step) ||
+    !Array.isArray(v.options) ||
+    !v.options.every(ints) ||
+    !Array.isArray(v.votes) ||
+    v.votes.length < 2 ||
+    v.votes.length > MAX_PLAYERS
+  )
     return null;
-  const host = pick(v.host),
-    guest = pick(v.guest);
-  if (host === undefined || guest === undefined) return null;
+  const votes: (number | null)[] = [];
+  for (const x of v.votes) {
+    if (x === null) votes.push(null);
+    else if (ints(x)) votes.push(x);
+    else return null;
+  }
   const b: Ballot = {
     step: v.step,
     options: v.options.slice(0, 16),
-    host,
-    guest,
+    votes,
   };
+  if (Array.isArray(v.away))
+    b.away = v.away.filter(
+      (x): x is number => ints(x) && x > 0 && x < votes.length,
+    );
+  if (b.away && !b.away.length) delete b.away;
   const d = v.done as Record<string, unknown> | undefined;
   if (d && typeof d === 'object' && ints(d.col))
     b.done = { col: d.col, coin: d.coin === true };
@@ -235,13 +335,14 @@ export const coopPartners = (wins: number) =>
 export const allyHealth = (houseHealth: number) =>
   Math.max(20, Math.round(houseHealth * COOP.hp));
 
-// Enemies of a co-op fight: more of them and a little tougher.
-export function coopHeat(heat: HeatEffects): HeatEffects {
+// Enemies of a fight for a party: more of them, and tougher past two players.
+export function coopHeat(heat: HeatEffects, players = 2): HeatEffects {
+  const p = party(players);
   return {
     ...heat,
-    enemyHealth: heat.enemyHealth * COOP.enemyHealth,
-    spawnRate: heat.spawnRate * COOP.spawnRate,
-    bossTime: heat.bossTime * COOP.bossTime,
+    enemyHealth: heat.enemyHealth * p.enemyHealth,
+    spawnRate: heat.spawnRate * p.spawnRate,
+    bossTime: heat.bossTime * p.bossTime,
   };
 }
 

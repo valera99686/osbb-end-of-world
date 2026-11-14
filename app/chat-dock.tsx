@@ -176,7 +176,14 @@ export function ChatDock({
     e.stopPropagation();
     if (e.key === 'Escape') setOpen(false);
   };
-  const who = (line: ChatLine) => (line.mine ? 'Ти' : name);
+  // Who said it: the player by seat (more than two in a room), else the partner.
+  const many = session.partySize > 2;
+  const who = (line: ChatLine) =>
+    line.mine
+      ? 'Ти'
+      : many && line.seat !== undefined
+        ? session.nameOf(line.seat)
+        : name;
   const speaking = voice.speakingThem;
   return (
     <div
@@ -193,7 +200,10 @@ export function ChatDock({
           onClick={() => setOpen(true)}
           aria-live="polite"
         >
-          <b>{name}</b> {toast.text}
+          <b>
+            {many && toast.seat !== undefined ? session.nameOf(toast.seat) : name}
+          </b>{' '}
+          {toast.text}
         </button>
       )}
       {!open && (
@@ -229,7 +239,7 @@ export function ChatDock({
             title="Перетягни, щоб перенести чат. Подвійний клік повертає на місце."
           >
             <GripHorizontal size={16} aria-hidden />
-            <b>Чат із: {name}</b>
+            <b>{many ? 'Чат кімнати' : `Чат із: ${name}`}</b>
             <button
               type="button"
               className="chat-close"
@@ -326,15 +336,64 @@ export function ChatDock({
                     телефона, затримка близько секунди.
                   </span>
                 )}
-                <span className="chat-state">
-                  {voice.heard
-                    ? voice.speakingThem
-                      ? `${name} говорить`
-                      : `${name} на звʼязку`
-                    : session.partnerMic
-                      ? `${name} вмикає голос…`
-                      : `${name} без мікрофона`}
-                </span>
+                {many ? (
+                  <ul className="chat-voices" aria-label="Хто на звʼязку">
+                    {session.role === 'host'
+                      ? session.here().map((g) => (
+                          <li
+                            key={g.seat}
+                            className={voice.speaking(g.seat) ? 'speaking' : ''}
+                          >
+                            <span>
+                              {session.nameOf(g.seat)}:{' '}
+                              {voice.speaking(g.seat)
+                                ? 'говорить'
+                                : session.mics[g.seat]
+                                  ? 'на звʼязку'
+                                  : 'без мікрофона'}
+                            </span>
+                            <button
+                              type="button"
+                              aria-pressed={voice.isSilenced(g.seat)}
+                              onClick={() =>
+                                voice.silenceSeat(g.seat, !voice.isSilenced(g.seat))
+                              }
+                              aria-label={`${voice.isSilenced(g.seat) ? 'Увімкнути' : 'Вимкнути'} звук: ${session.nameOf(g.seat)}`}
+                            >
+                              {voice.isSilenced(g.seat) ? (
+                                <VolumeX size={15} />
+                              ) : (
+                                <Volume2 size={15} />
+                              )}
+                            </button>
+                          </li>
+                        ))
+                      : session.roster
+                          .filter((r) => r.seat !== session.seat)
+                          .map((r) => (
+                            <li key={r.seat}>
+                              <span>
+                                {session.nameOf(r.seat)}:{' '}
+                                {!r.here
+                                  ? 'відійшов'
+                                  : session.mics[r.seat]
+                                    ? 'на звʼязку'
+                                    : 'без мікрофона'}
+                              </span>
+                            </li>
+                          ))}
+                  </ul>
+                ) : (
+                  <span className="chat-state">
+                    {voice.heard
+                      ? voice.speakingThem
+                        ? `${name} говорить`
+                        : `${name} на звʼязку`
+                      : session.partnerMic
+                        ? `${name} вмикає голос…`
+                        : `${name} без мікрофона`}
+                  </span>
+                )}
               </>
             ) : (
               <>

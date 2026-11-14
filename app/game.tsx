@@ -10,6 +10,16 @@ import {
 import { blueprintInfo, runDepth } from '@/lib/game/progression';
 import { LOCATIONS, campaignBoss } from '@/lib/game/encounters';
 import { FurnitureCard, CampaignEventPanel } from './campaign-panels';
+import { matesOf } from './vote';
+import { COUNCIL_COLUMNS, CouncilPage } from './council';
+import {
+  loadGuestRoom,
+  loadHostRoom,
+  saveGuestRoom,
+  saveHostRoom,
+  type GuestRoom as SavedGuestRoom,
+  type HostRoom as SavedHostRoom,
+} from './rooms';
 import { FURNITURE_BY_ID } from '@/lib/game/furniture';
 import {
   battleRewards,
@@ -32,6 +42,7 @@ import {
   UnlockList,
 } from './progress-goal';
 import {
+  Fragment,
   Suspense,
   lazy,
   useState,
@@ -86,7 +97,7 @@ import {
   applyAchievements,
   newAchievements,
 } from '@/lib/game/achievements';
-import { dateKey, heatChoices, runScore } from '@/lib/game/modes';
+import { dateKey, heatChoices, pactOf, runScore } from '@/lib/game/modes';
 import { resultQuip, tabTitle } from '@/lib/game/notices';
 import { discover, isQuietHour, konamiStep, tapStep } from '@/lib/game/secrets';
 import { SettingsDialog } from './settings';
@@ -178,9 +189,15 @@ import {
   eventFor,
   resolveEvent,
   nextNode,
+  councilOffers,
+  choosePact,
+  openCouncil,
   equip,
   packItem,
-  withMate,
+  withCrew,
+  mateHero,
+  mateSeats,
+  partySize,
   mateRun,
   giveMate,
   giveMateFurniture,
@@ -226,6 +243,9 @@ const RouteTree = lazy(() =>
 );
 // Injected by vite.game.config.ts; other bundlers leave it undefined.
 const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
+// A guest thrown out of its room knocks again this often, for this long (ms).
+const REJOIN_EVERY = 3500;
+const REJOIN_FOR = 180000;
 const APK_URL = typeof __APK_URL__ === 'string' ? __APK_URL__ : '';
 const THEMES: MusicTheme[] = ['rust', 'green', 'core'];
 // Manifest shortcut from the launch URL, read once: StrictMode runs the load
@@ -304,6 +324,21 @@ export default function Game() {
       run: Run;
       meta: Meta;
       mode: ShareMode;
+      // The seats whose guests were not here when the host opened the fight.
+      away: number[];
+      // How many times this fight has been given to this guest (it is given
+      // again, as a mirror, when the guest comes back into it).
+      n: number;
+    } | null>(null),
+    // The room this device was in and can go back to: as a guest or as a host
+    // (a raid in the saved run).
+    [savedRoom, setSavedRoom] = useState<SavedGuestRoom | null>(null),
+    [savedHost, setSavedHost] = useState<SavedHostRoom | null>(null),
+    // A guest is trying to get back into its room.
+    [rejoin, setRejoin] = useState<{
+      room: SavedGuestRoom;
+      since: number;
+      tries: number;
     } | null>(null),
     // How the host's fights are shared with a guest (a hub choice).
     [shareMode, setShareMode] = useState<ShareMode>('sync'),
@@ -740,12 +775,15 @@ export default function Game() {
   const livePartner = net?.role === 'host' && net.phase === 'connected';
   const nameOf = (id: string) =>
     CHARACTERS.find((c) => c.id === id)?.name ?? id;
-  // The second house in the texts: the partner's name online, else their hero.
-  const mateName = run?.coop
-    ? livePartner && net?.partner?.name
-      ? net.partner.name
-      : nameOf(run.coop)
-    : '';
+  // A partner's house in the texts: the player's name online, else their hero.
+  const houseName = (seat: number) =>
+    run?.coop
+      ? onlineRun && net?.role === 'host'
+        ? net.nameOf(seat)
+        : nameOf(mateHero(run, seat))
+      : '';
+  // The second house in the texts.
+  const mateName = houseName(1);
   const netPhase = net?.phase;
   // The guest opens the fights the host starts, and a connected guest lives
   // in the room screen; a lost room sends everyone back.
@@ -760,12 +798,16 @@ export default function Game() {
         // A fight does not wait for a scene: the guest is needed in it.
         setSceneQueue([]);
         setMeta((m) => (m.sceneProgress ? { ...m, sceneProgress: null } : m));
-        setGuestFight({
+        setGuestFight((f) => ({
           sid: m.sid,
           run: r,
           meta: m.meta as Meta,
           mode: m.mode === 'host' ? 'host' : 'sync',
-        });
+          away: Array.isArray(m.away)
+            ? m.away.filter((s) => Number.isInteger(s) && s > 0 && s < 4)
+            : [],
+          n: (f?.n ?? 0) + 1,
+        }));
         setScreen('guest');
       };
       // The host's raid is over: the guest's profile gets its share.
@@ -820,18 +862,174 @@ export default function Game() {
   useEffect(() => {
     if (!net) return;
     if (net.role === 'guest') {
-      if (net.phase === 'connected')
+      if (net.phase === 'connected') {
         setScreen((s) => (s === 'hub' ? 'guest' : s));
-      else if (net.phase === 'closed') {
-        closeOnline();
-        setNotice('Зв’язок із кімнатою втрачено.');
+        // In: the way back is kept, and no more trying.
+        if (net.token)
+          saveGuestRoom({
+            code: net.code,
+            seat: net.seat,
+            token: net.token,
+            build: APP_VERSION,
+            at: Date.now(),
+          });
+        setRejoin(null);
+      } else if (net.phase === 'closed') {
+        // The link went: the seat is kept, and the way back is tried at once.
+        const room = loadGuestRoom(APP_VERSION);
+        closeOnline(true);
+        if (room) {
+          setNotice('Зв’язок із кімнатою втрачено: повертаємось…');
+          setRejoin({ room, since: Date.now(), tries: 0 });
+        } else setNotice('Зв’язок із кімнатою втрачено.');
+      } else if (net.phase === 'refused' && rejoin) {
+        // The room is not there (yet): again after a pause, unless it will not
+        // have us (a full room, a raid that has begun without us, another build).
+        const final = /^(busy|started|version)/.test(net.error);
+        if (final || Date.now() - rejoin.since > REJOIN_FOR) {
+          saveGuestRoom(null);
+          setRejoin(null);
+          closeOnline(true);
+          setNotice(
+            final
+              ? 'Кімната більше не приймає: рейд іде без тебе.'
+              : 'Не вдалося повернутися в кімнату: хост недоступний.',
+          );
+        } else {
+          const tries = rejoin.tries;
+          const timer = window.setTimeout(
+            () => setRejoin((r) => (r ? { ...r, tries: r.tries + 1 } : r)),
+            REJOIN_EVERY,
+          );
+          void tries;
+          return () => window.clearTimeout(timer);
+        }
       }
-    } else if (net.phase !== 'connected' && onlineRun) {
-      setOnlineRun(false);
-      setRun((r) => (r && r.coop ? { ...r, coop: '' } : r));
-      setNotice('Напарник вийшов із кімнати: рейд триває без нього.');
     }
   }, [netPhase]);
+  // For scripts/party-e2e.cjs: the room, to look at.
+  useEffect(() => {
+    if (import.meta.env.DEV) (window as unknown as { __net?: NetSession | null }).__net = net;
+  }, [net]);
+  // Each end says now and then that it is still there, and a link that has
+  // been silent for long is let go of: its seat is kept, its fight goes on.
+  useEffect(() => {
+    if (!net) return;
+    const timer = window.setInterval(
+      () => net.heartbeat(),
+      NetSession.PING_EVERY,
+    );
+    return () => window.clearInterval(timer);
+  }, [net]);
+  // A guest who is trying to get back knocks again, with its token.
+  useEffect(() => {
+    if (!rejoin) return;
+    let stopped = false;
+    void (async () => {
+      roomHandle.current?.close();
+      roomHandle.current = null;
+      const room = new NetSession('guest', APP_VERSION, {
+        hero: character,
+        name: nameOf(character),
+      });
+      room.code = rejoin.room.code;
+      room.seat = rejoin.room.seat;
+      room.token = rejoin.room.token;
+      setNet(room);
+      try {
+        const { joinRoom } = await import('./net-peer');
+        if (stopped) return;
+        roomHandle.current = await joinRoom(rejoin.room.code, {
+          link: (link) => room.adopt(link),
+          error: (why) => room.fail(why),
+          note: (text) => room.note(text),
+        });
+      } catch {
+        room.fail('net:Не вдалося завантажити мережевий модуль.');
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [rejoin?.room.code, rejoin?.tries]);
+  // What this device can go back to, found when the page opens.
+  useEffect(() => {
+    const guestRoom = loadGuestRoom(APP_VERSION),
+      hostRoom = loadHostRoom(APP_VERSION);
+    setSavedRoom(guestRoom);
+    setSavedHost(hostRoom);
+    // The way back is shown where it is: on the online tab.
+    if (guestRoom || hostRoom) setPlayMode('online');
+  }, []);
+  // Host: a guest leaves or comes back. The raid goes on: the seat of a guest
+  // who left is kept, its house stands and waits.
+  const hereKey = net?.role === 'host' ? net.seatsHere.join() : '';
+  const wasHere = useRef<number[]>([]);
+  useEffect(() => {
+    if (net?.role !== 'host') {
+      wasHere.current = [];
+      return;
+    }
+    const now = net.seatsHere,
+      before = wasHere.current;
+    wasHere.current = now;
+    if (!onlineRun) return;
+    const left = before.filter((s) => !now.includes(s)),
+      came = now.filter((s) => !before.includes(s));
+    const names = (seats: number[]) => seats.map((s) => net.nameOf(s)).join(', ');
+    if (left.length)
+      setNotice(
+        `${names(left)} відійшов: рейд триває, будинок стоїть і чекає на повернення.`,
+      );
+    else if (came.length) setNotice(`${names(came)} повернувся до рейду.`);
+  }, [hereKey]);
+  // A reward waits for every house; a player who is not here does not pick, so
+  // their house takes the first find that fits (or none) and the raid goes on.
+  const rewardKey =
+    run?.coop && run.page === 'reward' && onlineRun && net?.role === 'host'
+      ? `${run.seed}-${run.chapter}-${run.step}-${hereKey}-${(run.mateLoots ?? []).map((r) => r.length).join()}`
+      : '';
+  useEffect(() => {
+    if (!rewardKey || !run || net?.role !== 'host') return;
+    let next = run;
+    for (const seat of mateSeats(run)) {
+      const row = next.mateLoots?.[seat - 1] ?? [];
+      if (!row.length || net.seatsHere.includes(seat)) continue;
+      let took = next;
+      for (const [i, loot] of row.entries()) {
+        if (loot.kind === 'module') {
+          const given = giveMate(next, metaRef.current, loot.id, seat);
+          took = given === next ? next : settleReward(given, seat, loot.id);
+        } else took = giveMateFurniture(next, i, seat);
+        if (took !== next) break;
+      }
+      next = took !== next ? took : settleReward(next, seat);
+    }
+    if (next !== run) setRun(next);
+  }, [rewardKey]);
+  // The raid is over (or never was): the seats of those who are gone are free.
+  useEffect(() => {
+    if (net?.role === 'host' && !run && net.crewLocked) net.unlockCrew();
+  }, [run, net]);
+  // Host: the room of a raid is kept as long as the raid is, so that the host
+  // too can come back to it (and the guests to the host).
+  useEffect(() => {
+    if (net?.role !== 'host' || !net.code) return;
+    if (!onlineRun || !run?.coop) {
+      if (!run) {
+        saveHostRoom(null);
+        setSavedHost(null);
+      }
+      return;
+    }
+    saveHostRoom({
+      code: net.code,
+      build: APP_VERSION,
+      mode: net.mode,
+      seats: net.saveSeats(),
+      at: Date.now(),
+    });
+  }, [net, net?.code, onlineRun, !!run, hereKey]);
   // A scene that begins at the host in a raid for two is shown to the guest too.
   const sceneId = meta.sceneProgress?.id;
   useEffect(() => {
@@ -843,7 +1041,9 @@ export default function Game() {
     net.sendStatus(
       screen !== 'play' || !run
         ? 'Господар у Притулку'
-        : run.page === 'map'
+        : run.page === 'council'
+          ? 'Збори ОСББ: правило для нової локації'
+          : run.page === 'map'
           ? `Карта: ${LOCATIONS[run.chapter]?.name ?? ''}, крок ${run.step + 1}`
           : run.page === 'shop'
             ? 'Господар у магазині' + shopNote(run)
@@ -861,8 +1061,8 @@ export default function Game() {
     run?.page,
     run?.step,
     run?.chapter,
-    run?.picked?.host,
-    run?.picked?.mate,
+    run?.picked?.[0],
+    run?.picked?.[1],
     run?.bought.length,
   ]);
   // The guest sees the same house, its own modules, its row of the reward and
@@ -885,9 +1085,9 @@ export default function Game() {
           Math.floor(run.coins),
           Math.floor(run.scrap),
           houseKey(run),
-          run.mate ? houseKey(mateRun(run)) : '',
+          ...(run.mates ?? []).map((_, i) => houseKey(mateRun(run, i + 1))),
           run.loot.map((l) => l.id).join(),
-          (run.mateLoot ?? []).map((l) => l.id).join(),
+          (run.mateLoots ?? []).map((row) => row.map((l) => l.id).join()).join(),
           run.offers.join(),
           run.bought.join(),
           JSON.stringify(run.boughtBy ?? {}),
@@ -898,40 +1098,47 @@ export default function Game() {
     if (net?.role === 'host' && viewKey && run) net.sendView(run);
   }, [netPhase, viewKey]);
   const takeRef = useRef<
-    (m: { source: 'reward' | 'shop'; index: number; id: string }) => void
+    (
+      m: { source: 'reward' | 'shop'; index: number; id: string },
+      seat?: number,
+    ) => void
   >(() => {});
-  takeRef.current = (m) => {
-    if (!run?.coop) return;
+  takeRef.current = (m, seat = 1) => {
+    if (!run?.coop || seat < 1 || seat >= partySize(run)) return;
+    const row = run.mateLoots?.[seat - 1];
     if (m.source === 'shop' && m.index >= 10) {
       if (run.page === 'shop' && run.shopFurniture[m.index - 10] === m.id)
-        buyFurnitureFor(m.id, 'mate');
+        buyFurnitureFor(m.id, seat);
     } else if (
       m.source === 'reward' &&
       run.page === 'reward' &&
-      run.mateLoot?.[m.index]?.id === m.id &&
-      run.mateLoot[m.index].kind === 'furniture'
+      row?.[m.index]?.id === m.id &&
+      row[m.index].kind === 'furniture'
     )
-      giveFurnitureToMate(m.index);
+      giveFurnitureToMate(m.index, seat);
     else if (
       m.source === 'reward'
-        ? run.page === 'reward' && run.mateLoot?.[m.index]?.id === m.id
+        ? run.page === 'reward' && row?.[m.index]?.id === m.id
         : run.page === 'shop' && run.offers[m.index] === m.id
     )
-      giveToMate(m.id, m.source, m.index);
+      giveToMate(m.id, m.source, m.index, seat);
   };
   const houseRef = useRef<
-    (m: { house: unknown; coins: number; scrap: number }) => void
+    (
+      m: { house: unknown; coins: number; scrap: number },
+      seat?: number,
+    ) => void
   >(() => {});
-  houseRef.current = (m) => {
-    const next = run && acceptMateHouse(run, m);
+  houseRef.current = (m, seat = 1) => {
+    const next = run && acceptMateHouse(run, m, seat);
     // Refused: the guest is shown the true state again.
     if (next) setRun(next);
     else if (run && net?.role === 'host') net.sendView(run);
   };
   useEffect(() => {
     if (net?.role !== 'host') return;
-    net.onTake = (m) => takeRef.current(m);
-    net.onHouse = (m) => houseRef.current(m);
+    net.onTake = (m, seat) => takeRef.current(m, seat);
+    net.onHouse = (m, seat) => houseRef.current(m, seat);
     return () => {
       net.onTake = null;
       net.onHouse = null;
@@ -970,6 +1177,18 @@ export default function Game() {
     net.openEventVote(run.step, eventColumns(run, metaRef.current));
     return () => net.closeVote();
   }, [eventKey, netPhase]);
+  // The council of the house between the locations is voted on by all of them
+  // the same way: the most picked rule, a coin for a tie.
+  const councilOpen =
+    livePartner && onlineRun && screen === 'play' && run?.page === 'council';
+  const councilKey =
+    councilOpen && run ? `${run.seed}-${run.chapter}-${run.loop ?? 0}` : '';
+  useEffect(() => {
+    if (net?.role !== 'host' || !councilKey || !run) return;
+    setGuestSilent(false);
+    net.openEventVote(run.step, COUNCIL_COLUMNS);
+    return () => net.closeVote();
+  }, [councilKey, netPhase]);
   // A meeting with a moral side leaves its mark in the profile at both ends
   // (each end resolves the same choice); the same meeting met again replaces
   // the earlier answer.
@@ -979,19 +1198,24 @@ export default function Game() {
   }, [run?.eventDone, run?.eventMark]);
   // A guest who does not answer does not hold the host up for ever.
   useEffect(() => {
-    if (!(voting || eventOpen) || !ballot || ballot.done) return;
+    if (!(voting || eventOpen || councilOpen) || !ballot || ballot.done) return;
     // A meeting for two is not decided for a partner who is silent.
     if (eventOpen && run && eventFor(run).together) return;
-    if (ballot.host === null || ballot.guest !== null) return;
+    // Only the host has picked and somebody here has not: wait a while for them.
+    if (
+      ballot.votes[0] === null ||
+      ballot.votes.every((v, s) => v !== null || ballot.away?.includes(s))
+    )
+      return;
     const timer = setTimeout(() => setGuestSilent(true), VOTE.silent * 1000);
     return () => clearTimeout(timer);
-  }, [voting, eventOpen, ballot?.step, ballot?.host, ballot?.guest]);
+  }, [voting, eventOpen, ballot?.step, ballot?.votes.join(), ballot?.away?.join()]);
   // Both have picked (or the guest is silent): the verdict goes to both ends.
   useEffect(() => {
     if (net?.role !== 'host' || !run || !ballot || ballot.done) return;
     const verdict = ballotResult(ballot, run.seed, guestSilent);
     if (verdict && ballot.step === run.step) net.settle(verdict);
-  }, [ballot?.step, ballot?.host, ballot?.guest, guestSilent]);
+  }, [ballot?.step, ballot?.votes.join(), ballot?.away?.join(), guestSilent]);
   // A moment to see the verdict, then the raid goes there.
   useEffect(() => {
     const done = ballot?.done,
@@ -1006,7 +1230,9 @@ export default function Game() {
               ? enterNode(r, metaRef.current, `${step}:${done.col}`)
               : r.page === 'event' && !r.eventDone
                 ? resolveEvent(r, metaRef.current, done.col)
-                : r,
+                : r.page === 'council'
+                  ? choosePact(r, councilOffers(r)[done.col] ?? '')
+                  : r,
         ),
       done.coin ? 1800 : 900,
     );
@@ -1035,9 +1261,15 @@ export default function Game() {
     }, 3500);
     return () => clearTimeout(timer);
   }, [hostSays, guestFight?.sid]);
-  function closeOnline() {
+  function closeOnline(keepSeat = false) {
     // A new room is a new raid: no advance carries over.
     guestAdvance.current = 0;
+    if (!keepSeat) {
+      // The player means to leave: no way back is kept.
+      saveGuestRoom(null);
+      setSavedRoom(null);
+      setRejoin(null);
+    }
     roomHandle.current?.close();
     roomHandle.current = null;
     net?.close();
@@ -1067,6 +1299,39 @@ export default function Game() {
         'net:Не вдалося завантажити мережевий модуль. Перевір інтернет.',
       );
     }
+  }
+  // Host: the room of the raid that was on when this page closed opens again
+  // with the same code, and the guests come back to their seats with their tokens.
+  async function resumeRoom() {
+    const saved = loadHostRoom(APP_VERSION);
+    if (!saved || !run?.coop || (run.mates?.length ?? 0) !== saved.seats.length)
+      return;
+    closeOnline(true);
+    const room = new NetSession('host', APP_VERSION, {
+      hero: character,
+      name: nameOf(character),
+    });
+    room.mode = saved.mode;
+    room.restore(saved.seats);
+    setNet(room);
+    setOnlineRun(true);
+    setSavedHost(null);
+    try {
+      const { createRoom } = await import('./net-peer');
+      roomHandle.current = await createRoom(
+        {
+          code: (c) => room.setCode(c),
+          guest: (link) => room.adopt(link),
+          error: (why) => room.fail(why),
+        },
+        saved.code,
+      );
+    } catch {
+      room.fail(
+        'net:Не вдалося завантажити мережевий модуль. Перевір інтернет.',
+      );
+    }
+    setScreen('play');
   }
   async function joinOnline(code: string) {
     closeOnline();
@@ -1151,15 +1416,17 @@ export default function Game() {
         coop: spec.mode === 'daily' ? '' : (spec.coop ?? coopChoice),
       },
     );
-    // The partner who joined the room is not held to this profile's unlocks.
-    const mate =
-      livePartner && spec.mode !== 'daily' ? (net?.partner?.hero ?? '') : '';
-    if (mate && CHARACTERS.some((c) => c.id === mate))
-      started = withMate(started, mate);
-    setOnlineRun(!!started.coop && !!mate);
+    // The partners who joined the room are not held to this profile's unlocks:
+    // everybody who is here is in the raid, each with a house of their own.
+    const crew =
+      livePartner && spec.mode !== 'daily' && net
+        ? net.lockCrew().filter((id) => CHARACTERS.some((c) => c.id === id))
+        : [];
+    if (crew.length) started = withCrew(started, crew);
+    setOnlineRun(!!started.coop && crew.length > 0);
     shareScenes(
       chapter === 0 ? ['goal', `arrival-${chapter}`] : [`arrival-${chapter}`],
-      !!started.coop && !!mate,
+      !!started.coop && crew.length > 0,
     );
     setBuyFor('host');
     setRun(started);
@@ -1189,11 +1456,9 @@ export default function Game() {
     setNotice('');
   }
   function ended(result: BattleResult) {
-    // A partner who left in the middle of the fight is not carried on.
-    const b =
-      onlineRun && !livePartner && result.run.coop
-        ? { ...result, run: { ...result.run, coop: '' } }
-        : result;
+    // A partner who left in the middle of the fight keeps their seat: they may
+    // come back before the next one.
+    const b = result;
     const gate = b.boss && b.run.step === b.run.nodes.length - 1;
     // The boss met at the end of this location: it has last words of its own.
     const bossId = b.run.bossVariants
@@ -1213,7 +1478,8 @@ export default function Game() {
           bossId,
         ),
       );
-      setRun(next);
+      // Before the new location, the neighbours meet to take one rule for it.
+      setRun(openCouncil(next));
       setSceneQueue(chain.slice(1));
       setMeta((m) => ({
         ...m,
@@ -1233,7 +1499,7 @@ export default function Game() {
         dayBest = daily ? (meta.dailyBest?.[b.run.daily] ?? 0) : 0,
         score = runScore(b.run, final);
       const f = finishRun(meta, b.run, b.won);
-      // The partner in the room gets a share of the cores of this raid.
+      // The partners in the room get a share of the cores of this raid.
       if (livePartner && b.run.coop)
         net?.sendGift(
           f.cores,
@@ -1327,33 +1593,42 @@ export default function Game() {
       return giveToMate(id, 'shop', index);
     setPending({ id, source, index });
   }
-  // Furniture from the shop for one of the two houses.
-  function buyFurnitureFor(id: string, who: 'host' | 'mate') {
+  // Furniture from the shop for one of the houses (seat 0 is the first).
+  function buyFurnitureFor(id: string, seat: number | 'host' | 'mate') {
     if (!run) return;
+    const who = seat === 'host' ? 0 : seat === 'mate' ? 1 : seat;
     const next =
-      who === 'mate' ? buyFurnitureMate(run, id) : buyFurniture(run, id);
+      who > 0 ? buyFurnitureMate(run, id, who) : buyFurniture(run, id);
     if (next === run) return;
     const index = 10 + run.shopFurniture.indexOf(id);
-    setRun({ ...next, boughtBy: { ...next.boughtBy, [index]: who } });
+    setRun({
+      ...next,
+      boughtBy: { ...next.boughtBy, [index]: who },
+    });
     ping(
-      who === 'mate'
-        ? `Меблі для дому ${mateName}.`
+      who > 0
+        ? `Меблі для дому ${houseName(who)}.`
         : 'Меблі на борту. Встанови їх у квартирі.',
     );
   }
-  // The second house gets a module, from the shop or from its row of a
-  // reward: it goes straight into its rooms (no placing by hand).
-  function giveToMate(id: string, source: 'shop' | 'reward', index: number) {
+  // A partner house gets a module, from the shop or from its row of a reward:
+  // it goes straight into its rooms (no placing by hand).
+  function giveToMate(
+    id: string,
+    source: 'shop' | 'reward',
+    index: number,
+    seat = 1,
+  ) {
     if (!run) return;
     const item = ITEM_BY_ID[id];
     if (!item) return;
     const cost = source === 'shop' ? priceFor(item, run) : 0;
     if (source === 'shop' && (run.coins < cost || run.bought.includes(index)))
       return;
-    let next = giveMate(run, meta, id);
+    let next = giveMate(run, meta, id, seat);
     if (next === run) {
       ping(
-        `У ${mateName} немає місця: усі кімнати зайняті модулями не гіршими за цей.`,
+        `У ${houseName(seat)} немає місця: усі кімнати зайняті модулями не гіршими за цей.`,
       );
       return;
     }
@@ -1362,28 +1637,28 @@ export default function Game() {
       next = {
         ...next,
         bought: [...next.bought, index],
-        boughtBy: { ...next.boughtBy, [index]: 'mate' },
+        boughtBy: { ...next.boughtBy, [index]: seat },
       };
     setMeta((m) => ({
       ...m,
       seen: [...new Set([...m.seen, id])],
       unlocked: [...new Set([...m.unlocked, id])],
     }));
-    if (source === 'reward') next = settleReward(next, 'mate', id);
+    if (source === 'reward') next = settleReward(next, seat, id);
     setRun(next);
-    ping(`${item.name} — ${mateName}.`);
+    ping(`${item.name} — ${houseName(seat)}.`);
   }
-  // The second house takes the piece of furniture from its row of a reward.
-  function giveFurnitureToMate(index: number) {
-    const loot = run?.mateLoot?.[index];
+  // A partner house takes the piece of furniture from its row of a reward.
+  function giveFurnitureToMate(index: number, seat = 1) {
+    const loot = run?.mateLoots?.[seat - 1]?.[index];
     if (!run || loot?.kind !== 'furniture') return;
-    const next = giveMateFurniture(run, index);
+    const next = giveMateFurniture(run, index, seat);
     if (next === run) {
-      ping(`У ${mateName} запас меблів заповнений.`);
+      ping(`У ${houseName(seat)} запас меблів заповнений.`);
       return;
     }
     setRun(next);
-    ping(`${FURNITURE_BY_ID[loot.id]?.name ?? loot.id} — ${mateName}.`);
+    ping(`${FURNITURE_BY_ID[loot.id]?.name ?? loot.id} — ${houseName(seat)}.`);
   }
   function acquireToBag() {
     if (!run || !pending) return;
@@ -1403,11 +1678,9 @@ export default function Game() {
       coins: next.coins - cost,
       bought: source === 'shop' ? [...next.bought, index] : next.bought,
       boughtBy:
-        source === 'shop'
-          ? { ...next.boughtBy, [index]: 'host' }
-          : next.boughtBy,
+        source === 'shop' ? { ...next.boughtBy, [index]: 0 } : next.boughtBy,
     };
-    if (source === 'reward') next = settleReward(next, 'host', id);
+    if (source === 'reward') next = settleReward(next, 0, id);
     if (source === 'draft') next = skipDraft(next);
     setRun(next);
     setPending(null);
@@ -1444,16 +1717,14 @@ export default function Game() {
       coins: next.coins - cost,
       bought: source === 'shop' ? [...next.bought, index] : next.bought,
       boughtBy:
-        source === 'shop'
-          ? { ...next.boughtBy, [index]: 'host' }
-          : next.boughtBy,
+        source === 'shop' ? { ...next.boughtBy, [index]: 0 } : next.boughtBy,
     };
     setMeta((m) => ({
       ...m,
       seen: [...new Set([...m.seen, id])],
       unlocked: [...new Set([...m.unlocked, id])],
     }));
-    if (source === 'reward') next = settleReward(next, 'host', id);
+    if (source === 'reward') next = settleReward(next, 0, id);
     if (source === 'draft') next = skipDraft(next);
     setRun(next);
     setPending(null);
@@ -1649,7 +1920,21 @@ export default function Game() {
                   }}
                   onHost={askHost}
                   onJoin={joinOnline}
-                  onClose={closeOnline}
+                  onClose={() => closeOnline()}
+                  savedRoom={rejoin ? null : savedRoom}
+                  onRejoin={() => {
+                    if (!savedRoom) return;
+                    setRejoin({ room: savedRoom, since: Date.now(), tries: 0 });
+                    setNotice(`Повертаємось у кімнату ${savedRoom.code}…`);
+                  }}
+                  savedHost={run?.coop && !net ? savedHost : null}
+                  onResume={resumeRoom}
+                  onForget={() => {
+                    saveGuestRoom(null);
+                    saveHostRoom(null);
+                    setSavedRoom(null);
+                    setSavedHost(null);
+                  }}
                 />
               )}
             </PlayModes>
@@ -2008,6 +2293,40 @@ export default function Game() {
                         </div>
                       </section>
                     )}
+                    {pactOf(run.pact) && (
+                      <p className="pact-chip">
+                        <b>Правило локації: {pactOf(run.pact)!.name}</b>
+                        <span>{pactOf(run.pact)!.gain}</span>
+                        <span>− {pactOf(run.pact)!.cost}</span>
+                      </p>
+                    )}
+                    {onlineRun &&
+                      net?.role === 'host' &&
+                      net.crewLocked &&
+                      run.coop &&
+                      net.here().length < partySize(run) - 1 && (
+                        <div className="net-note waiting" role="status">
+                          <span>
+                            Чекаємо на повернення:{' '}
+                            {mateSeats(run)
+                              .filter((s) => !net.seatsHere.includes(s))
+                              .map((s) => net.nameOf(s))
+                              .join(', ')}
+                            . Їхні місця й будинки збережено; можна іти й без
+                            них.
+                          </span>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => {
+                              for (const s of mateSeats(run))
+                                if (!net.seatsHere.includes(s)) net.release(s);
+                            }}
+                          >
+                            Не чекати
+                          </button>
+                        </div>
+                      )}
                     <Suspense fallback={null}>
                       <RouteTree
                         key={`${run.seed}-${run.chapter}-${run.step}`}
@@ -2020,9 +2339,8 @@ export default function Game() {
                         vote={
                           voting && net
                             ? {
-                                mine: ballot?.host ?? null,
-                                partner: ballot?.guest ?? null,
-                                partnerName: net.partner?.name || 'Напарник',
+                                mine: ballot?.votes[0] ?? null,
+                                mates: matesOf(ballot, 0, (s) => net.nameOf(s)),
                                 done: ballot?.done,
                                 onVote: (col) => {
                                   audio.current!.unlock();
@@ -2100,13 +2418,13 @@ export default function Game() {
                       )}
                     {run.coop && (
                       <div
-                        className={`reward-owner host${run.picked?.host ? ' done' : ''}`}
+                        className={`reward-owner host${run.picked?.[0] ? ' done' : ''}`}
                       >
                         <b>Для тебе</b>
-                        {run.picked?.host ? (
+                        {run.picked?.[0] ? (
                           <span className="took">
                             <Check size={14} /> взяв:{' '}
-                            {takenText(run.picked.host)}
+                            {takenText(run.picked[0])}
                           </span>
                         ) : (
                           <span>обери один</span>
@@ -2149,79 +2467,88 @@ export default function Game() {
                         ),
                       )}
                     </div>
-                    {run.coop && (
-                      <>
-                        <div
-                          className={`reward-owner mate${run.picked?.mate ? ' done' : ''}`}
-                        >
-                          <b>Для {mateName}</b>
-                          {run.picked?.mate ? (
-                            <span className="took">
-                              <Check size={14} /> взяв(ла):{' '}
-                              {takenText(run.picked.mate)}
-                            </span>
-                          ) : (
-                            <span>обери один</span>
-                          )}
-                        </div>
-                        <div className="reward-cards">
-                          {(run.mateLoot ?? []).map((loot, i) => {
-                            if (loot.kind === 'furniture') {
-                              const room =
-                                (run.mate?.furniture.length ?? 0) < 30;
-                              return (
-                                <FurnitureCard
-                                  key={'mf' + loot.id}
-                                  id={loot.id}
-                                  disabled={!room || livePartner}
-                                  onClick={() => giveFurnitureToMate(i)}
-                                  footer={
-                                    livePartner
-                                      ? `Обирає ${mateName}`
-                                      : room
-                                        ? `Віддати: ${mateName}`
-                                        : 'Запас меблів повний'
-                                  }
-                                />
-                              );
-                            }
-                            const fits = giveMate(run, meta, loot.id) !== run;
-                            return (
-                              <ItemCard
-                                key={'m' + loot.id}
-                                item={ITEM_BY_ID[loot.id]}
-                                disabled={!fits || livePartner}
-                                onClick={() => giveToMate(loot.id, 'reward', i)}
-                                footer={
-                                  livePartner ? (
-                                    <span>Обирає {mateName}</span>
-                                  ) : fits ? (
-                                    <>
-                                      <span>Віддати: {mateName}</span>
-                                      <Plus size={18} />
-                                    </>
-                                  ) : (
-                                    <span>Немає місця</span>
-                                  )
+                    {run.coop &&
+                      mateSeats(run).map((seat) => {
+                        const name = houseName(seat),
+                          taken = run.picked?.[seat],
+                          row = run.mateLoots?.[seat - 1] ?? [],
+                          // A player who is here chooses for their own house.
+                          theirs =
+                            livePartner && !!net?.seatsHere.includes(seat);
+                        return (
+                          <Fragment key={seat}>
+                            <div
+                              className={`reward-owner mate${taken ? ' done' : ''}`}
+                            >
+                              <b>Для {name}</b>
+                              {taken ? (
+                                <span className="took">
+                                  <Check size={14} /> взяв(ла): {takenText(taken)}
+                                </span>
+                              ) : (
+                                <span>обери один</span>
+                              )}
+                            </div>
+                            <div className="reward-cards">
+                              {row.map((loot, i) => {
+                                if (loot.kind === 'furniture') {
+                                  const room =
+                                    (run.mates?.[seat - 1]?.furniture.length ??
+                                      0) < 30;
+                                  return (
+                                    <FurnitureCard
+                                      key={'mf' + loot.id}
+                                      id={loot.id}
+                                      disabled={!room || theirs}
+                                      onClick={() => giveFurnitureToMate(i, seat)}
+                                      footer={
+                                        theirs
+                                          ? `Обирає ${name}`
+                                          : room
+                                            ? `Віддати: ${name}`
+                                            : 'Запас меблів повний'
+                                      }
+                                    />
+                                  );
                                 }
-                              />
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-                    {livePartner &&
-                      run.picked?.host &&
-                      !run.picked.mate &&
-                      (run.mateLoot?.length ?? 0) > 0 && (
-                        <button
-                          className="text-button"
-                          onClick={() => setRun(settleReward(run, 'mate'))}
-                        >
-                          {mateName} не обирає: пропустити його ряд{' '}
-                          <ArrowRight size={16} />
-                        </button>
-                      )}
+                                const fits =
+                                  giveMate(run, meta, loot.id, seat) !== run;
+                                return (
+                                  <ItemCard
+                                    key={'m' + loot.id}
+                                    item={ITEM_BY_ID[loot.id]}
+                                    disabled={!fits || theirs}
+                                    onClick={() =>
+                                      giveToMate(loot.id, 'reward', i, seat)
+                                    }
+                                    footer={
+                                      theirs ? (
+                                        <span>Обирає {name}</span>
+                                      ) : fits ? (
+                                        <>
+                                          <span>Віддати: {name}</span>
+                                          <Plus size={18} />
+                                        </>
+                                      ) : (
+                                        <span>Немає місця</span>
+                                      )
+                                    }
+                                  />
+                                );
+                              })}
+                            </div>
+                            {theirs && run.picked?.[0] && !taken && row.length > 0 && (
+                              <button
+                                className="text-button"
+                                onClick={() => setRun(settleReward(run, seat))}
+                              >
+                                {name} не обирає: пропустити його ряд{' '}
+                                <ArrowRight size={16} />
+                              </button>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     <button
                       className="text-button"
                       onClick={() => {
@@ -2280,8 +2607,8 @@ export default function Game() {
                               <>
                                 <Check size={16} />{' '}
                                 {run.coop
-                                  ? run.boughtBy?.[i] === 'mate'
-                                    ? `Купили: ${mateName}`
+                                  ? (run.boughtBy?.[i] ?? 0) > 0
+                                    ? `Купили: ${houseName(run.boughtBy![i])}`
                                     : 'Купили: ти'
                                   : 'Встановлено'}
                               </>
@@ -2310,8 +2637,8 @@ export default function Game() {
                           footer={
                             run.bought.includes(10 + i) ? (
                               run.coop ? (
-                                run.boughtBy?.[10 + i] === 'mate' ? (
-                                  `Купили: ${mateName}`
+                                (run.boughtBy?.[10 + i] ?? 0) > 0 ? (
+                                  `Купили: ${houseName(run.boughtBy![10 + i])}`
                                 ) : (
                                   'Купили: ти'
                                 )
@@ -2368,28 +2695,56 @@ export default function Game() {
                     </button>
                   </>
                 )}
+                {run.page === 'council' && (
+                  <CouncilPage
+                    key={`${run.seed}-${run.chapter}-${run.loop ?? 0}`}
+                    run={run}
+                    onChoose={(id) => setRun(choosePact(run, id))}
+                    vote={
+                      councilOpen && net
+                        ? ballot && ballot.step === run.step
+                          ? {
+                              mine: ballot.votes[0],
+                              mates: matesOf(ballot, 0, (s) => net.nameOf(s)),
+                              done: ballot.done,
+                              onVote: (col) => net.voteHost(col),
+                            }
+                          : {
+                              mine: null,
+                              mates: [],
+                              note: 'Відкриваємо вибір…',
+                              onVote: () => {},
+                            }
+                        : undefined
+                    }
+                  />
+                )}
                 {run.page === 'event' && (
                   <CampaignEventPanel
                     key={`${run.seed}-${run.chapter}-${run.step}`}
                     run={run}
                     meta={meta}
                     onChange={setRun}
-                    names={['Перший гравець', mateName || 'Другий гравець']}
+                    names={
+                      onlineRun && net?.role === 'host'
+                        ? Array.from({ length: partySize(run) }, (_, s) =>
+                            net.nameOf(s),
+                          )
+                        : ['Перший гравець', mateName || 'Другий гравець']
+                    }
                     vote={
                       eventOpen && net
                         ? ballot && ballot.step === run.step
                           ? {
-                              mine: ballot.host,
-                              partner: ballot.guest,
-                              partnerName: mateName || 'Друг',
+                              mine: ballot.votes[0],
+                              mates: matesOf(ballot, 0, (s) => net.nameOf(s)),
                               options: ballot.options,
                               done: ballot.done,
                               onVote: (col) => net.voteHost(col),
                             }
                           : {
                               mine: null,
-                              partner: null,
-                              partnerName: mateName || 'Друг',
+                              mates: [],
                               options: [],
                               note: 'Відкриваємо вибір…',
                               onVote: () => {},
@@ -2420,12 +2775,13 @@ export default function Game() {
             fallback={<section className="battle-screen" aria-busy="true" />}
           >
             <Combat
-              key={guestFight.sid}
+              key={`${guestFight.sid}:${guestFight.mode}:${guestFight.n}`}
               run={guestFight.run}
               meta={meta}
               simMeta={guestFight.meta}
               startSid={guestFight.sid}
               startMode={guestFight.mode}
+              startAway={guestFight.away}
               net={net}
               audio={audio.current!}
               hold={settingsOpen}
@@ -2442,7 +2798,7 @@ export default function Game() {
                 setGuestResult(r);
                 setGuestFight(null);
               }}
-              onExit={closeOnline}
+              onExit={() => closeOnline()}
               onPauseChange={setCombatPaused}
               onSettings={() => setSettingsOpen(true)}
               onNetLost={() => setGuestFight(null)}
@@ -2844,7 +3200,7 @@ export default function Game() {
               джойстик ліворуч. Стрільба автоматична.
             </p>
             <p>
-              <b>По мережі.</b> У Притулку «Хто грає?» → «Вдвох по мережі»:
+              <b>По мережі.</b> У Притулку «Хто грає?» → «По мережі»:
               господар створює кімнату й каже другові код із п’яти символів, той
               вводить його в «Приєднатися». Господар веде рейд, гість у боях
               веде другий будинок і отримує ядра у свій профіль. Працює між ПК і
@@ -3062,6 +3418,24 @@ export default function Game() {
           );
         })()}
       <CvdFilters />
+      {rejoin && (
+        <div className="net-note rejoin-note" role="status">
+          <span>
+            Повертаємось у кімнату {rejoin.room.code}… спроба {rejoin.tries + 1}
+          </span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              saveGuestRoom(null);
+              setSavedRoom(null);
+              closeOnline();
+            }}
+          >
+            Не повертатись
+          </button>
+        </div>
+      )}
       {net && net.phase === 'connected' && (
         <ChatDock
           session={net}

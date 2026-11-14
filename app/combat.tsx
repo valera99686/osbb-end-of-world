@@ -40,11 +40,24 @@ import {
   combatBark,
   type SpeakerId,
 } from '@/lib/game/story';
-import { mateRun, statsFor, type Meta, type Run } from '@/lib/game/model';
+import {
+  mateHero,
+  mateRun,
+  mateSeats,
+  partySize,
+  statsFor,
+  type Meta,
+  type Run,
+} from '@/lib/game/model';
 import { heroAbility, type HeroAbility } from '@/lib/game/heroes';
-import { P2_CODES, P2_KEYS } from '@/lib/game/coop';
-import { Lockstep, STALL_WARN, type ShareMode } from '@/lib/game/net';
-import { HostFeed, MirrorClient } from '@/lib/game/mirror';
+import { P2_CODES, P2_KEYS, SEAT_COLORS } from '@/lib/game/coop';
+import {
+  Lockstep,
+  STALL_WARN,
+  inputDelay,
+  type ShareMode,
+} from '@/lib/game/net';
+import { FeedGroup, FightMux, MirrorClient } from '@/lib/game/mirror';
 import type { NetSession } from '@/lib/game/session';
 import { CHARACTERS } from '@/lib/game/data';
 import {
@@ -94,6 +107,7 @@ export function Combat({
   net,
   startSid,
   startMode,
+  startAway,
   simMeta,
   onNetLost,
 }: {
@@ -115,6 +129,8 @@ export function Combat({
   startSid?: number;
   // How the host shares this fight (the guest learns it from the host).
   startMode?: ShareMode;
+  // The seats whose guests were not here when the host opened the fight.
+  startAway?: number[];
   simMeta?: Meta;
   onNetLost?: () => void;
 }) {
@@ -177,6 +193,8 @@ export function Combat({
     [draft, setDraft] = useState<{
       offers: PerkId[] | null;
       mateOffers: PerkId[] | null;
+      // Every partner's open offers by seat - 1 (null once taken).
+      drafts: (PerkId[] | null)[];
       level: number;
     } | null>(null),
     // A guest of the mirror has sent its pick (the host's answer is on its way).
@@ -200,7 +218,10 @@ export function Combat({
     alive.current = true;
     if (net && net.role === 'host' && !opened.current) {
       opened.current = true;
-      void net.open(run, meta).then((id) => {
+      // The guests that are not here (the raid keeps their seats) sit this
+      // fight out.
+      const away = mateSeats(run).filter((s) => !net.seatsHere.includes(s));
+      void net.open(run, meta, undefined, away).then((id) => {
         if (alive.current) setSid(id ?? 0);
       });
     }
@@ -267,29 +288,51 @@ export function Combat({
         });
       }, 3600);
     }
-    // A fight with a partner on another device runs in lockstep; if the
-    // partner could not be reached the host plays it alone.
+    // A fight with partners on other devices runs in lockstep, or in a mirror;
+    // the guests that could not be reached sit it out, their houses standing
+    // still (the host plays alone if none could).
     const linked = !!net && sid > 0 && !!net.link;
     const mode: ShareMode =
       net?.role === 'host' ? net.mode : (startMode ?? 'sync');
     const aim = () => engine.current?.localAim() ?? { x: 0, y: 0 };
+    const seats = partySize(run);
+    const absent =
+      net?.role === 'host'
+        ? mateSeats(run).filter((s) => !linked || !net.seatsHere.includes(s))
+        : (startAway ?? []);
+    const wire = net?.role === 'host' ? net.hub : net?.link;
     const sync =
       linked && mode === 'sync'
-        ? new Lockstep(net!.role === 'host' ? 0 : 1, sid, net!.link!, aim)
+        ? new Lockstep(
+            net!.role === 'host' ? 0 : net!.seat,
+            sid,
+            wire!,
+            aim,
+            inputDelay(seats),
+            seats,
+          )
         : undefined;
-    // The mirror: the host alone simulates and streams; the guest only draws.
+    for (const s of absent) sync?.setSeat(s, 'away');
+    // The mirror: the host alone simulates and streams; the guests only draw. In
+    // a lockstep fight the group is empty until a guest who left comes back into
+    // it, or drifts from it, and is fed as a mirror from then on.
     const feed =
-      linked && mode === 'host' && net!.role === 'host'
-        ? new HostFeed(sid, net!.link!)
+      linked && net!.role === 'host'
+        ? new FeedGroup(
+            sid,
+            net!.hub,
+            mode === 'host'
+              ? mateSeats(run).filter((s) => !absent.includes(s))
+              : [],
+          )
         : undefined;
     const client =
       linked && mode === 'host' && net!.role === 'guest'
         ? new MirrorClient(sid, net!.link!, aim)
         : undefined;
-    const simRun = net && !linked && run.coop ? { ...run, coop: '' } : run;
     const b = new Battle(
       canvas.current,
-      simRun,
+      run,
       simMeta ?? meta,
       audio,
       setHud,
@@ -302,12 +345,21 @@ export function Combat({
         sync,
         feed,
         client,
+        seat: net?.role === 'guest' ? net.seat : 0,
+        away: absent,
         onPerkTaken: (who) =>
           setDraft((d) => {
             if (!d) return d;
+            const drafts = d.drafts.map((x, i) => (i === who - 1 ? null : x));
             const next =
-              who === 0 ? { ...d, offers: null } : { ...d, mateOffers: null };
-            return next.offers || next.mateOffers ? next : null;
+              who === 0
+                ? { ...d, offers: null }
+                : {
+                    ...d,
+                    drafts,
+                    mateOffers: who === 1 ? null : d.mateOffers,
+                  };
+            return next.offers || next.drafts.some(Boolean) ? next : null;
           }),
         settings: meta.settings,
         introQuote:
@@ -332,11 +384,12 @@ export function Combat({
           else if (beat.kind === 'phase' || beat.kind === 'stagger')
             say(beat.kind, true);
         },
-        onPerkDraft: (offers, level, mateOffers) => {
+        onPerkDraft: (offers, level, mateOffers, drafts) => {
           audio.play('rare');
           setDraft({
             offers: offers.length ? offers : null,
             mateOffers,
+            drafts: drafts ?? [mateOffers],
             level,
           });
         },
@@ -346,6 +399,8 @@ export function Combat({
         },
       },
     );
+    // Over each house the name of its player.
+    if (net) for (const a of b.allies) a.name = net.nameOf(a.seat);
     const settle = () => settleBattle(b);
     engine.current = b;
     if (import.meta.env.DEV) {
@@ -365,9 +420,39 @@ export function Combat({
       };
     }
     const link = sync ?? feed ?? client;
+    // What the room's session hears of this fight: for a host, the lockstep and
+    // the mirror feeds together (a seat may pass from one to the other).
+    const mux =
+      net?.role === 'host' && feed ? new FightMux(sid, sync ?? null, feed) : null;
     if (link && net) {
-      net.attach(link);
-      if (sync) sync.onDesync = () => setNetNote('drift');
+      net.attach(mux ?? link);
+      if (sync)
+        sync.onDesync = (seat) => {
+          // A guest whose fight drifted is taken back as a mirror: the host
+          // plays on and the guest sees the host's fight instead of its own.
+          if (net.role === 'host' && seat && feed && mux) {
+            sync.setSeat(seat, 'proxy');
+            feed.add(seat);
+            mux.restart(seat);
+            if (net.restartFor(seat, absent)) return;
+            sync.setSeat(seat, 'away');
+            feed.seatLost(seat);
+          }
+          setNetNote('drift');
+        };
+      // A guest who left comes back into the fight that is on: it is given the
+      // fight again, as a mirror, and its seat is played from what it sends.
+      if (net.role === 'host' && feed && mux)
+        net.onReturn = (seat) => {
+          if (b.ended || !mateSeats(run).includes(seat)) return;
+          sync?.setSeat(seat, 'proxy');
+          feed.add(seat);
+          mux.restart(seat);
+          if (!net.restartFor(seat, absent)) {
+            sync?.setSeat(seat, 'away');
+            feed.seatLost(seat);
+          }
+        };
       link.onClosed = () => setNetNote('lost');
       link.onOver = () => {
         if (!b.ended && net.role === 'guest') onNetLostRef.current?.();
@@ -469,7 +554,11 @@ export function Combat({
           if (sync) sync.finish();
           else feed?.leave();
         }
-        net.detach(link);
+        net.detach(mux ?? link);
+        if (net.role === 'host') {
+          net.endFight();
+          net.onReturn = null;
+        }
       }
       window.removeEventListener('keydown', keys);
       window.removeEventListener('keyup', up);
@@ -574,20 +663,25 @@ export function Combat({
   const hostOffers = mirrorGuest
     ? (hud.hostDraft ?? null)
     : (draft?.offers ?? null);
-  const mateOffers = mirrorGuest
-    ? (hud.mateDraft ?? null)
-    : (draft?.mateOffers ?? null);
+  // The partners' offers by seat - 1 (a guest of the mirror reads them from the
+  // host's numbers).
+  const drafts: (PerkId[] | null)[] = mirrorGuest
+    ? (hud.drafts ?? [hud.mateDraft ?? null])
+    : (draft?.drafts ?? [draft?.mateOffers ?? null]);
+  const mySeat = net?.role === 'guest' ? net.seat : 1;
+  const mateOffers = drafts[(shared ? mySeat : 1) - 1] ?? null;
   const draftLevel = draft?.level ?? hud.level;
   const mateKey = mateOffers ? `${draftLevel}:${mateOffers.join()}` : '';
-  const mine: { offers: PerkId[]; who: 0 | 1 } | null = !shared
+  const firstDraft = drafts.findIndex(Boolean);
+  const mine: { offers: PerkId[]; who: number } | null = !shared
     ? hostOffers
       ? { offers: hostOffers, who: 0 }
-      : mateOffers
-        ? { offers: mateOffers, who: 1 }
+      : firstDraft >= 0
+        ? { offers: drafts[firstDraft]!, who: firstDraft + 1 }
         : null
     : net?.role === 'guest'
       ? mateOffers && sent !== mateKey
-        ? { offers: mateOffers, who: 1 }
+        ? { offers: mateOffers, who: mySeat }
         : null
       : hostOffers
         ? { offers: hostOffers, who: 0 }
@@ -598,7 +692,7 @@ export function Combat({
   useEffect(() => {
     mineRef.current = mine;
   });
-  function takePerk(id: PerkId, who: 0 | 1) {
+  function takePerk(id: PerkId, who: number) {
     audio.play('ui');
     const b = engine.current;
     if (!b) return;
@@ -611,7 +705,7 @@ export function Combat({
     // Online both ends take the pick at the same moment.
     b.sync?.choose(id);
     if (who === 0) b.choosePerk(id);
-    else b.chooseMatePerk(id);
+    else b.chooseMatePerk(id, who);
   }
   const draftKey = `${draftLevel}`;
   useEffect(() => {
@@ -634,8 +728,9 @@ export function Combat({
       }
       // A silent guest of the mirror: the host takes the first card for it.
       const b = engine.current;
-      if (b?.feed && b.mateDrafting && left <= -MIRROR_GRACE)
-        b.chooseMatePerk(b.mateDrafting[0]);
+      if (b?.feed && left <= -MIRROR_GRACE)
+        for (const a of b.allies)
+          if (a.draft) b.chooseMatePerk(a.draft[0], a.seat);
       if (!b?.choosing) window.clearInterval(timer);
     }, 250);
     return () => window.clearInterval(timer);
@@ -645,15 +740,18 @@ export function Combat({
     <section className={`battle-screen${duo ? ' duo' : ''}`} ref={screen}>
       {partnerPicks && !paused && !hold && (
         <div className="net-note" role="status">
-          Друг обирає покращення для свого будинку… ще {draftLeft} с
+          {run.coop && partySize(run) > 2 ? 'Інші обирають' : 'Друг обирає'}{' '}
+          покращення для свого будинку… ще {draftLeft} с
         </div>
       )}
       {mine && !paused && !hold && (
         <PerkDraft
           key={`${mine.who}:${draftLevel}`}
-          run={(mine.who === 1 ? mateRun : (r: Run) => r)(
-            engine.current?.run ?? run,
-          )}
+          run={
+            mine.who > 0
+              ? mateRun(engine.current?.run ?? run, mine.who)
+              : (engine.current?.run ?? run)
+          }
           offers={mine.offers}
           level={draftLevel}
           owner={
@@ -661,16 +759,30 @@ export function Combat({
               ? undefined
               : shared
                 ? 'Для твого будинку'
-                : `Гравець ${mine.who + 1} · ${CHARACTERS.find((c) => c.id === (mine.who === 1 ? run.coop : run.character))?.name ?? ''}: для свого будинку`
+                : `Гравець ${mine.who + 1} · ${CHARACTERS.find((c) => c.id === (mine.who > 0 ? mateHero(run, mine.who) : run.character))?.name ?? ''}: для свого будинку`
           }
           waiting={shared ? draftLeft : undefined}
           onPick={(id) => takePerk(id, mine.who)}
         />
       )}
+      {sid !== null &&
+        !netNote &&
+        net &&
+        (hud.allies ?? []).some((a) => a.away) && (
+          <div className="net-note" role="status">
+            <span>
+              {(hud.allies ?? [])
+                .filter((a) => a.away)
+                .map((a) => net.nameOf(a.seat))
+                .join(', ')}{' '}
+              відійшов: будинок стоїть і чекає. Гравець може повернутися в бій.
+            </span>
+          </div>
+        )}
       {(sid === null || netNote) && (
         <div className="net-note" role="status">
           {sid === null ? (
-            <span>Очікуємо, поки напарник збудує бій…</span>
+            <span>Очікуємо, поки напарники збудують бій…</span>
           ) : netNote === 'wait' ? (
             <span>
               Чекаємо напарника… Зв’язок повільний або він призупинив гру.
@@ -738,29 +850,48 @@ export function Combat({
             label="Міцність будинку"
             color="#b8ceaa"
           />
-          {hud.ally && (
-            <div className={`ally-bar${hud.ally.down ? ' down' : ''}`}>
-              <div>
-                <i style={{ background: partner?.color }}>2</i>
-                <span>{partnerName}</span>
-                <b>
-                  {hud.ally.down
-                    ? `${Math.round(hud.ally.revive * 100)}%`
-                    : Math.ceil(hud.ally.hp)}
-                </b>
+          {(
+            hud.allies ??
+            (hud.ally
+              ? [{ ...hud.ally, seat: 1, hero: run.coop, away: false }]
+              : [])
+          ).map((ally, i, all) => {
+            // Names and colours by seat: the first partner is the one of the
+            // room; with more players each has the colour of their seat.
+            const name = net
+              ? net.nameOf(ally.seat)
+              : i === 0
+                ? partnerName
+                : (CHARACTERS.find((c) => c.id === ally.hero)?.name ?? '');
+            const color =
+              all.length > 1
+                ? SEAT_COLORS[ally.seat]
+                : heroAbility(ally.hero).color;
+            return (
+              <div
+                key={ally.seat}
+                className={`ally-bar${ally.down ? ' down' : ''}${ally.away ? ' away' : ''}`}
+              >
+                <div>
+                  <i style={{ background: color }}>{ally.seat + 1}</i>
+                  <span>{name}</span>
+                  <b>
+                    {ally.away
+                      ? 'відійшов'
+                      : ally.down
+                        ? `${Math.round(ally.revive * 100)}%`
+                        : Math.ceil(ally.hp)}
+                  </b>
+                </div>
+                <Meter
+                  value={ally.down ? ally.revive : ally.hp}
+                  max={ally.down ? 1 : ally.max}
+                  label={ally.down ? `Підйом: ${name}` : `Здоров’я: ${name}`}
+                  color={ally.down ? '#8acdb6' : color}
+                />
               </div>
-              <Meter
-                value={hud.ally.down ? hud.ally.revive : hud.ally.hp}
-                max={hud.ally.down ? 1 : hud.ally.max}
-                label={
-                  hud.ally.down
-                    ? 'Підйом напарника'
-                    : `Здоров’я: ${partnerName}`
-                }
-                color={hud.ally.down ? '#8acdb6' : partner?.color}
-              />
-            </div>
-          )}
+            );
+          })}
         </div>
         <div className="battle-center">
           <span className="micro">

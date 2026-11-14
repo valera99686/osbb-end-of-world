@@ -24,6 +24,106 @@ export interface HeatEffects {
   // Multiplier on boss and miniboss attack cooldowns: below 1 is faster.
   bossTime: number;
   coreBonus: number;
+  // What the coins and the crystals of a raid are worth (a pact of the council
+  // changes them); 1 is as they are.
+  coinGain: number;
+  xpGain: number;
+}
+// A decision of the council of the house, taken between the locations: one gain
+// and one price, for the one location that comes next. `effects` multiply what
+// the enemies and the markets do (HeatEffects); `damage` and `health` multiply
+// the houses' own numbers. A raid alone has the council too.
+export interface Pact {
+  id: string;
+  name: string;
+  // What the council says, what it gives and what it costs.
+  text: string;
+  gain: string;
+  cost: string;
+  effects: Partial<HeatEffects>;
+  damage?: number;
+  health?: number;
+}
+export const PACTS: readonly Pact[] = [
+  {
+    id: 'cleanup',
+    name: 'Суботник',
+    text: 'Усі виходять надвір і тягнуть із завалів усе, що можна продати.',
+    gain: '+25% монет',
+    cost: 'вороги на 15% міцніші',
+    effects: { coinGain: 1.25, enemyHealth: 1.15 },
+  },
+  {
+    id: 'lights',
+    name: 'Економія світла',
+    text: 'Вимикаємо ліхтарі: ринок дешевшає, але в темряві ворогів більше.',
+    gain: 'крамниця й ремонт на 20% дешевші',
+    cost: 'ворогів на 15% більше',
+    effects: { shopCost: 0.8, repairCost: 0.8, spawnRate: 1.15 },
+  },
+  {
+    id: 'watch',
+    name: 'Нічна варта',
+    text: 'Кожен будинок виставляє варту й стріляє на кожен шерех.',
+    gain: 'будинки б’ють на 20% сильніше',
+    cost: 'боси атакують на 15% частіше',
+    effects: { bossTime: 0.85 },
+    damage: 1.2,
+  },
+  {
+    id: 'tidy',
+    name: 'Генеральне прибирання',
+    text: 'Латаємо стіни, перекладаємо проводку, миємо вікна.',
+    gain: '+30% міцності будинків',
+    cost: 'ремонт на 50% дорожчий',
+    effects: { repairCost: 1.5 },
+    health: 1.3,
+  },
+  {
+    id: 'schedule',
+    name: 'Жорсткий графік',
+    text: 'Чергування розписане по хвилинах: дісталося всім, зате звіт буде гарний.',
+    gain: '+20% ядер за рейд',
+    cost: 'ворогів на 10% більше й вони міцніші на 10%',
+    effects: { coreBonus: 1.2, spawnRate: 1.1, enemyHealth: 1.1 },
+  },
+  {
+    id: 'pot',
+    name: 'Спільний котел',
+    text: 'Усе, що знайшли, іде в загальний казан. Досвід росте швидше, а ситості мало.',
+    gain: '+35% кристалів досвіду',
+    cost: 'будинки на 15% тендітніші',
+    effects: { xpGain: 1.35 },
+    health: 0.85,
+  },
+  {
+    id: 'quiet',
+    name: 'Тиха година',
+    text: 'Ходимо навшпиньки: вороги не чують, але й торгувати нема коли.',
+    gain: 'ворогів на 15% менше',
+    cost: 'монет на 20% менше',
+    effects: { spawnRate: 0.85, coinGain: 0.8 },
+  },
+];
+export const PACT_BY_ID: Record<string, Pact> = Object.fromEntries(
+  PACTS.map((p) => [p.id, p]),
+);
+// A pact by its id (nothing for an id that is not one of ours, however odd).
+export const pactOf = (id: unknown): Pact | undefined =>
+  typeof id === 'string' && Object.hasOwn(PACT_BY_ID, id)
+    ? PACT_BY_ID[id]
+    : undefined;
+// The pacts the council puts on the table: three of them, by the seed of the
+// raid and the location, the same at every end and after a reload.
+export function pactOffers(seed: number, chapter: number, loop = 0): string[] {
+  const rng = stream(
+    ((seed >>> 0) ^ Math.imul(chapter + 1, 0x9e3779b1) ^ Math.imul(loop + 7, 0x85ebca6b)) >>> 0,
+  );
+  const pool = PACTS.map((p) => p.id);
+  const out: string[] = [];
+  while (out.length < 3 && pool.length)
+    out.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+  return out;
 }
 export const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 // The selectable ladder ends at 10; endless circuits keep adding +2 past it.
@@ -209,7 +309,11 @@ export function withBaseline(
   };
 }
 // Each level adds one rule from HEAT_LEVELS and +10% cores. Heat 0 is neutral.
-export function heatEffects(heat: number, modifier?: string): HeatEffects {
+export function heatEffects(
+  heat: number,
+  modifier?: string,
+  pact?: string,
+): HeatEffects {
   const h = Number.isFinite(heat) ? Math.max(0, Math.floor(heat)) : 0;
   const at = (level: number) => (h >= level ? 1 : 0);
   // Beyond the ladder (deep endless circuits) enemies keep getting tougher.
@@ -225,6 +329,8 @@ export function heatEffects(heat: number, modifier?: string): HeatEffects {
     shopCost: 1 + 0.2 * at(8),
     bossTime: 1 - 0.15 * at(9),
     coreBonus: 1 + 0.1 * h,
+    coinGain: 1,
+    xpGain: 1,
   };
   if (modifier === 'swarm') {
     e.spawnRate *= 1.25;
@@ -247,6 +353,11 @@ export function heatEffects(heat: number, modifier?: string): HeatEffects {
     e.bossTime *= 0.85;
     e.coreBonus += 0.15;
   }
+  // The decision of the council for this location.
+  const decided = pactOf(pact);
+  if (decided)
+    for (const [key, value] of Object.entries(decided.effects))
+      e[key as keyof HeatEffects] *= value as number;
   for (const key of Object.keys(e) as (keyof HeatEffects)[])
     e[key] = round(e[key]);
   return e;
@@ -290,12 +401,13 @@ export function dailySetup(
     heat: roll.heat,
   };
 }
-type ModeState = Partial<Pick<Run, 'heat' | 'mode' | 'daily'>>;
+type ModeState = Partial<Pick<Run, 'heat' | 'mode' | 'daily' | 'pact'>>;
 // Heat plus the daily modifier, if the run is a daily one.
 export function heatForRun(run: ModeState): HeatEffects {
   return heatEffects(
     run.heat ?? 0,
     run.mode === 'daily' && run.daily ? dailyModifier(run.daily) : undefined,
+    run.pact,
   );
 }
 export function endlessHeat(loop: number, baseHeat: number): number {

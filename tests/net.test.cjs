@@ -219,9 +219,9 @@ test('Each player takes a perk for their own house and both ends take both at th
   assert.ok(host.log.mateOffers?.length, 'and the second house has its own offers');
   assert.deepEqual(host.log.mateOffers, guest.log.mateOffers);
   assert.ok(host.b.run.perks.length >= 1);
-  assert.equal(host.b.run.mate.perks.length, host.b.run.perks.length, 'a perk for each house at each level');
+  assert.equal(host.b.run.mates[0].perks.length, host.b.run.perks.length, 'a perk for each house at each level');
   assert.deepEqual(host.b.run.perks, guest.b.run.perks);
-  assert.deepEqual(host.b.run.mate.perks, guest.b.run.mate.perks);
+  assert.deepEqual(host.b.run.mates[0].perks, guest.b.run.mates[0].perks);
   assert.ok(!host.b.choosing && !guest.b.choosing, 'both drafts are over');
   assert.ok(host.sync.step > stepAt + 120, 'and the fight went on');
   same(host, guest);
@@ -612,7 +612,7 @@ test('A ballot: the same pick goes there, different picks go to a coin, a silent
 });
 
 test('A ballot that comes over the wire is checked for shape', () => {
-  const good = { step: 2, options: [0, 1], host: 1, guest: null };
+  const good = { step: 2, options: [0, 1], votes: [1, null] };
   assert.deepEqual(VC.readBallot(good), good);
   assert.deepEqual(VC.readBallot({ ...good, done: { col: 1, coin: true } }).done, { col: 1, coin: true });
   for (const bad of [
@@ -623,8 +623,11 @@ test('A ballot that comes over the wire is checked for shape', () => {
     { ...good, step: 1.5 },
     { ...good, options: 'ab' },
     { ...good, options: [0, 'a'] },
-    { ...good, host: 'a' },
-    { ...good, guest: 99999 },
+    { ...good, votes: [1, 'a'] },
+    { ...good, votes: [1, 99999] },
+    { ...good, votes: [1] },
+    { ...good, votes: [1, null, null, null, null] },
+    { ...good, votes: 'ab' },
   ])
     assert.equal(VC.readBallot(bad), null, JSON.stringify(bad));
   // A verdict that is not a column is dropped, the rest stands.
@@ -640,23 +643,23 @@ test('The two ends vote on the map: the guest sees the map, picks travel, the ve
   host.openVote(run, 4, [0, 1, 2]);
   wire.deliver();
   assert.equal(guest.map.seed, run.seed, 'the guest has the host\'s run to draw the map from');
-  assert.deepEqual(guest.ballot, { step: 4, options: [0, 1, 2], host: null, guest: null });
+  assert.deepEqual(guest.ballot, { step: 4, options: [0, 1, 2], votes: [null, null] });
   // The guest picks; the host hears it and both see it.
   guest.voteGuest(1);
-  assert.equal(guest.ballot.guest, 1, 'at once on the guest\'s screen');
+  assert.equal(guest.ballot.votes[1], 1, 'at once on the guest\'s screen');
   wire.deliver();
-  assert.equal(host.ballot.guest, 1);
+  assert.equal(host.ballot.votes[1], 1);
   assert.equal(heard, 1);
   // A column that is not on the step, or a vote for another step, changes nothing.
   guest.voteGuest(9);
   host.link.onMessage({ t: 'vote', step: 5, col: 0 });
   host.link.onMessage({ t: 'vote', step: 4, col: -1 });
-  assert.equal(host.ballot.guest, 1);
+  assert.equal(host.ballot.votes[1], 1);
   assert.equal(heard, 1);
   // The host picks the other one: a coin decides, and both are told.
   host.voteHost(2);
   wire.deliver();
-  assert.equal(guest.ballot.host, 2);
+  assert.equal(guest.ballot.votes[0], 2);
   const verdict = VC.ballotResult(host.ballot, run.seed);
   assert.ok(verdict.coin);
   host.settle(verdict);
@@ -674,14 +677,14 @@ test('An event is decided by both: picks travel, the same pick acts, different o
   const { wire, host, guest } = rooms();
   host.openEventVote(4, [0, 2]);
   wire.deliver();
-  assert.deepEqual(guest.ballot, { step: 4, options: [0, 2], host: null, guest: null });
+  assert.deepEqual(guest.ballot, { step: 4, options: [0, 2], votes: [null, null] });
   assert.equal(guest.map, null, 'no map goes with an event');
   // A choice the event does not have is not a pick.
   guest.voteGuest(1);
-  assert.equal(guest.ballot.guest, null);
+  assert.equal(guest.ballot.votes[1], null);
   guest.voteGuest(2);
   wire.deliver();
-  assert.equal(host.ballot.guest, 2);
+  assert.equal(host.ballot.votes[1], 2);
   // The host has not picked yet: nothing is decided.
   assert.equal(VC.ballotResult(host.ballot, 11), null);
   host.voteHost(2);
@@ -729,7 +732,7 @@ test('Meetings for two: only in a raid with a partner, the same one at both ends
   const TOGETHER = require('../.test-build/campaign-content.js').TOGETHER_EVENTS;
   assert.equal(TOGETHER.length, 6);
   for (const ev of TOGETHER) {
-    assert.ok(ev.together && ev.together.roles.length === 2 && ev.together.roles.every((r) => r.length > 3), ev.id);
+    assert.ok(ev.together && ev.together.roles.length === 4 && ev.together.roles.every((r) => r.length > 3) && ev.together.extra.length > 20, ev.id);
     assert.equal(ev.choices.length, 1, `${ev.id}: one joint action`);
     const e = ev.choices[0].effect;
     assert.ok((e.coins ?? 0) >= 0 && (e.scrap ?? 0) >= 0 && !e.damageMax, `${ev.id}: no price`);
@@ -787,7 +790,7 @@ test('A guest cannot vote when no vote is open, and a lost link clears the vote'
   wire.deliver();
   assert.equal(host.ballot, null);
   // Messages of the wrong role are ignored.
-  host.link.onMessage({ t: 'ballot', step: 1, options: [0], host: null, guest: null });
+  host.link.onMessage({ t: 'ballot', step: 1, options: [0], votes: [null, null] });
   host.link.onMessage({ t: 'map', run: { seed: 1 } });
   assert.equal(host.map, null);
   host.openVote({ seed: 3 }, 1, [0, 1]);

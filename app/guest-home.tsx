@@ -11,6 +11,7 @@ import {
   giveMate,
   houseOf,
   mateRun,
+  partySize,
   priceFor,
   type Meta,
   type Run,
@@ -28,6 +29,8 @@ import { ItemCard, takenText } from './item-card';
 import { EventOptions, FurnitureCard, TogetherRoles } from './campaign-panels';
 import { Currency } from './hud-parts';
 import { Residents } from './residents';
+import { matesOf } from './vote';
+import { CouncilPage } from './council';
 
 // The profile the guest's checks are made with: everything is on the shelf for
 // the guest to look at, the host checks the rest.
@@ -38,13 +41,13 @@ export const openMeta = (meta: Meta): Meta => ({
 
 // The guest's own house as a run, with the changes it has made and the host
 // has not yet sent back.
-export function useGuestHouse(view: Run | null) {
+export function useGuestHouse(view: Run | null, seat = 1) {
   const [local, setLocal] = useState<{ view: Run; run: Run } | null>(null);
   const mine = !view
     ? null
     : local && local.view === view
       ? local.run
-      : mateRun(view);
+      : mateRun(view, seat);
   return { mine, set: (run: Run) => view && setLocal({ view, run }) };
 }
 
@@ -58,8 +61,16 @@ export function GuestPages({
   meta: Meta;
 }) {
   const open = openMeta(meta);
-  const mate = CHARACTERS.find((c) => c.id === view.coop)?.name ?? 'Ти';
-  const fits = (id: string) => giveMate(view, open, id) !== view;
+  // This guest's seat: its house, its row of the reward and its finds.
+  const seat = session.seat;
+  const mate =
+    CHARACTERS.find((c) => c.id === (view.mates?.[seat - 1]?.hero ?? view.coop))
+      ?.name ?? 'Ти';
+  const fits = (id: string) => giveMate(view, open, id, seat) !== view;
+  // The other partners' rows: what each has taken (or is still choosing).
+  const others = (view.mates ?? [])
+    .map((_, i) => i + 1)
+    .filter((s) => s !== seat);
   if (view.page === 'reward')
     return (
       <>
@@ -79,11 +90,26 @@ export function GuestPages({
             <p>{view.eventResult}</p>
           </div>
         )}
-        <div className={`reward-owner host${view.picked?.host ? ' done' : ''}`}>
+        {others.map((s) => (
+          <div
+            key={s}
+            className={`reward-owner mate${view.picked?.[s] ? ' done' : ''}`}
+          >
+            <b>{session.nameOf(s)}</b>
+            {view.picked?.[s] ? (
+              <span className="took">
+                <Check size={14} /> взяв(ла): {takenText(view.picked[s])}
+              </span>
+            ) : (
+              <span>обирає</span>
+            )}
+          </div>
+        ))}
+        <div className={`reward-owner host${view.picked?.[0] ? ' done' : ''}`}>
           <b>Господар</b>
-          {view.picked?.host ? (
+          {view.picked?.[0] ? (
             <span className="took">
-              <Check size={14} /> взяв: {takenText(view.picked.host)}
+              <Check size={14} /> взяв: {takenText(view.picked[0])}
             </span>
           ) : (
             <span>обирає</span>
@@ -109,27 +135,31 @@ export function GuestPages({
             ) : null,
           )}
         </div>
-        <div className={`reward-owner mate${view.picked?.mate ? ' done' : ''}`}>
+        <div
+          className={`reward-owner mate${view.picked?.[seat] ? ' done' : ''}`}
+        >
           <b>Для тебе</b>
-          {view.picked?.mate ? (
+          {view.picked?.[seat] ? (
             <span className="took">
-              <Check size={14} /> ти взяв: {takenText(view.picked.mate)}
+              <Check size={14} /> ти взяв: {takenText(view.picked[seat])}
             </span>
           ) : (
             <span>обери один</span>
           )}
         </div>
         <div className="reward-cards">
-          {(view.mateLoot ?? []).map((loot, i) =>
+          {(view.mateLoots?.[seat - 1] ?? []).map((loot, i) =>
             loot.kind === 'furniture' ? (
               FURNITURE_BY_ID[loot.id] && (
                 <FurnitureCard
                   key={'mf' + loot.id}
                   id={loot.id}
-                  disabled={(view.mate?.furniture.length ?? 0) >= 30}
+                  disabled={
+                    (view.mates?.[seat - 1]?.furniture.length ?? 0) >= 30
+                  }
                   onClick={() => session.take('reward', i, loot.id)}
                   footer={
-                    (view.mate?.furniture.length ?? 0) >= 30
+                    (view.mates?.[seat - 1]?.furniture.length ?? 0) >= 30
                       ? 'Запас меблів повний'
                       : 'Забрати собі'
                   }
@@ -157,6 +187,33 @@ export function GuestPages({
         </div>
       </>
     );
+  if (view.page === 'council') {
+    const ballot =
+      session.ballot && session.ballot.step === view.step
+        ? session.ballot
+        : null;
+    return (
+      <CouncilPage
+        key={`${view.seed}-${view.chapter}-${view.loop ?? 0}`}
+        run={view}
+        vote={
+          ballot
+            ? {
+                mine: ballot.votes[session.seat] ?? null,
+                mates: matesOf(ballot, session.seat, (s) => session.nameOf(s)),
+                done: ballot.done,
+                onVote: (col) => session.voteGuest(col),
+              }
+            : {
+                mine: null,
+                mates: [],
+                note: 'Зараз відкриється вибір…',
+                onVote: () => {},
+              }
+        }
+      />
+    );
+  }
   if (view.page === 'event') {
     // An event is decided by both: the host's picks and this guest's go on one
     // ballot, and its outcome is seen when it is done.
@@ -178,7 +235,8 @@ export function GuestPages({
         <p className="lead">
           {rest
             ? 'Зупини двигун на кілька хвилин: полагодь будинок або пошукай припаси.'
-            : event.text}
+            : event.text +
+              (together && partySize(view) > 2 ? ` ${together.extra}` : '')}
         </p>
         {view.eventDone ? (
           <div className="mission-banner" role="status">
@@ -187,11 +245,18 @@ export function GuestPages({
           </div>
         ) : together ? (
           <TogetherRoles
-            roles={together.roles}
-            names={['Господар', 'Ти']}
+            roles={together.roles.slice(0, Math.max(2, partySize(view)))}
+            names={Array.from({ length: partySize(view) }, (_, s) =>
+              s === session.seat ? 'Ти' : session.nameOf(s),
+            )}
             prize={event.choices[0].detail}
-            done={[ballot?.host != null, ballot?.guest != null]}
-            mine={1}
+            done={Array.from(
+              { length: Math.max(2, partySize(view)) },
+              (_, s) =>
+                (ballot?.votes[s] ?? null) !== null ||
+                !!ballot?.away?.includes(s),
+            )}
+            mine={session.seat}
             open={!!ballot && ballot.options.includes(0)}
             finished={!!ballot?.done}
             note={ballot ? undefined : 'Зараз відкриється вибір…'}
@@ -205,17 +270,17 @@ export function GuestPages({
             vote={
               ballot
                 ? {
-                    mine: ballot.guest,
-                    partner: ballot.host,
-                    partnerName: 'Господар',
+                    mine: ballot.votes[session.seat] ?? null,
+                    mates: matesOf(ballot, session.seat, (s) =>
+                      session.nameOf(s),
+                    ),
                     options: ballot.options,
                     done: ballot.done,
                     onVote: (col) => session.voteGuest(col),
                   }
                 : {
                     mine: null,
-                    partner: null,
-                    partnerName: 'Господар',
+                    mates: [],
                     options: [],
                     note: 'Зараз відкриється вибір…',
                     onVote: () => {},
@@ -252,7 +317,9 @@ export function GuestPages({
                   bought ? (
                     <>
                       <Check size={16} />{' '}
-                      {who === 'mate' ? 'Купив ти' : 'Купив господар'}
+                      {who === seat
+                        ? 'Купив ти'
+                        : `Купив ${who ? session.nameOf(who) : 'господар'}`}
                     </>
                   ) : (
                     <>
@@ -277,10 +344,10 @@ export function GuestPages({
                 disabled={bought || view.coins < cost}
                 footer={
                   bought ? (
-                    view.boughtBy?.[10 + i] === 'mate' ? (
+                    view.boughtBy?.[10 + i] === seat ? (
                       'Купив ти'
                     ) : (
-                      'Купив господар'
+                      `Купив ${view.boughtBy?.[10 + i] ? session.nameOf(view.boughtBy[10 + i]) : 'господар'}`
                     )
                   ) : (
                     <Currency amount={cost} />

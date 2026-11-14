@@ -393,15 +393,18 @@ export interface RelayHandle {
   close(): void;
 }
 
+// How many guests' links a room holds at most (it has three seats; the rest is
+// for one that is coming back while its old link has not been noticed as dead).
+export const MAX_LINKS = 6;
 // Host: waits on every broker it can reach, and hands over a link when a guest
-// knocks (a second guest is turned away while the first one is in).
+// knocks (more than the room can hold are turned away).
 export async function listenRelay(
   code: string,
-  on: { guest: (link: Link) => void; taken: () => boolean },
+  on: { guest: (link: Link) => void; taken?: () => boolean },
 ): Promise<RelayHandle> {
   const up = `${root(code)}/up`;
   const brokers: Broker[] = [];
-  let guest: { id: string; link: RelayLink } | null = null;
+  const guests = new Map<string, RelayLink>();
   let closed = false;
   const listen = async (url: string) => {
     const b = new Broker(url);
@@ -416,23 +419,24 @@ export async function listenRelay(
       const m = body as Record<string, unknown>;
       const id = typeof m.g === 'string' && /^[a-z0-9]{4,16}$/.test(m.g) ? m.g : '';
       if (!id) return;
-      if (guest && guest.id === id) {
+      const known = guests.get(id);
+      if (known) {
         if (m.k === 'knock') b.publish(to(id), { k: 'ack' });
-        else guest.link.take(m);
+        else known.take(m);
         return;
       }
       if (m.k !== 'knock') return;
-      if ((guest && guest.link.open) || on.taken()) {
+      if (guests.size >= MAX_LINKS || on.taken?.()) {
         b.publish(to(id), { k: 'busy' });
         return;
       }
       const link = new RelayLink(
         (out) => b.publish(to(id), out),
         () => {
-          if (guest?.link === link) guest = null;
+          if (guests.get(id) === link) guests.delete(id);
         },
       );
-      guest = { id, link };
+      guests.set(id, link);
       b.publish(to(id), { k: 'ack' });
       on.guest(link);
       void RelayVoice.open(b.url, code, 'host', id).then((v) => link.giveVoice(v));
@@ -442,7 +446,7 @@ export async function listenRelay(
   return {
     close() {
       closed = true;
-      guest?.link.close();
+      for (const link of guests.values()) link.close();
       for (const b of brokers) b.close();
     },
   };

@@ -105,7 +105,7 @@ async function solo() {
     await p.fullShot(out('02-hub-duo.jpg'));
   });
   await step('mode online', async () => {
-    await p.click('Вдвох по мережі', 'button.play-mode');
+    await p.click('По мережі', 'button.play-mode');
     await sleep(900);
     await p.fullShot(out('02-hub-online.jpg'));
     await p.click('Сам', 'button.play-mode');
@@ -249,7 +249,7 @@ async function online() {
   await load(guest, prof());
   let code = '';
   await step('room', async () => {
-    for (const pg of [host, guest]) await pg.click('Вдвох по мережі', 'button.play-mode');
+    for (const pg of [host, guest]) await pg.click('По мережі', 'button.play-mode');
     await sleep(600);
     await host.eval(`document.querySelector('.online-more')?.setAttribute('open', '')`);
     await host.click('Хост рахує', '.share-option');
@@ -265,7 +265,7 @@ async function online() {
     await sleep(300);
     await guest.shot(out('14-online-join.jpg'));
     await guest.click('^Зайти$');
-    await host.until('the guest is in', `/Напарник підключений/.test(document.body.innerText)`, 40000);
+    await host.until('the guest is in', `/Підключено: 1 із/.test(document.body.innerText)`, 40000);
     await guest.until('the guest room', `!!document.querySelector('.guest-room')`, 40000);
     await sleep(800);
     await host.fullShot(out('14-online-connected.jpg'));

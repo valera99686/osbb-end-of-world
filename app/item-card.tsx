@@ -23,13 +23,22 @@ export function EvolutionHint({ weapon }: { weapon: WeaponId }) {
 export function takenText(id?: string) {
   return id ? (ITEM_BY_ID[id]?.name ?? FURNITURE_BY_ID[id]?.name ?? '') : '';
 }
+// What the guests read of the host's reward: who took what, by seat.
 export function rewardNote(run: Run) {
   if (!run.coop) return '';
-  const mine = takenText(run.picked?.host),
-    yours = takenText(run.picked?.mate);
-  return mine || yours
-    ? `: господар — ${mine || 'ще обирає'}, ти — ${yours || 'ще обирає'}`
-    : ' для вас обох';
+  const seats = [0, ...(run.mates ?? []).map((_, i) => i + 1)];
+  const took = seats.map((s) => takenText(run.picked?.[s]));
+  if (!took.some(Boolean))
+    return seats.length > 2 ? ' для всіх' : ' для вас обох';
+  return (
+    ': ' +
+    seats
+      .map(
+        (s, i) =>
+          `${s === 0 ? 'господар' : `гравець ${s + 1}`} — ${took[i] || 'ще обирає'}`,
+      )
+      .join(', ')
+  );
 }
 export function shopNote(run: Run) {
   if (!run.coop) return '';
@@ -37,15 +46,19 @@ export function shopNote(run: Run) {
     run.bought.includes(+i),
   );
   if (!sold.length) return '';
-  const gear = (who: 'host' | 'mate') =>
+  const gear = (who: number) =>
     sold
-      .filter(([, w]) => w === who)
+      .filter(([, w]) => +w === who)
       .map(([i]) => ITEM_BY_ID[run.offers[+i]]?.name)
       .filter(Boolean)
       .join(', ');
-  const mine = gear('host'),
-    yours = gear('mate');
-  return `: куплено${mine ? ` господарю — ${mine}` : ''}${mine && yours ? ';' : ''}${yours ? ` тобі — ${yours}` : ''}`;
+  const parts = [0, ...(run.mates ?? []).map((_, i) => i + 1)]
+    .map((s) => [s, gear(s)] as const)
+    .filter(([, text]) => text)
+    .map(
+      ([s, text]) => `${s === 0 ? 'господарю' : `гравцю ${s + 1}`} — ${text}`,
+    );
+  return parts.length ? `: куплено ${parts.join('; ')}` : ': куплено';
 }
 export function ItemCard({
   item,

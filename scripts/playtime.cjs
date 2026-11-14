@@ -158,12 +158,12 @@ function raid(meta, seed, hero = 'mechanic', heat = 0, log) {
         const id = run.loot[mod].id;
         const next = take(run, meta, id);
         meta = learn(meta, id);
-        run = M.settleReward(next === run ? run : next, 'host', id);
+        run = M.settleReward(next === run ? run : next, 0, id);
       } else if (furn >= 0) {
         const next = M.claimFurniture(run, furn);
         run = next === run ? M.nextNode(run) : next;
       } else run = M.nextNode(run);
-      if (run.page === 'reward' && run.mateLoot?.length === 0 && run.loot.length === 0)
+      if (run.page === 'reward' && !run.mateLoots?.some((row) => row.length) && run.loot.length === 0)
         run = M.nextNode(run);
       continue;
     }

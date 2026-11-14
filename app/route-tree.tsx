@@ -1,4 +1,5 @@
 import { HelpCircle, Gift } from 'lucide-react';
+import { allAgree, pickedNames, waitingNames, type VoteMate } from './vote';
 import { campaignBoss } from '@/lib/game/encounters';
 import { minibossFor } from '@/lib/game/minibosses';
 import {
@@ -128,8 +129,8 @@ function point(row: number, col: number, count: number, run: Run) {
 // has picked on this step, and what a pick does (a vote, not a departure).
 export interface RouteVote {
   mine: number | null;
-  partner: number | null;
-  partnerName: string;
+  // The other players: what each has picked.
+  mates: VoteMate[];
   done?: { col: number; coin: boolean };
   onVote: (col: number) => void;
   // A map with nothing to vote on (one way, a fight to go on with): shown to
@@ -142,15 +143,20 @@ function voteNote(vote: RouteVote) {
     return vote.done.coin
       ? 'Голоси розійшлись: монетка вирішила. Вирушаємо!'
       : 'Голоси збіглися. Вирушаємо!';
+  const picked = pickedNames(vote.mates),
+    waiting = waitingNames(vote.mates);
   if (vote.mine === null)
-    return vote.partner === null
-      ? 'Куди йти — вирішуєте вдвох. Обери вузол і проголосуй.'
-      : `${vote.partnerName} уже обрав. Проголосуй і ти.`;
-  if (vote.partner === null)
-    return `Твій голос віддано. Чекаємо вибір: ${vote.partnerName}.`;
-  return vote.mine === vote.partner
+    return !picked
+      ? vote.mates.length > 1
+        ? 'Куди йти — вирішуєте всі разом. Обери вузол і проголосуй.'
+        : 'Куди йти — вирішуєте вдвох. Обери вузол і проголосуй.'
+      : `Уже обрали: ${picked}. Проголосуй і ти.`;
+  if (waiting) return `Твій голос віддано. Чекаємо вибір: ${waiting}.`;
+  return allAgree(vote.mine, vote.mates)
     ? 'Голоси збіглися.'
-    : 'Голоси розійшлись: вирішить монетка.';
+    : vote.mates.length > 1
+      ? 'Голоси розійшлись: вирішить більшість, а коли порівну, монетка.'
+      : 'Голоси розійшлись: вирішить монетка.';
 }
 
 export function RouteTree({
@@ -433,10 +439,13 @@ export function RouteTree({
                     {vote && step === run.step && (
                       <span className="tree-votes" aria-hidden="true">
                         {vote.mine === col && <i className="mine">Я</i>}
-                        {vote.partner === col && (
-                          <i className="partner" title={vote.partnerName}>
-                            {vote.partnerName.slice(0, 1).toUpperCase()}
-                          </i>
+                        {vote.mates.map(
+                          (mate, i) =>
+                            mate.col === col && (
+                              <i className="partner" title={mate.name} key={i}>
+                                {mate.name.slice(0, 1).toUpperCase()}
+                              </i>
+                            ),
                         )}
                         {vote.done?.col === col && <i className="verdict">✓</i>}
                       </span>

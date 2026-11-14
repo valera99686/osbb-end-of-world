@@ -10,7 +10,7 @@ export type PlayMode = 'solo' | 'local' | 'online';
 const MODES = [
   { id: 'solo', name: 'Сам', hint: 'Один гравець', Icon: User },
   { id: 'local', name: 'Вдвох тут', hint: 'Один екран', Icon: Users },
-  { id: 'online', name: 'Вдвох по мережі', hint: 'Кімната з кодом', Icon: Globe },
+  { id: 'online', name: 'По мережі', hint: 'До 4 гравців, код', Icon: Globe },
 ] as const;
 
 export function PlayModes({

@@ -1,7 +1,13 @@
-// Voice chat of an online room: this end's microphone goes to the partner as a
-// call over the direct link (net-peer.ts PeerVoice), the partner's sound comes
-// back the same way and is played here. A link through a relay cannot carry
-// sound; then there is no voice chat, and the screen says why.
+// Voice chat of an online room: this end's microphone goes to the others as a
+// call over the direct link (net-peer.ts PeerVoice), what the others say comes
+// back the same way and is played here. A link through a relay carries the
+// sound as the small frames of a walkie-talkie (relay-link.ts), and the screens
+// cannot tell the two apart.
+//
+// In a room of more than two the guests talk to the host only, so the host is
+// the table where the voices meet: it mixes the microphone of everybody with
+// the others' and sends each guest what the rest of the room says (never the
+// guest's own voice back). A guest hears the room as one stream.
 import { useMemo, useSyncExternalStore } from 'react';
 import type { VoiceLink } from '@/lib/game/net';
 import type { NetSession } from '@/lib/game/session';
@@ -31,21 +37,92 @@ export function micError(e: unknown): string {
     return 'Мікрофон заборонено. Дозволь його для цього сайту в налаштуваннях браузера й спробуй ще раз.';
   if (name === 'NotFoundError' || name === 'OverconstrainedError')
     return 'Мікрофона не знайдено. Підключи його й спробуй ще раз.';
-  if (name === 'NotReadableError')
-    return 'Мікрофон зайнятий іншою програмою.';
+  if (name === 'NotReadableError') return 'Мікрофон зайнятий іншою програмою.';
   return 'Не вдалося увімкнути мікрофон.';
+}
+
+// What one other end of the room sounds like at this one.
+interface Remote {
+  seat: number;
+  link: VoiceLink;
+  heard: boolean;
+  level: number;
+  silenced: boolean;
+  audio: HTMLAudioElement | null;
+  stream: MediaStream | null;
+  // What this end sends this one: nothing, its own microphone, or the mix.
+  sent: '' | 'direct' | 'mix';
+}
+
+// The host's table: every voice in, and out for each guest all of them but
+// that guest's own.
+class Mixer {
+  private own: MediaStreamAudioSourceNode | null = null;
+  private inputs = new Map<number, MediaStreamAudioSourceNode>();
+  private outs = new Map<number, MediaStreamAudioDestinationNode>();
+  constructor(private ctx: AudioContext) {}
+  setOwn(stream: MediaStream | null) {
+    this.own?.disconnect();
+    this.own = stream ? this.ctx.createMediaStreamSource(stream) : null;
+    this.wire();
+  }
+  setInput(seat: number, stream: MediaStream | null) {
+    this.inputs.get(seat)?.disconnect();
+    this.inputs.delete(seat);
+    if (stream && stream.getAudioTracks().length)
+      this.inputs.set(seat, this.ctx.createMediaStreamSource(stream));
+    this.wire();
+  }
+  // What a guest is to be sent.
+  out(seat: number): MediaStream {
+    let dest = this.outs.get(seat);
+    if (!dest) {
+      dest = this.ctx.createMediaStreamDestination();
+      this.outs.set(seat, dest);
+      this.wire();
+    }
+    return dest.stream;
+  }
+  drop(seat: number) {
+    this.inputs.get(seat)?.disconnect();
+    this.inputs.delete(seat);
+    this.outs.get(seat)?.disconnect();
+    this.outs.delete(seat);
+    this.wire();
+  }
+  private wire() {
+    // Disconnecting what was never connected is an error, so each start is clean.
+    const apart = (from: AudioNode, to: AudioNode) => {
+      try {
+        from.disconnect(to);
+      } catch {
+        // It was not connected.
+      }
+    };
+    for (const [seat, dest] of this.outs) {
+      if (this.own) apart(this.own, dest);
+      for (const src of this.inputs.values()) apart(src, dest);
+      this.own?.connect(dest);
+      for (const [from, src] of this.inputs)
+        if (from !== seat) src.connect(dest);
+    }
+  }
+  dispose() {
+    this.own?.disconnect();
+    for (const src of this.inputs.values()) src.disconnect();
+    for (const dest of this.outs.values()) dest.disconnect();
+    this.inputs.clear();
+    this.outs.clear();
+  }
 }
 
 export class VoiceChat {
   mic: MicState = 'off';
   error = '';
-  // The partner's sound is coming in.
-  heard = false;
-  // The partner's sound is muted at this end.
+  // The others' sound is muted at this end.
   silenced = false;
-  // How loud this end and the partner are, 0..1.
+  // How loud this end is, 0..1.
   me = 0;
-  them = 0;
   // The microphones this device has, and the one in use ('' is the device's own
   // choice).
   devices: MicDevice[] = [];
@@ -53,16 +130,16 @@ export class VoiceChat {
   version = 0;
   private subs = new Set<() => void>();
   private stream: MediaStream | null = null;
-  private link: VoiceLink | null = null;
-  private audio: HTMLAudioElement | null = null;
+  private remotes = new Map<number, Remote>();
   private ctx: AudioContext | null = null;
+  private mixer: Mixer | null = null;
   private meters: {
     node: AnalyserNode;
     data: Uint8Array<ArrayBuffer>;
     set: (v: number) => void;
+    get: () => number;
   }[] = [];
   private timer = 0;
-  private theirMic = false;
   private off: (() => void) | null = null;
   constructor(private session: NetSession) {
     this.off = session.subscribe(() => this.sync());
@@ -119,15 +196,21 @@ export class VoiceChat {
     } catch {
       // Only a convenience: asked again next time.
     }
-    if (this.mic === 'on' && this.link) {
+    if (this.mic === 'on' && this.remotes.size) {
       try {
         const stream = await this.capture();
         const old = this.stream;
-        if (!this.link.replace(stream)) this.link.send(stream);
         this.stream = stream;
+        if (this.host && this.remotes.size > 1) this.mixer?.setOwn(stream);
+        else
+          for (const r of this.remotes.values())
+            if (!r.link.replace(stream)) {
+              r.link.stop();
+              r.link.send(stream);
+            }
         for (const t of old?.getTracks() ?? []) t.stop();
         this.meters = this.meters.filter((m) => m.set !== this.setMe);
-        this.meter(stream, this.setMe);
+        this.meter(stream, this.setMe, () => this.me);
         this.error = '';
       } catch (e) {
         this.error = micError(e);
@@ -148,40 +231,164 @@ export class VoiceChat {
     // oxlint-disable-next-line unicorn/no-useless-spread
     for (const cb of [...this.subs]) cb();
   }
+  private get host() {
+    return this.session.role === 'host';
+  }
   // The voice goes through the relay (a walkie-talkie, not a call).
   get relayed() {
     return this.session.via === 'relay';
   }
-  // Whether there is a voice chat to have on this link.
+  // Whether there is a voice chat to have on these links.
   get available() {
-    return this.session.phase === 'connected' && !!this.session.voiceLink;
+    return this.session.phase === 'connected' && this.remotes.size > 0;
   }
-  // The room's link changed (or went): the sound follows it.
-  private sync() {
-    // The partner says their microphone is off: their sound is let go at once
-    // (the call itself may take a while to be seen as closed).
-    const theirs = this.session.partnerMic;
-    if (this.theirMic && !theirs && this.heard) this.hear(null);
-    // They switched it on again: a relay's sound keeps one stream for good, so
-    // it is taken up again here (a call brings its own stream each time).
-    const kept = this.session.voiceLink?.stream;
-    if (!this.theirMic && theirs && !this.heard && kept) this.hear(kept);
-    this.theirMic = theirs;
-    const link = this.session.phase === 'connected' ? this.session.voiceLink : null;
-    if (link === this.link) return;
-    if (this.link) this.link.onStream = null;
-    this.hear(null);
-    if (this.mic !== 'off') this.stopMic(false);
-    this.link = link;
-    if (link) {
-      link.onStream = (s) => this.hear(s);
-      if (link.stream) this.hear(link.stream);
-    }
+  // Whoever else is heard now, and whoever is speaking.
+  get heard() {
+    return [...this.remotes.values()].some((r) => r.heard);
+  }
+  get them() {
+    return Math.max(0, ...[...this.remotes.values()].map((r) => r.level));
+  }
+  // The seats heard now (the host hears each guest on its own).
+  heardSeats(): number[] {
+    return [...this.remotes.values()].filter((r) => r.heard).map((r) => r.seat);
+  }
+  speaking(seat: number) {
+    const r = this.remotes.get(seat);
+    return (
+      !!r && r.heard && !r.silenced && !this.silenced && r.level > SPEAKING
+    );
+  }
+  // Host: one guest muted at this end.
+  silenceSeat(seat: number, on: boolean) {
+    const r = this.remotes.get(seat);
+    if (!r) return;
+    r.silenced = on;
+    if (r.audio) r.audio.muted = on || this.silenced;
     this.change();
   }
+  isSilenced(seat: number) {
+    return !!this.remotes.get(seat)?.silenced;
+  }
+  // The room's links changed (or went): the sound follows them.
+  private sync() {
+    const want = new Map<number, VoiceLink>();
+    if (this.session.phase === 'connected')
+      for (const { seat, link } of this.session.voiceLinks())
+        want.set(seat, link);
+    let changed = false;
+    for (const [seat, r] of this.remotes) {
+      if (want.get(seat) === r.link) continue;
+      this.release(r);
+      this.remotes.delete(seat);
+      this.mixer?.drop(seat);
+      changed = true;
+    }
+    for (const [seat, link] of want) {
+      if (this.remotes.has(seat)) continue;
+      const r: Remote = {
+        seat,
+        link,
+        heard: false,
+        level: 0,
+        silenced: false,
+        audio: null,
+        stream: null,
+        sent: '',
+      };
+      this.remotes.set(seat, r);
+      link.onStream = (s) => this.hear(r, s);
+      if (link.stream) this.hear(r, link.stream);
+      changed = true;
+    }
+    // Somebody's microphone went off: their sound is let go at once (the call
+    // itself may take a while to be seen as closed); a relay's sound keeps one
+    // stream for good, so it is taken up again when the microphone is back.
+    for (const r of this.remotes.values()) {
+      const on = this.micOf(r.seat);
+      if (!on && r.heard) this.hear(r, null);
+      else if (on && !r.heard && r.link.stream) this.hear(r, r.link.stream);
+    }
+    this.syncSend();
+    if (changed || this.remotes.size) this.change();
+  }
+  // Whether the player of that seat has their microphone on (the guest hears
+  // the room as one: any of the others').
+  private micOf(seat: number): boolean {
+    const mics = this.session.mics;
+    return this.host
+      ? !!mics[seat]
+      : mics.some((on, s) => on && s !== this.session.mySeat);
+  }
+  // Sends each remote what it is to hear from this end: a pair directly, a room
+  // through the table of the host; and stops sending what nobody is to hear.
+  private syncSend() {
+    const many = this.host && this.remotes.size > 1;
+    for (const r of this.remotes.values()) {
+      const others =
+        many &&
+        (this.mic === 'on' ||
+          this.session.mics.some((on, s) => on && s > 0 && s !== r.seat));
+      const wants = many ? others : this.mic === 'on';
+      const kind: Remote['sent'] = wants ? (many ? 'mix' : 'direct') : '';
+      if (kind === r.sent) continue;
+      r.link.stop();
+      r.sent = '';
+      if (!kind) continue;
+      if (kind === 'mix') {
+        const ctx = this.audioContext();
+        if (!ctx) continue;
+        if (!this.mixer) {
+          this.mixer = new Mixer(ctx);
+          // The voices heard so far sit down at the table too.
+          for (const o of this.remotes.values())
+            this.mixer.setInput(o.seat, o.stream);
+        }
+        this.mixer.setOwn(this.mic === 'on' ? this.stream : null);
+        r.link.send(this.mixer.out(r.seat));
+      } else if (this.stream) r.link.send(this.stream);
+      else continue;
+      r.sent = kind;
+    }
+  }
+  private audioContext(): AudioContext | null {
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+      this.ctx ??= new Ctx();
+      return this.ctx;
+    } catch {
+      return null;
+    }
+  }
+  private release(r: Remote) {
+    r.link.onStream = null;
+    r.audio?.pause();
+    r.audio?.remove();
+    r.audio = null;
+    r.heard = false;
+    r.level = 0;
+    this.meters = this.meters.filter((m) => m.set !== this.setterOf(r));
+    this.mixer?.setInput(r.seat, null);
+    if (r.sent) r.link.stop();
+    r.sent = '';
+  }
+  private setters = new WeakMap<Remote, (v: number) => void>();
+  private setterOf(r: Remote) {
+    let set = this.setters.get(r);
+    if (!set) {
+      set = (v) => {
+        r.level = v;
+      };
+      this.setters.set(r, set);
+    }
+    return set;
+  }
   async start() {
-    const link = this.link;
-    if (!link) {
+    if (!this.remotes.size) {
       this.error =
         'Голос зараз недоступний: він не підключився ні напряму, ні через резервний канал.';
       return this.change();
@@ -197,16 +404,16 @@ export class VoiceChat {
     try {
       const stream = await this.capture();
       // The room may have closed while the permission was asked.
-      if (this.link !== link || this.session.phase !== 'connected') {
+      if (!this.remotes.size || this.session.phase !== 'connected') {
         for (const t of stream.getTracks()) t.stop();
         this.mic = 'off';
         return this.change();
       }
       this.stream = stream;
-      link.send(stream);
       this.mic = 'on';
+      this.syncSend();
       this.session.tellMic(true);
-      this.meter(stream, this.setMe);
+      this.meter(stream, this.setMe, () => this.me);
       void this.ctx?.resume();
       // Now that the page may listen, the microphones have their names.
       void this.refresh();
@@ -223,33 +430,37 @@ export class VoiceChat {
   private stopMic(tell: boolean) {
     for (const t of this.stream?.getTracks() ?? []) t.stop();
     this.stream = null;
-    this.link?.stop();
     this.mic = 'off';
     this.me = 0;
     this.meters = this.meters.filter((m) => m.set !== this.setMe);
+    this.mixer?.setOwn(null);
+    if (this.remotes.size) this.syncSend();
     if (tell) this.session.tellMic(false);
   }
   private setMe = (v: number) => {
     this.me = v;
   };
-  // Mutes or unmutes the partner's sound at this end.
+  // Mutes or unmutes the others' sound at this end.
   silence(on: boolean) {
     this.silenced = on;
-    if (this.audio) this.audio.muted = on;
+    for (const r of this.remotes.values())
+      if (r.audio) r.audio.muted = on || r.silenced;
     this.change();
   }
-  // The partner's sound comes in (or ends).
-  private hear(stream: MediaStream | null) {
-    this.audio?.pause();
-    this.audio?.remove();
-    this.audio = null;
-    this.meters = this.meters.filter((m) => m.set !== this.setThem);
-    this.them = 0;
-    this.heard = !!stream;
+  // Somebody's sound comes in (or ends).
+  private hear(r: Remote, stream: MediaStream | null) {
+    r.audio?.pause();
+    r.audio?.remove();
+    r.audio = null;
+    r.stream = stream;
+    this.meters = this.meters.filter((m) => m.set !== this.setterOf(r));
+    r.level = 0;
+    r.heard = !!stream;
+    if (this.host) this.mixer?.setInput(r.seat, stream);
     if (stream) {
       const audio = document.createElement('audio');
       audio.autoplay = true;
-      audio.muted = this.silenced;
+      audio.muted = this.silenced || r.silenced;
       audio.srcObject = stream;
       audio.style.display = 'none';
       document.body.appendChild(audio);
@@ -261,30 +472,30 @@ export class VoiceChat {
         };
         window.addEventListener('pointerdown', go);
       });
-      this.audio = audio;
-      this.meter(stream, this.setThem);
-    }
+      r.audio = audio;
+      this.meter(stream, this.setterOf(r), () => r.level);
+      // The table needs this voice at once: the guests that are to hear it.
+      if (this.host) this.syncSend();
+    } else if (this.host) this.syncSend();
     this.change();
   }
-  private setThem = (v: number) => {
-    this.them = v;
-  };
   // Starts measuring how loud a stream is.
-  private meter(stream: MediaStream, set: (v: number) => void) {
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!Ctx || !stream.getAudioTracks().length) return;
+  private meter(
+    stream: MediaStream,
+    set: (v: number) => void,
+    get: () => number,
+  ) {
+    const ctx = this.audioContext();
+    if (!ctx || !stream.getAudioTracks().length) return;
     try {
-      this.ctx ??= new Ctx();
-      const node = this.ctx.createAnalyser();
+      const node = ctx.createAnalyser();
       node.fftSize = 512;
-      this.ctx.createMediaStreamSource(stream).connect(node);
+      ctx.createMediaStreamSource(stream).connect(node);
       this.meters.push({
         node,
         data: new Uint8Array(new ArrayBuffer(node.fftSize)),
         set,
+        get,
       });
       this.timer ||= window.setInterval(() => this.tick(), METER_EVERY);
     } catch {
@@ -297,9 +508,9 @@ export class VoiceChat {
       m.node.getByteTimeDomainData(m.data);
       let peak = 0;
       for (const v of m.data) peak = Math.max(peak, Math.abs(v - 128) / 128);
-      const before = m.set === this.setMe ? this.me : this.them;
+      const before = m.get();
       m.set(peak);
-      if ((before > SPEAKING) !== (peak > SPEAKING)) moved = true;
+      if (before > SPEAKING !== peak > SPEAKING) moved = true;
     }
     if (moved) this.change();
   }
@@ -307,14 +518,24 @@ export class VoiceChat {
     return this.mic === 'on' && this.me > SPEAKING;
   }
   get speakingThem() {
-    return this.heard && !this.silenced && this.them > SPEAKING;
+    return (
+      !this.silenced &&
+      [...this.remotes.values()].some(
+        (r) => r.heard && !r.silenced && r.level > SPEAKING,
+      )
+    );
   }
   dispose() {
-    navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDevices);
+    navigator.mediaDevices?.removeEventListener?.(
+      'devicechange',
+      this.onDevices,
+    );
     this.off?.();
     this.stopMic(false);
-    if (this.link) this.link.onStream = null;
-    this.hear(null);
+    for (const r of this.remotes.values()) this.release(r);
+    this.remotes.clear();
+    this.mixer?.dispose();
+    this.mixer = null;
     window.clearInterval(this.timer);
     this.timer = 0;
     void this.ctx?.close();

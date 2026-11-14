@@ -52,8 +52,10 @@ import {
   allyHealth,
   coopHeat,
   keyVector,
+  party,
   reviveStep,
   spreadFix,
+  type PartyScale,
 } from './coop';
 import {
   type CampaignEnemyDefinition,
@@ -68,12 +70,13 @@ import {
 } from './encounters';
 import { EVOLUTION_BY_ID, WEAPONS } from './weapons';
 import {
+  type BossPattern,
   type Hazard,
   STAGGER_DAMAGE,
   STAGGER_TIME,
   hazardContains,
 } from './bosses';
-import type { HostFeed, MirrorClient } from './mirror';
+import type { FeedLike, MirrorClient } from './mirror';
 import type { Lockstep } from './net';
 import {
   MINIBOSS_TYPE,
@@ -90,8 +93,11 @@ import {
   DEFAULT_SETTINGS,
   freshHouse,
   minibossVariant,
+  partySize,
   seeded,
   statsFor,
+  mateHero,
+  mateSeats,
   mateStats as statsOfMate,
 } from './model';
 import { type PerkId, perkOffers } from './upgrades';
@@ -194,14 +200,25 @@ export type {
 // docs/architecture.md, "Battle".
 // oxlint-disable-next-line typescript/no-empty-object-type, typescript/no-unsafe-declaration-merging
 export interface Battle extends BattleView {}
+// A partner on their feet and here (not knocked out, not away).
+const standing = (a: Ally) => !a.down && !a.away;
+// The seat of a bullet's or a shot's owner: a number, or the old flag for the
+// second house.
+const seatOf = (x: number | boolean | undefined) =>
+  typeof x === 'number' ? x : x ? 1 : 0;
+const allyHud = (a: Ally) => ({
+  hp: a.hp,
+  max: a.max,
+  down: a.down,
+  revive: a.revive,
+  dash: a.dashCd,
+  pulse: a.pulseCd,
+});
 export class Battle {
   canvas: HTMLCanvasElement | null;
   ctx: CanvasRenderingContext2D | null;
   run: Run;
   stats: Stats;
-  // The second house's stats: its own modules (model.ts mateItems), the rest
-  // of the build shared. The very same object as `stats` when playing alone.
-  mateStats: Stats;
   audio: AudioEngine;
   settings: Settings;
   onPause?: () => void;
@@ -216,26 +233,29 @@ export class Battle {
   stick = { x: 0, y: 0 };
   pad = { x: 0, y: 0 };
   padHeld: boolean[] = [];
-  // Co-op: the second player (null when playing alone) and their own input.
-  ally: Ally | null = null;
+  // Co-op: the partners' houses by seat (none when playing alone), and the
+  // second player's input on this very device. `seat` is the one this device
+  // plays (0 is the host's house).
+  allies: Ally[] = [];
+  seat = 0;
   stick2 = { x: 0, y: 0 };
   pad2 = { x: 0, y: 0 };
   pad2Held: boolean[] = [];
   pad2Primed = false;
-  // How far the camera leans toward the partner: 0 on the house, 1 in the
-  // middle between the two.
+  // How far the camera leans toward the others: 0 on the local house, 1 in
+  // the middle between it and them.
   allyFocus = 0;
   // Online co-op: the lockstep this fight runs in, and the UI hook.
   sync: Lockstep | null = null;
   // The partner is a guest on another device whose input comes by the feed.
   hostRemote = false;
-  feed: HostFeed | null = null;
+  feed: FeedLike | null = null;
   // A fight that is only drawn from what the host sends (never simulated).
   client: MirrorClient | null = null;
   // Fractions of coins and crystals left by the co-op loot share.
   coinCarry = 0;
   xpCarry = 0;
-  onPerkTaken?: (who: 0 | 1) => void;
+  onPerkTaken?: (who: number) => void;
   // Button edges restart after start, a reconnect or unpausing: whatever
   // is down then (the A that picked the fight or pressed "resume") has to
   // be released before it acts in battle.
@@ -286,6 +306,8 @@ export class Battle {
   muzzleAngle = 0;
   // Heat (and the daily modifier) on enemy stats; heat 0 is all ones.
   heat: HeatEffects;
+  // What the size of the party makes of a fight (coop.ts PARTY).
+  party: PartyScale = party(1);
   // Kill streak: resets COMBO_WINDOW seconds after the last kill.
   combo = 0;
   comboTimer = 0;
@@ -340,15 +362,16 @@ export class Battle {
   } | null = null;
   // Backs the `paused` accessor below.
   halted = false;
-  // Perk drafts on screen (the simulation waits while either is open): the
-  // first house's and the second one's, and levels still to draft.
+  // Perk drafts on screen (the simulation waits while any is open): the first
+  // house's (the partners' are on their Ally), and levels still to draft.
   drafting: PerkId[] | null = null;
-  mateDrafting: PerkId[] | null = null;
   pendingLevels = 0;
   onPerkDraft?: (
     offers: PerkId[],
     level: number,
+    // The first partner's offers, and every partner's by seat - 1.
     mateOffers: PerkId[] | null,
+    drafts?: (PerkId[] | null)[],
   ) => void;
   autoPerks = false;
   introQuote = '';
@@ -360,14 +383,16 @@ export class Battle {
   trailGap = 0;
   trails: { x: number; y: number; life: number; dps: number }[] = [];
   perkCache: Record<string, number> = {};
-  matePerkCache: Record<string, number> = {};
   shells: Shell[] = [];
   // Pre-rendered facade: rebuilt when the layout or crew changes.
   facade: { key: string; canvas: HTMLCanvasElement | null } | null = null;
-  // The same for the second house (its own modules), and whether the house
-  // being drawn right now is that one.
-  mateFacade: { key: string; canvas: HTMLCanvasElement | null } | null = null;
-  drawingMate = false;
+  // The same for each partner house (its own modules) by seat, and the seat of
+  // the house being drawn right now (0 is the first one).
+  mateFacades: Record<
+    number,
+    { key: string; canvas: HTMLCanvasElement | null }
+  > = {};
+  drawingSeat = 0;
   // Lightning polylines of the arc core, for a few frames.
   // Lines of lightning (arc cores, Іскра); `bold` ones glow.
   arcs: { pts: number[]; life: number; bold?: boolean }[] = [];
@@ -415,7 +440,6 @@ export class Battle {
     this.run = { ...run, items: [...run.items] };
     this.minibossVariant = minibossVariant(run);
     this.stats = statsFor(run, meta);
-    this.mateStats = run.coop ? statsOfMate(run, meta) : this.stats;
     this.specials = specialEffects(run);
     // Марта starts every fight with one shield.
     this.shieldCharges =
@@ -427,6 +451,7 @@ export class Battle {
     this.onBeat = options.onBeat;
     this.onPerkDraft = options.onPerkDraft;
     this.sync = options.sync ?? null;
+    this.seat = options.seat ?? this.sync?.me ?? 0;
     this.feed = options.feed ?? null;
     this.client = options.client ?? null;
     this.onPerkTaken = options.onPerkTaken;
@@ -457,11 +482,16 @@ export class Battle {
     this.run.hp = Math.min(this.run.hp, this.stats.health);
     this.run.battleDamage = 0;
     this.heat = withBaseline(heatForRun(run), run.chapter, run.step);
+    // The fight is made for the players that are here.
+    const gone = (options.away ?? []).filter((s) => mateSeats(run).includes(s));
+    const players = Math.max(1, partySize(run) - gone.length);
+    this.party = party(players);
     if (run.coop && (run.kind === 'boss' || run.kind === 'miniboss'))
-      this.duration *= COOP.leaderTime;
+      this.duration *= this.party.leaderTime;
     if (run.coop) {
-      this.heat = coopHeat(this.heat);
-      this.ally = this.makeAlly(run.coop);
+      this.heat = coopHeat(this.heat, players);
+      this.allies = mateSeats(run).map((seat) => this.makeAlly(seat));
+      for (const a of this.allies) if (gone.includes(a.seat)) a.away = true;
     }
     if (run.kind !== 'boss' && run.kind !== 'miniboss') {
       const column = run.path?.[run.step] ?? 0;
@@ -576,22 +606,47 @@ export class Battle {
       return out;
     };
     this.perkCache = count(this.run.perks);
-    this.matePerkCache = count(this.run.mate?.perks);
+    for (const a of this.allies)
+      a.perks = count(this.run.mates?.[a.seat - 1]?.perks);
   }
-  // A perk's level for the first house, and for the second one (co-op).
+  // The first partner (a raid for two has one): the one the second player of
+  // a single device is, and what the tests ask about.
+  get ally(): Ally | null {
+    return this.allies[0] ?? null;
+  }
+  get mateStats(): Stats {
+    return this.allies[0]?.stats ?? this.stats;
+  }
+  get mateDrafting(): PerkId[] | null {
+    return this.allies[0]?.draft ?? null;
+  }
+  // The partner of that seat (1..3), if there is one.
+  allyOf(seat: number): Ally | undefined {
+    return this.allies.find((a) => a.seat === seat);
+  }
+  // The stats of a seat's house (0 is the first house).
+  statsOfSeat(seat: number): Stats {
+    return seat ? (this.allyOf(seat)?.stats ?? this.stats) : this.stats;
+  }
+  // Whoever is on their feet and here: the first house is always one of them.
+  bodies(): { x: number; y: number; vx: number; vy: number }[] {
+    return [this, ...this.allies.filter(standing)];
+  }
+  // A perk's level for the first house, and for a partner's (co-op).
   pk(id: PerkId) {
     return this.perkCache[id] ?? 0;
   }
-  pkm(id: PerkId) {
-    return this.matePerkCache[id] ?? 0;
+  pkm(id: PerkId, seat = 1) {
+    return this.allyOf(seat)?.perks[id] ?? 0;
   }
-  // The perk of whoever it belongs to: the second house when `mate`.
-  own(id: PerkId, mate: boolean | undefined) {
-    return mate ? this.pkm(id) : this.pk(id);
+  // The perk of whoever it belongs to: a partner's when `seat` is one.
+  own(id: PerkId, seat: number | boolean | undefined) {
+    const s = seatOf(seat);
+    return s ? this.pkm(id, s) : this.pk(id);
   }
   // A draft is open: the fight waits for every house to take its perk.
   get choosing() {
-    return !!(this.drafting || this.mateDrafting);
+    return !!(this.drafting || this.allies.some((a) => a.draft));
   }
   // Offers the next queued level-up draft, if none is on screen.
   openDraft() {
@@ -603,25 +658,41 @@ export class Battle {
     const r = this.run;
     const seed = r.seed * 7 + r.level * 977 + r.chapter * 131 + r.step * 17;
     const offers = perkOffers(r, seed + (r.perks?.length ?? 0) * 3);
-    // Two houses: the second one takes its own perk from its own offers.
-    const matePerks = r.mate?.perks ?? [];
-    const mateOffers =
-      this.ally && r.coop
-        ? perkOffers({ perks: matePerks }, seed + 4099 + matePerks.length * 3)
+    // Every partner house takes its own perk from its own offers (the second
+    // one's are what a raid for two has always had).
+    const mateOffers = this.allies.map((a) => {
+      const perks = r.mates?.[a.seat - 1]?.perks ?? [];
+      return r.coop
+        ? perkOffers(
+            { perks },
+            seed + 4099 + perks.length * 3 + (a.seat - 1) * 1013,
+          )
         : [];
-    if (!offers.length && !mateOffers.length) {
+    });
+    if (!offers.length && !mateOffers.some((o) => o.length)) {
       this.pendingLevels = 0;
       return;
     }
     this.drafting = offers.length ? offers : null;
-    this.mateDrafting = mateOffers.length ? mateOffers : null;
+    this.allies.forEach((a, i) => {
+      a.draft = mateOffers[i].length ? mateOffers[i] : null;
+    });
     if (this.onPerkDraft) {
       this.keys.clear();
-      this.onPerkDraft(offers, r.level, this.mateDrafting);
-      return;
+      this.onPerkDraft(
+        offers,
+        r.level,
+        this.allies[0]?.draft ?? null,
+        this.allies.map((a) => a.draft),
+      );
+    } else {
+      for (const a of this.allies) if (a.draft) this.chooseMatePerk(a.draft[0], a.seat);
+      if (this.drafting) this.choosePerk(offers[0]);
     }
-    if (this.mateDrafting) this.chooseMatePerk(mateOffers[0]);
-    if (this.drafting) this.choosePerk(offers[0]);
+    // Nobody waits for a player who is not here: their house takes the first
+    // card by itself.
+    for (const a of this.allies)
+      if (a.away && a.draft) this.chooseMatePerk(a.draft[0], a.seat);
   }
   // Both houses have taken their perks: the level is done, the next one (if
   // any) is offered.
@@ -640,9 +711,8 @@ export class Battle {
     this.refreshPerks();
     const before = this.stats.health;
     this.stats = statsFor(this.run, this.meta);
-    this.mateStats = this.run.coop
-      ? statsOfMate(this.run, this.meta)
-      : this.stats;
+    for (const a of this.allies)
+      a.stats = statsOfMate(this.run, this.meta, a.seat);
     this.run.hp = Math.min(
       this.stats.health,
       this.run.hp + Math.max(0, this.stats.health - before),
@@ -655,25 +725,27 @@ export class Battle {
     this.freeze(0.05);
     this.afterPick();
   }
-  // The second house's perk (co-op): its own list, its own stats.
-  chooseMatePerk(id: PerkId) {
-    if (!this.mateDrafting?.includes(id)) return;
-    this.mateDrafting = null;
-    const house = this.run.mate ?? freshHouse(this.run, this.run.coop);
-    this.run.mate = { ...house, perks: [...(house.perks ?? []), id] };
-    this.onPerkTaken?.(1);
+  // A partner house's perk (co-op): its own list, its own stats.
+  chooseMatePerk(id: PerkId, seat = 1) {
+    const a = this.allyOf(seat);
+    if (!a?.draft?.includes(id)) return;
+    a.draft = null;
+    const house =
+      this.run.mates?.[seat - 1] ??
+      freshHouse(this.run, mateHero(this.run, seat));
+    const mates = [...(this.run.mates ?? [])];
+    mates[seat - 1] = { ...house, perks: [...(house.perks ?? []), id] };
+    this.run.mates = mates;
+    this.onPerkTaken?.(seat);
     this.refreshPerks();
-    this.mateStats = statsOfMate(this.run, this.meta);
-    const a = this.ally;
-    if (a) {
-      const max = allyHealth(this.mateStats.health);
-      a.hp = Math.min(max, a.hp + Math.max(0, max - a.max));
-      a.max = max;
-      if (id === 'tea' && !a.down) a.hp = Math.min(a.max, a.hp + 25);
-      if (id === 'blanket') a.shields = (a.shields ?? 0) + 1;
-      this.ring(a.x, a.y - 14, 120, '#ffd98a', 0.45, 4);
-      this.burst(a.x, a.y, '#ffd98a', 18);
-    }
+    a.stats = statsOfMate(this.run, this.meta, seat);
+    const max = allyHealth(a.stats.health);
+    a.hp = Math.min(max, a.hp + Math.max(0, max - a.max));
+    a.max = max;
+    if (id === 'tea' && !a.down) a.hp = Math.min(a.max, a.hp + 25);
+    if (id === 'blanket') a.shields = (a.shields ?? 0) + 1;
+    this.ring(a.x, a.y - 14, 120, '#ffd98a', 0.45, 4);
+    this.burst(a.x, a.y, '#ffd98a', 18);
     this.afterPick();
   }
   setSettings(settings: Settings) {
@@ -869,7 +941,7 @@ export class Battle {
         }
       }
     }
-    if (!this.ally || !pads[1] || this.sync || this.hostRemote || this.client) {
+    if (!this.localDuo || !pads[1]) {
       this.pad2 = { x: 0, y: 0 };
       this.pad2Held = [];
       this.pad2Primed = false;
@@ -898,15 +970,29 @@ export class Battle {
   }
   // Two players on this very device (not a partner on another one).
   get localDuo() {
-    return !!this.ally && !this.sync && !this.hostRemote && !this.client;
+    return (
+      this.allies.length === 1 &&
+      !this.allies[0].away &&
+      !this.sync &&
+      !this.hostRemote &&
+      !this.client
+    );
   }
-  // What a pickup is worth: whole with one player; with two, COOP.coins of a
-  // coin and COOP.xp of a crystal, the odd fractions carried over so nothing
-  // is lost on average.
+  // What a pickup is worth: whole with one player; with a party, its share of
+  // a coin and of a crystal (coop.ts PARTY), the odd fractions carried over so
+  // nothing is lost on average.
   loot(value: number, kind: 'coin' | 'xp') {
-    if (!this.ally) return value;
+    // What the council decided for the location may change what a pickup is
+    // worth (heat: coinGain, xpGain); alone and unchanged it is whole.
+    const gain = kind === 'coin' ? this.heat.coinGain : this.heat.xpGain;
+    if (!this.allies.length && gain === 1) return value;
     const key = kind === 'coin' ? 'coinCarry' : 'xpCarry';
-    const total = value * (kind === 'coin' ? COOP.coins : COOP.xp) + this[key];
+    const share = this.allies.length
+      ? kind === 'coin'
+        ? this.party.coins
+        : this.party.xp
+      : 1;
+    const total = value * share * gain + this[key];
     const whole = Math.floor(total + 1e-9);
     this[key] = total - whole;
     return whole;
@@ -918,9 +1004,22 @@ export class Battle {
     this.feed = null;
     this.hostRemote = false;
     this.run.coop = '';
-    this.ally = null;
+    this.allies = [];
     this.allyFocus = 0;
     this.stick2 = { x: 0, y: 0 };
+  }
+  // One player of several is not here (or is back): their house stands still,
+  // is nobody's target and takes its perks by itself, and the others play on.
+  setAway(seat: number, away: boolean) {
+    const a = this.allyOf(seat);
+    if (!a || !!a.away === away) return;
+    a.away = away;
+    a.vx = a.vy = 0;
+    a.pin = undefined;
+    if (away) {
+      this.label(a.x, a.y - 70, 'ВІДІЙШОВ', '#9aa7ad');
+      if (a.draft) this.chooseMatePerk(a.draft[0], seat);
+    } else this.label(a.x, a.y - 70, 'ПОВЕРНУВСЯ', '#8acdb6');
   }
   // What the local player does with the keys, the stick and the pad.
   localAim() {
@@ -962,10 +1061,10 @@ export class Battle {
     }
     mix(this.bullets.length);
     mix(this.drops.length);
-    if (this.ally) {
-      mix(this.ally.x);
-      mix(this.ally.y);
-      mix(this.ally.hp);
+    for (const a of this.allies) {
+      mix(a.x);
+      mix(a.y);
+      mix(a.hp);
     }
     return h >>> 0;
   }
@@ -1063,19 +1162,37 @@ export class Battle {
                     : hero.id === 'jam'
                       ? this.abilityJam()
                       : this.abilityQuake();
-    // Healing flowers and the vaccine reach both players.
-    const a = this.ally;
-    if (a && !a.down && (hero.id === 'bloom' || hero.id === 'ward'))
-      this.healAlly(a.max * (hero.id === 'bloom' ? BLOOM.heal : WARD.heal));
+    // Healing flowers and the vaccine reach every player.
+    if (hero.id === 'bloom' || hero.id === 'ward')
+      for (const a of this.allies)
+        if (!a.down)
+          this.healAlly(
+            a.max * (hero.id === 'bloom' ? BLOOM.heal : WARD.heal),
+            a,
+          );
     return landed;
   }
   // ---- Co-op: the second player (coop.ts) ----
-  makeAlly(hero: string): Ally {
-    const max = allyHealth(this.mateStats.health);
+  makeAlly(seat: number): Ally {
+    const stats = statsOfMate(this.run, this.meta, seat);
+    const max = allyHealth(stats.health);
+    const perks: Record<string, number> = {};
+    for (const id of this.run.mates?.[seat - 1]?.perks ?? [])
+      perks[id] = (perks[id] ?? 0) + 1;
+    // Where each one stands at the start: round the house.
+    const [dx, dy] = [
+      [90, 40],
+      [-90, 40],
+      [0, -90],
+    ][seat - 1] ?? [90, 40];
     return {
-      hero,
-      x: this.x + 90,
-      y: this.y + 40,
+      seat,
+      hero: mateHero(this.run, seat),
+      stats,
+      perks,
+      draft: null,
+      x: this.x + dx,
+      y: this.y + dy,
       vx: 0,
       vy: 0,
       hp: max,
@@ -1093,31 +1210,38 @@ export class Battle {
       muzzle: 0,
       aim: 0,
       walk: 0,
-      shields: this.pkm('blanket'),
+      shields: perks.blanket ?? 0,
     };
   }
-  // Who an enemy goes for: the house, unless the partner is clearly closer.
+  // Who an enemy goes for: the house, unless a partner is clearly closer (the
+  // closest of them if several are).
   goalOf(e: Enemy): { x: number; y: number; vx: number; vy: number } {
-    const a = this.ally;
-    if (!a || a.down) return this;
-    const house = Math.hypot(this.x - e.x, this.y - e.y),
-      near = Math.hypot(a.x - e.x, a.y - e.y);
-    return near < house * 0.85 ? a : this;
+    const house = Math.hypot(this.x - e.x, this.y - e.y);
+    let goal: Ally | null = null,
+      best = house * 0.85;
+    for (const a of this.allies) {
+      if (!standing(a)) continue;
+      const near = Math.hypot(a.x - e.x, a.y - e.y);
+      if (near < best) {
+        goal = a;
+        best = near;
+      }
+    }
+    return goal ?? this;
   }
-  healAlly(amount: number) {
-    const a = this.ally;
-    if (!a || a.down) return 0;
+  healAlly(amount: number, a: Ally | null = this.ally) {
+    if (!a || a.down || a.away) return 0;
     const healed = Math.max(0, Math.min(amount, a.max - a.hp));
     a.hp += healed;
     if (healed >= 1)
       this.label(a.x, a.y - 55, '+' + Math.round(healed), '#8acdb6');
     return healed;
   }
-  allyDash() {
-    const a = this.ally;
+  allyDash(a: Ally | null = this.ally) {
     if (
       !a ||
       a.down ||
+      a.away ||
       a.dashCd > 0 ||
       this.paused ||
       this.ended ||
@@ -1129,7 +1253,7 @@ export class Battle {
     a.dashing = 0.22;
     a.invincible = Math.max(a.invincible, 0.55);
     a.dashKill = 0.8;
-    if (this.pkm('shock_dash')) a.shockAt = 0.22;
+    if (this.pkm('shock_dash', a.seat)) a.shockAt = 0.22;
     this.audio.play('dash', { volume: 0.7 });
     this.burst(a.x, a.y, '#f0c466', 12);
     this.ring(a.x, a.y - 8, 56, '#f0c466', 0.25, 3);
@@ -1138,11 +1262,11 @@ export class Battle {
   // The partner's E: the ability of their own hero, cast from where they
   // stand. It is the house's code with the house moved for the moment; what
   // belongs to one body (the dash reset and the speed of Express) goes back.
-  allyPulse() {
-    const a = this.ally;
+  allyPulse(a: Ally | null = this.ally) {
     if (
       !a ||
       a.down ||
+      a.away ||
       a.pulseCd > 0 ||
       this.paused ||
       this.ended ||
@@ -1150,7 +1274,7 @@ export class Battle {
       this.presenting
     )
       return;
-    a.pulseCd = 12 - 3 * this.pkm('short_fuse');
+    a.pulseCd = 12 - 3 * this.pkm('short_fuse', a.seat);
     this.addTrauma(0.42);
     this.vibrate(25);
     const hero = heroAbility(a.hero);
@@ -1165,7 +1289,7 @@ export class Battle {
     this.x = a.x;
     this.y = a.y;
     const perks = this.perkCache;
-    this.perkCache = this.matePerkCache;
+    this.perkCache = a.perks;
     try {
       this.castAbility(a.hero);
     } finally {
@@ -1186,9 +1310,13 @@ export class Battle {
       }
     }
   }
-  hurtAlly(amount: number, invincible: number, trauma: number) {
-    const a = this.ally;
-    if (!a || a.down) return 0;
+  hurtAlly(
+    amount: number,
+    invincible: number,
+    trauma: number,
+    a: Ally | null = this.ally,
+  ) {
+    if (!a || a.down || a.away) return 0;
     if ((a.shields ?? 0) > 0) {
       a.shields = (a.shields ?? 0) - 1;
       a.invincible = invincible + (this.sync ? COOP.netGrace : 0);
@@ -1197,7 +1325,7 @@ export class Battle {
       return 0;
     }
     a.hp -= amount;
-    if (a.hp <= 0 && !a.secondWind && this.pkm('second_wind')) {
+    if (a.hp <= 0 && !a.secondWind && this.pkm('second_wind', a.seat)) {
       // Друге дихання: once a fight the partner stays up with a third.
       a.secondWind = true;
       a.hp = Math.max(1, a.max / 3);
@@ -1210,11 +1338,10 @@ export class Battle {
     this.audio.play('hit', { volume: 0.7 });
     this.label(a.x, a.y - 50, '−' + Math.round(amount), '#ff8e82');
     this.vibrate(14);
-    if (a.hp <= 0) this.downAlly();
+    if (a.hp <= 0) this.downAlly(a);
     return amount;
   }
-  downAlly() {
-    const a = this.ally;
+  downAlly(a: Ally | null = this.ally) {
     if (!a) return;
     a.hp = 0;
     a.down = true;
@@ -1231,8 +1358,7 @@ export class Battle {
       1.8,
     );
   }
-  reviveAlly(helped: boolean) {
-    const a = this.ally;
+  reviveAlly(helped: boolean, a: Ally | null = this.ally) {
     if (!a || !a.down) return;
     a.down = false;
     a.hp = Math.max(1, a.max * (helped ? COOP.reviveHp : COOP.riseHp));
@@ -1675,7 +1801,7 @@ export class Battle {
             : leaderFight
               ? 19
               : 55 + this.run.chapter * 10) *
-            (this.ally ? COOP.players : 1))
+            (this.allies.length ? this.party.spawnRate : 1))
     )
       return;
     // Leaders and early rooms never roll, so their combat rolls stay put.
@@ -1696,7 +1822,11 @@ export class Battle {
           (this.run.kind === 'elite' ? 1.2 : 1) *
           baselineAt(this.run.chapter, this.run.step).enemyHealth) *
       this.heat.enemyHealth *
-      (this.ally && (boss || mini) ? COOP.leaderHealth : 1);
+      // The leader of a party is `leaderHealth` times a lone one in all, the
+      // common heat of the party's enemies included.
+      (this.allies.length && (boss || mini)
+        ? this.party.leaderHealth / this.party.enemyHealth
+        : 1);
     let speed = def.speed * this.heat.enemySpeed;
     if (affix === 'armored') hp *= 1.6;
     if (affix === 'swift') speed *= 1.45;
@@ -1946,34 +2076,59 @@ export class Battle {
       ) - armor,
     );
   }
-  // The partner each frame: timers, the walk, the tether, the revive and the
+  // The partners each frame: timers, the walk, the tether, the revive and the
   // plain gun. Without a partner this is never called with anything to do.
   updateAlly(dt: number) {
-    const a = this.ally;
-    if (!a) return;
+    if (!this.allies.length) return;
+    // The camera leans toward the others while any of them is up.
+    const up = this.allies.some(standing) ? 1 : 0;
+    this.allyFocus += (up - this.allyFocus) * Math.min(1, dt * 3);
+    for (const a of this.allies) this.updateOne(a, dt);
+  }
+  updateOne(a: Ally, dt: number) {
     a.dashCd = Math.max(0, a.dashCd - dt);
     a.pulseCd = Math.max(0, a.pulseCd - dt);
     a.hasteTime = Math.max(0, a.hasteTime - dt);
     a.invincible -= dt;
     a.dashing -= dt;
     a.muzzle = Math.max(0, a.muzzle - dt);
-    this.allyFocus += ((a.down ? 0 : 1) - this.allyFocus) * Math.min(1, dt * 3);
+    if (a.away) {
+      a.vx = a.vy = 0;
+      return;
+    }
     if (a.down) {
       a.vx = a.vy = 0;
       a.downTime += dt;
-      const near = Math.hypot(a.x - this.x, a.y - this.y) < COOP.reviveRadius;
+      // Anybody on their feet standing close gets them up: the first house or
+      // another partner.
+      const near = this.bodies().some(
+        (b) =>
+          b !== a && Math.hypot(a.x - b.x, a.y - b.y) < COOP.reviveRadius,
+      );
       a.revive = reviveStep(a.revive, near, dt);
-      if (a.revive >= 1) this.reviveAlly(true);
-      else if (a.downTime >= COOP.autoRise) this.reviveAlly(false);
+      if (a.revive >= 1) this.reviveAlly(true, a);
+      else if (a.downTime >= COOP.autoRise) this.reviveAlly(false, a);
       return;
     }
     const net = this.sync?.cur;
     // A partner on another device is driven by its own input alone.
-    const move =
-      net || this.hostRemote ? { x: 0, y: 0 } : keyVector(this.keys, P2_KEYS);
-    const pad = this.hostRemote ? { x: 0, y: 0 } : this.pad2;
-    let dx = net ? net[1].x : this.stick2.x + pad.x + move.x;
-    let dy = net ? net[1].y : this.stick2.y + pad.y + move.y;
+    let dx = 0,
+      dy = 0;
+    if (net) {
+      const frame = net[a.seat];
+      dx = frame?.x ?? 0;
+      dy = frame?.y ?? 0;
+    } else if (a.pin) {
+      dx = a.pin.x;
+      dy = a.pin.y;
+    } else if (a.seat === 1) {
+      const move = this.hostRemote
+        ? { x: 0, y: 0 }
+        : keyVector(this.keys, P2_KEYS);
+      const pad = this.hostRemote ? { x: 0, y: 0 } : this.pad2;
+      dx = this.stick2.x + pad.x + move.x;
+      dy = this.stick2.y + pad.y + move.y;
+    }
     const length = Math.hypot(dx, dy);
     if (length > 0) {
       dx /= Math.max(1, length);
@@ -1996,7 +2151,7 @@ export class Battle {
             1,
           );
     const speed =
-      this.mateStats.speed *
+      a.stats.speed *
       COOP.speed *
       slow *
       (a.hasteTime > 0 ? EXPRESS.haste : 1);
@@ -2032,17 +2187,17 @@ export class Battle {
     a.vx += ((a.x - fromX) / Math.max(dt, 1e-3) - a.vx) * k;
     a.vy += ((a.y - fromY) / Math.max(dt, 1e-3) - a.vy) * k;
     a.walk += Math.hypot(a.vx, a.vy) * dt * 0.05;
-    a.hp = Math.min(a.max, a.hp + this.mateStats.regen * COOP.regen * dt);
+    a.hp = Math.min(a.max, a.hp + a.stats.regen * COOP.regen * dt);
     a.shotTimer -= dt;
     if (a.shotTimer <= 0) {
-      const target = this.nearest(a.x, a.y, this.mateStats.range * COOP.range);
+      const target = this.nearest(a.x, a.y, a.stats.range * COOP.range);
       if (target) {
         a.aim = Math.atan2(target.y - a.y, target.x - a.x);
         a.muzzle = MUZZLE;
-        this.shoot(a.x, a.y + TURRET_Y, target, false, undefined, 1, true);
+        this.shoot(a.x, a.y + TURRET_Y, target, false, undefined, 1, a.seat);
         this.audio.play('shoot', { volume: 0.6, pitch: 1.12 });
         a.shotTimer =
-          COOP.fireGap / (this.mateStats.rate * (this.overloaded() ? 2 : 1));
+          COOP.fireGap / (a.stats.rate * (this.overloaded() ? 2 : 1));
       } else if (length > 0) a.aim = Math.atan2(a.facing.y, a.facing.x);
     }
   }
@@ -2081,21 +2236,21 @@ export class Battle {
         this.dashCd = 0;
         this.label(this.x, this.y - 62, 'ФОРСАЖ', '#efbd68');
       }
-      const ally = this.ally;
-      if (
-        ally &&
-        !ally.down &&
-        (ally.dashKill ?? 0) > 0 &&
-        ally.dashCd > 0 &&
-        this.pkm('overdrive')
-      ) {
-        ally.dashCd = 0;
-        this.label(ally.x, ally.y - 62, 'ФОРСАЖ', '#efbd68');
+      for (const ally of this.allies) {
+        if (
+          !ally.down &&
+          (ally.dashKill ?? 0) > 0 &&
+          ally.dashCd > 0 &&
+          this.pkm('overdrive', ally.seat)
+        ) {
+          ally.dashCd = 0;
+          this.label(ally.x, ally.y - 62, 'ФОРСАЖ', '#efbd68');
+        }
       }
       // Осколки: each house's own, at its own strength.
-      for (const mate of [false, true]) {
-        const shards = this.own('shrapnel', mate) * 2;
-        const power = (mate ? this.mateStats : this.stats).damage * 0.5;
+      for (const seat of [0, ...this.allies.map((a) => a.seat)]) {
+        const shards = this.own('shrapnel', seat) * 2;
+        const power = this.statsOfSeat(seat).damage * 0.5;
         for (let i = 0; i < shards && e.type !== COURIER; i++) {
           const a = this.fx() * Math.PI * 2;
           this.bullets.push({
@@ -2110,7 +2265,7 @@ export class Battle {
             age: 0,
             shard: true,
             hitSet: [e],
-            ...(mate ? { mate: true as const } : {}),
+            ...(seat ? { mate: seat } : {}),
           });
         }
       }
@@ -2380,7 +2535,8 @@ export class Battle {
     if (isLeader(e.type) && e.pendingBoss) {
       const pattern = e.pendingBoss;
       for (const s of pattern.shots) shot(s.angle, s.speed, s.damage);
-      this.hazards.push(...pattern.hazards);
+      this.hazards.push(...pattern.hazards, ...(e.pendingEcho ?? []));
+      e.pendingEcho = undefined;
       for (const type of pattern.summons) this.spawn(type);
       e.timer = pattern.cooldown * this.heat.bossTime;
       if (pattern.stagger) e.staggerAt = this.elapsed + pattern.stagger;
@@ -2676,13 +2832,14 @@ export class Battle {
     crit: boolean,
     shots: number,
     over: boolean,
-    mate = false,
+    mate: number | boolean = 0,
   ) {
-    const st = mate ? this.mateStats : this.stats;
+    const seat = seatOf(mate);
+    const st = this.statsOfSeat(seat);
     const evo = st.evolution,
-      pierce = this.own('complaint', mate),
-      bounce = this.own('ricochet', mate),
-      homing = this.own('homing', mate) > 0;
+      pierce = this.own('complaint', seat),
+      bounce = this.own('ricochet', seat),
+      homing = this.own('homing', seat) > 0;
     const bullet = (
       angle: number,
       speed: number,
@@ -2705,7 +2862,7 @@ export class Battle {
         ...(pierce ? { pierce } : {}),
         ...(bounce ? { bounce } : {}),
         ...(homing ? { homing } : {}),
-        ...(mate ? { mate: true as const } : {}),
+        ...(seat ? { mate: seat } : {}),
         ...extra,
       });
     if (weapon === 'spread') {
@@ -2942,10 +3099,11 @@ export class Battle {
     b.vy = Math.sin(a) * speed;
   }
   // Електроривок: a discharge around a house at the end of its dash.
-  shock(mate = false) {
-    const at = mate && this.ally ? this.ally : this;
-    const level = this.own('shock_dash', mate),
-      power = (mate ? this.mateStats : this.stats).damage;
+  shock(mate: number | boolean = 0) {
+    const seat = seatOf(mate);
+    const at = (seat && this.allyOf(seat)) || this;
+    const level = this.own('shock_dash', seat),
+      power = this.statsOfSeat(seat).damage;
     this.ring(at.x, at.y - 14, 130, '#86c9ff', 0.3, 5);
     this.burst(at.x, at.y, '#86c9ff', 18);
     this.audio.play('explosion', { volume: 0.35 });
@@ -2960,21 +3118,20 @@ export class Battle {
       this.shockAt -= dt;
       if (this.shockAt <= 0) this.shock();
     }
-    const a = this.ally;
-    if (a) {
+    for (const a of this.allies) {
       a.dashKill = Math.max(0, (a.dashKill ?? 0) - dt);
       if ((a.shockAt ?? 0) > 0) {
         a.shockAt = (a.shockAt ?? 0) - dt;
-        if (a.shockAt <= 0 && !a.down) this.shock(true);
+        if (a.shockAt <= 0 && !a.down) this.shock(a.seat);
       }
-      if (a.dashing > 0 && !a.down && this.pkm('fire_trail')) {
+      if (a.dashing > 0 && !a.down && this.pkm('fire_trail', a.seat)) {
         a.trailGap = (a.trailGap ?? 0) - dt;
         if (a.trailGap <= 0) {
           this.trails.push({
             x: a.x,
             y: a.y + 8,
             life: 2,
-            dps: this.mateStats.damage * 1.1 * this.pkm('fire_trail'),
+            dps: a.stats.damage * 1.1 * this.pkm('fire_trail', a.seat),
           });
           a.trailGap = 0.035;
         }
@@ -3025,18 +3182,23 @@ export class Battle {
     drone = false,
     replay?: { damage: number; crit: boolean; shots: number },
     power = 1,
-    // The second house: the same weapon, but nothing of the first house's own
-    // state (its coins, volleys, charge or muzzle) is touched.
-    mate = false,
+    // A partner house (its seat, 1..3): the same weapon, but nothing of the
+    // first house's own state (its coins, volleys, charge or muzzle) is touched.
+    seatOrFlag: number | boolean = 0,
   ) {
+    const seat = seatOf(seatOrFlag),
+      mate = seat > 0;
     const a = Math.atan2(e.y - y, e.x - x);
-    const st = mate ? this.mateStats : this.stats;
+    const st = this.statsOfSeat(seat);
     const shots = replay?.shots ?? (drone ? 1 : st.shots);
     let crit = replay?.crit ?? this.rng() < st.crit;
     // Ритм: every fourth main volley is a sure crit (each house counts its own).
-    if (!drone && !replay && this.own('rhythm', mate)) {
-      const a = this.ally;
-      const n = mate && a ? (a.volleys = (a.volleys ?? 0) + 1) : ++this.volleys;
+    if (!drone && !replay && this.own('rhythm', seat)) {
+      const partner = this.allyOf(seat);
+      const n =
+        mate && partner
+          ? (partner.volleys = (partner.volleys ?? 0) + 1)
+          : ++this.volleys;
       if (n % 4 === 0) crit = true;
     }
     let damage =
@@ -3063,7 +3225,7 @@ export class Battle {
         damage *= 1.3;
     }
     // Відсотки: +1 damage per 10 coins in the till, up to +10.
-    if (!replay && this.own('interest', mate))
+    if (!replay && this.own('interest', seat))
       damage += Math.min(10, Math.floor(this.run.coins / 10));
     if (!drone && !replay) damage *= WEAPONS[st.weapon].damage;
     if (mate) damage *= COOP.damage;
@@ -3071,7 +3233,7 @@ export class Battle {
     const over = this.overloaded();
     const weapon = drone ? 'cannon' : st.weapon;
     if (weapon !== 'cannon') {
-      this.fireCore(weapon, x, y, e, a, damage, crit, shots, over, mate);
+      this.fireCore(weapon, x, y, e, a, damage, crit, shots, over, seat);
       if (!drone && !mate) {
         this.audio.play('shoot');
         this.muzzle = MUZZLE;
@@ -3079,9 +3241,9 @@ export class Battle {
       }
       return { damage, crit, shots };
     }
-    const pierce = drone ? 0 : this.own('complaint', mate),
-      bounce = drone ? 0 : this.own('ricochet', mate),
-      homing = this.own('homing', mate) > 0;
+    const pierce = drone ? 0 : this.own('complaint', seat),
+      bounce = drone ? 0 : this.own('ricochet', seat),
+      homing = this.own('homing', seat) > 0;
     for (let i = 0; i < shots; i++) {
       const angle = a + (i - (shots - 1) / 2) * 0.12;
       this.bullets.push({
@@ -3098,7 +3260,7 @@ export class Battle {
         ...(pierce ? { pierce } : {}),
         ...(bounce ? { bounce } : {}),
         ...(homing ? { homing } : {}),
-        ...(mate ? { mate: true as const } : {}),
+        ...(seat ? { mate: seat } : {}),
       });
     }
     if (!drone && !mate) {
@@ -3384,16 +3546,19 @@ export class Battle {
       }
     }
   }
-  // Who carries saws and drones: the house, and the partner on their feet with
-  // the second house's own (its modules and its perks).
-  orbiters(): [{ x: number; y: number }, Stats, boolean][] {
-    const a = this.ally;
-    return a && !a.down && this.mateStats !== this.stats
-      ? [
-          [this, this.stats, false],
-          [a, this.mateStats, true],
-        ]
-      : [[this, this.stats, false]];
+  // Who carries saws and drones: the house, and the partners on their feet with
+  // their own houses' (its modules and its perks), by seat.
+  orbiters(): [{ x: number; y: number }, Stats, number][] {
+    return [
+      [this, this.stats, 0],
+      ...this.allies
+        .filter(standing)
+        .map((a): [{ x: number; y: number }, Stats, number] => [
+          a,
+          a.stats,
+          a.seat,
+        ]),
+    ];
   }
   // The parcel bursts open: coins, crystals and a repair kit.
   courierCaught(e: Enemy) {
@@ -3509,7 +3674,10 @@ export class Battle {
     const net = this.sync?.cur;
     const move = net
       ? { x: 0, y: 0 }
-      : keyVector(this.keys, this.ally ? P1_KEYS : SOLO_KEYS);
+      : keyVector(
+          this.keys,
+          this.allies.some((a) => !a.away) ? P1_KEYS : SOLO_KEYS,
+        );
     let dx = net ? net[0].x : this.stick.x + this.pad.x + move.x;
     let dy = net ? net[0].y : this.stick.y + this.pad.y + move.y;
     const length = Math.hypot(dx, dy);
@@ -3595,16 +3763,8 @@ export class Battle {
       this.run.kind === 'boss' || this.run.kind === 'miniboss';
     if (leaderFight && !this.bossSpawned) {
       const kind = this.run.kind === 'miniboss' ? MINIBOSS_TYPE : 99;
-      // With a partner there is a leader for each of the two, on opposite
-      // sides of the yard.
-      const first = this.spawn(kind);
-      if (first && this.ally)
-        for (let i = 1; i < COOP.leaders; i++)
-          this.spawn(kind, {
-            x: Math.max(50, Math.min(1550, 1600 - first.x)),
-            y: Math.max(50, Math.min(950, 1000 - first.y)),
-            force: true,
-          });
+      // One leader whatever the party: tougher by its size (coop.ts PARTY).
+      this.spawn(kind);
       this.bossSpawned = true;
     }
     if (!leaderFight) this.updateSquad();
@@ -3751,30 +3911,9 @@ export class Battle {
         if (def && TRACKING.includes(def.behavior))
           this.track(e, def, e.windup);
         if (leader) {
-          e.pendingBoss =
-            e.type === MINIBOSS_TYPE
-              ? minibossPattern(
-                  this.run.chapter,
-                  e.phase,
-                  e.pattern++,
-                  e.x,
-                  e.y,
-                  goal.x,
-                  goal.y,
-                  this.minibossVariant,
-                )
-              : campaignBossPattern(
-                  this.run.chapter,
-                  this.run.bossVariants[this.run.chapter],
-                  e.phase,
-                  e.pattern++,
-                  e.x,
-                  e.y,
-                  goal.x,
-                  goal.y,
-                  goal.vx,
-                  goal.vy,
-                );
+          const beat = e.pattern++;
+          e.pendingBoss = this.leaderPattern(e, beat, goal);
+          e.pendingEcho = this.echoZones(e, beat, goal);
           this.bossAttack = e.pendingBoss.name;
         }
       }
@@ -3851,16 +3990,21 @@ export class Battle {
           e.y -= ((this.y - e.y) / houseDist) * 32;
         }
       }
-      const partner = this.ally;
-      if (partner && !partner.down && partner.invincible <= 0) {
+      for (const partner of this.allies) {
+        if (partner.down || partner.away || partner.invincible > 0) continue;
         const partnerDist =
           goal === partner
             ? dist
             : Math.hypot(partner.x - e.x, partner.y - e.y) || 1;
         if (partnerDist < e.r + COOP.hitRadius + 4) {
           e.attack = 0.18;
-          this.hurtAlly(this.contactHit(e, this.mateStats.armor), 0.7, 0.4);
-          if (this.mateStats.thorns) this.damage(e, this.mateStats.thorns);
+          this.hurtAlly(
+            this.contactHit(e, partner.stats.armor),
+            0.7,
+            0.4,
+            partner,
+          );
+          if (partner.stats.thorns) this.damage(e, partner.stats.thorns);
           if (!leader) {
             e.x -= ((partner.x - e.x) / partnerDist) * 32;
             e.y -= ((partner.y - e.y) / partnerDist) * 32;
@@ -3885,26 +4029,31 @@ export class Battle {
         if (taken)
           this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
       }
-      const partner = this.ally;
-      if (
-        partner &&
-        !partner.down &&
-        partner.invincible <= 0 &&
-        hazardContains(hazard, partner.x, partner.y)
-      ) {
+      for (const partner of this.allies) {
+        if (
+          partner.down ||
+          partner.away ||
+          partner.invincible > 0 ||
+          !hazardContains(hazard, partner.x, partner.y)
+        )
+          continue;
         const taken = this.hurtAlly(
           Math.max(
             2,
-            this.threat(hazard.damage * LEADER_STRIKE) - this.mateStats.armor,
+            this.threat(hazard.damage * LEADER_STRIKE) - partner.stats.armor,
           ),
           0.7,
           0.38,
+          partner,
         );
         if (taken)
           this.run.coins = Math.max(0, this.run.coins - (hazard.drain ?? 0));
       }
     }
-    this.hazards = this.hazards.filter((h) => h.age < h.duration).slice(-40);
+    // The echoes of a leader's attack under every player ask for more room.
+    this.hazards = this.hazards
+      .filter((h) => h.age < h.duration)
+      .slice(-(40 + 15 * this.allies.length));
     const magnets = this.enemies.filter(
       (e) => e.hp > 0 && e.affix === 'magnetic',
     );
@@ -3943,20 +4092,22 @@ export class Battle {
           );
           b.life = 0;
         }
-        const partner = this.ally;
-        if (
-          b.life > 0 &&
-          partner &&
-          !partner.down &&
-          partner.invincible <= 0 &&
-          Math.hypot(b.x - partner.x, b.y - partner.y) < COOP.hitRadius + 7
-        ) {
-          this.hurtAlly(
-            Math.max(2, this.threat(b.damage) - this.mateStats.armor),
-            0.45,
-            0.3,
-          );
-          b.life = 0;
+        for (const partner of this.allies) {
+          if (
+            b.life > 0 &&
+            !partner.down &&
+            !partner.away &&
+            partner.invincible <= 0 &&
+            Math.hypot(b.x - partner.x, b.y - partner.y) < COOP.hitRadius + 7
+          ) {
+            this.hurtAlly(
+              Math.max(2, this.threat(b.damage) - partner.stats.armor),
+              0.45,
+              0.3,
+              partner,
+            );
+            b.life = 0;
+          }
         }
       } else {
         for (const e of this.enemies) {
@@ -3973,7 +4124,7 @@ export class Battle {
           this.perkHit(e, b);
           this.passOn(b, e);
           if (b.blast) this.rocketBlast(b, e, this.enemies.slice(0, standing));
-          const st = b.mate ? this.mateStats : this.stats;
+          const st = this.statsOfSeat(b.mate ?? 0);
           const around =
             st.explosion || st.chain ? this.enemies.slice(0, standing) : [];
           if (st.explosion) {
@@ -4027,14 +4178,18 @@ export class Battle {
     }
     for (const d of this.drops) {
       d.t = (d.t ?? 0) + dt;
-      // Whoever is closer collects: the house, or the partner on their feet.
-      const partner = this.ally && !this.ally.down ? this.ally : null;
-      const toHouse = Math.hypot(d.x - this.x, d.y - this.y),
-        toPartner = partner
-          ? Math.hypot(d.x - partner.x, d.y - partner.y)
-          : Infinity;
-      const taker = toPartner < toHouse ? partner! : this;
-      const dist = Math.min(toHouse, toPartner);
+      // Whoever is closer collects: the house, or a partner on their feet.
+      let partner: Ally | null = null,
+        dist = Math.hypot(d.x - this.x, d.y - this.y);
+      for (const a of this.allies) {
+        if (!standing(a)) continue;
+        const to = Math.hypot(d.x - a.x, d.y - a.y);
+        if (to < dist) {
+          partner = a;
+          dist = to;
+        }
+      }
+      const taker: { x: number; y: number } = partner ?? this;
       // Crystals fly home from anywhere; coins and kits need the magnet.
       const homing = d.kind === 'xp' && d.t > XP_HOMING;
       if (homing || dist < this.stats.magnet) {
@@ -4067,7 +4222,7 @@ export class Battle {
                 '#8acdb6',
               );
           } else {
-            this.healAlly(d.value);
+            this.healAlly(d.value, partner);
             this.audio.play('heal');
           }
         }
@@ -4182,7 +4337,8 @@ export class Battle {
     return {
       drafting: this.choosing,
       hostDraft: this.drafting,
-      mateDraft: this.mateDrafting,
+      mateDraft: this.allies[0]?.draft ?? null,
+      ...(this.allies.length ? { drafts: this.allies.map((a) => a.draft) } : {}),
       hp: this.run.hp,
       max: this.stats.health,
       coins: this.run.coins,
@@ -4207,19 +4363,64 @@ export class Battle {
             squad: this.encounter.name,
           }
         : {}),
-      ...(this.ally
+      ...(this.allies.length
         ? {
-            ally: {
-              hp: this.ally.hp,
-              max: this.ally.max,
-              down: this.ally.down,
-              revive: this.ally.revive,
-              dash: this.ally.dashCd,
-              pulse: this.ally.pulseCd,
-            },
+            ally: allyHud(this.allies[0]),
+            allies: this.allies.map((a) => ({
+              ...allyHud(a),
+              seat: a.seat,
+              hero: a.hero,
+              away: !!a.away,
+            })),
           }
         : {}),
     };
+  }
+  // The pattern a leader winds up against a target, by the beat of its round.
+  leaderPattern(
+    e: Enemy,
+    beat: number,
+    goal: { x: number; y: number; vx: number; vy: number },
+  ): BossPattern {
+    return e.type === MINIBOSS_TYPE
+      ? minibossPattern(
+          this.run.chapter,
+          e.phase,
+          beat,
+          e.x,
+          e.y,
+          goal.x,
+          goal.y,
+          this.minibossVariant,
+        )
+      : campaignBossPattern(
+          this.run.chapter,
+          this.run.bossVariants[this.run.chapter],
+          e.phase,
+          beat,
+          e.x,
+          e.y,
+          goal.x,
+          goal.y,
+          goal.vx,
+          goal.vy,
+        );
+  }
+  // One leader serves a whole party: the zones of its attack open under every
+  // other player on their feet too (what it aims at them, and only the zones:
+  // the shots and the summons are made once), so everybody has to dodge.
+  echoZones(
+    e: Enemy,
+    beat: number,
+    goal: { x: number; y: number; vx: number; vy: number },
+  ): Hazard[] {
+    const zones: Hazard[] = [];
+    for (const body of this.bodies()) {
+      if (body === goal) continue;
+      for (const h of this.leaderPattern(e, beat, body).hazards)
+        zones.push({ ...h, damage: h.damage * COOP.echoDamage });
+    }
+    return zones;
   }
   // Purely visual state in simulation time; also runs during the outro.
   updateFx(dt: number) {

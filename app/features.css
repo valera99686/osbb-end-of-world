@@ -883,6 +883,9 @@
 .ally-bar.down > div b {
   color: #8acdb6;
 }
+.ally-bar.away {
+  opacity: 0.55;
+}
 .battle-controls.coop {
   justify-content: flex-start;
   gap: 10px;
@@ -1818,4 +1821,149 @@ html[data-cvd='tritan'] {
 }
 .demo-shop-section .demo-shop-grid {
   margin: 14px 0 0;
+}
+.room-guests {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.room-guests li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 7px 10px;
+  border: 1px solid #3a5148;
+  border-radius: 8px;
+  background: #121f1b;
+}
+.room-guests li.away {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.room-guests small {
+  color: #9db3a9;
+}
+.online-back {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.online-back .primary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+.rejoin-note {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 50;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.council-pacts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+.council-pact {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 13px 14px;
+  border: 1px solid #3a5148;
+  border-radius: 10px;
+  background: #121f1b;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.council-pact:hover:not(:disabled) {
+  border-color: #6fae98;
+}
+.council-pact.mine {
+  border-color: #8acdb6;
+  box-shadow: 0 0 0 1px #8acdb6 inset;
+}
+.council-pact.chosen {
+  border-color: #efbd68;
+  box-shadow: 0 0 0 1px #efbd68 inset;
+}
+.council-pact:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.council-pact b {
+  font-size: 15px;
+}
+.council-pact span {
+  color: #b4c7bf;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.council-pact .gain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #8acdb6;
+}
+.council-pact .cost {
+  color: #ef9a86;
+}
+.council-pact.stay {
+  border-style: dashed;
+}
+.pact-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin: 0 0 8px;
+  padding: 5px 10px;
+  border: 1px solid #5a7a6c;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #b4c7bf;
+}
+.pact-chip b {
+  color: #efbd68;
+}
+.chat-voices {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: #b4c7bf;
+}
+.chat-voices li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chat-voices li.speaking {
+  color: #8acdb6;
+  font-weight: 700;
+}
+.chat-voices button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #3a5148;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
 }

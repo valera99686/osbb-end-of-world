@@ -23,11 +23,13 @@ import {
   ROOM_LENGTH,
   type ShareMode,
 } from '@/lib/game/net';
+import { MAX_PLAYERS } from '@/lib/game/coop';
 import { savedRelay, saveRelay } from './relay';
 import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
 import type { Meta } from '@/lib/game/model';
 import { GuestAside, GuestPages, useGuestHouse } from './guest-home';
+import { matesOf } from './vote';
 
 const RouteTree = lazy(() =>
   import('./route-tree').then((m) => ({ default: m.RouteTree })),
@@ -143,9 +145,21 @@ export function OnlinePanel({
   onHost,
   onJoin,
   onClose,
+  savedRoom,
+  onRejoin,
+  savedHost,
+  onResume,
+  onForget,
 }: {
   session: NetSession | null;
   build: string;
+  // A room this device was thrown out of (as a guest), and the room of the raid
+  // this device hosted before the page closed: ways back into the same game.
+  savedRoom?: { code: string } | null;
+  onRejoin?: () => void;
+  savedHost?: { code: string } | null;
+  onResume?: () => void;
+  onForget?: () => void;
   mode: ShareMode;
   // A raid of this player is unfinished: a room is for a new one.
   hasRun: boolean;
@@ -159,6 +173,11 @@ export function OnlinePanel({
     [joining, setJoining] = useState(false),
     [copied, setCopied] = useState(false);
   const code = normalizeCode(typed);
+  // Seats still free (before a raid): a friend more may come.
+  const free =
+    session?.role === 'host' && !session.crewLocked
+      ? MAX_PLAYERS - 1 - session.guests.length
+      : 0;
   function submit(e: SyntheticEvent) {
     e.preventDefault();
     if (code) onJoin(code);
@@ -184,6 +203,31 @@ export function OnlinePanel({
           </button>
         </div>
       )}
+      {!session && (savedRoom || savedHost) && (
+        <div className="online-back" role="group" aria-label="Повернутися в гру">
+          {savedHost && (
+            <button type="button" className="primary" onClick={onResume}>
+              <LogIn size={18} />
+              <span>
+                <b>Продовжити рейд у кімнаті {savedHost.code}</b>
+                <small>Друзі повернуться на свої місця</small>
+              </span>
+            </button>
+          )}
+          {savedRoom && !savedHost && (
+            <button type="button" className="primary" onClick={onRejoin}>
+              <LogIn size={18} />
+              <span>
+                <b>Повернутися в кімнату {savedRoom.code}</b>
+                <small>Твоє місце й будинок чекають</small>
+              </span>
+            </button>
+          )}
+          <button type="button" className="text-button" onClick={onForget}>
+            Забути цю кімнату
+          </button>
+        </div>
+      )}
       {!session && (
         <>
           <div className="online-actions">
@@ -191,7 +235,7 @@ export function OnlinePanel({
               <Users size={18} />
               <span>
                 <b>Створити кімнату</b>
-                <small>Отримаєш код для друга</small>
+                <small>Отримаєш код для друзів (до трьох)</small>
               </span>
             </button>
             <button
@@ -246,7 +290,7 @@ export function OnlinePanel({
                   [
                     'sync',
                     'Обидва рахують',
-                    'Найточніше й найлегше для мережі. Слабкий пристрій гальмує обох.',
+                    'Найточніше й найлегше для мережі. Слабкий пристрій гальмує всіх.',
                   ],
                   [
                     'host',
@@ -272,39 +316,62 @@ export function OnlinePanel({
           </details>
         </>
       )}
-      {session?.role === 'host' && session.phase === 'waiting' && (
-        <>
-          {session.code ? (
-            <div className="room-code">
-              <b aria-label={`Код кімнати ${session.code.split('').join(' ')}`}>
-                {session.code}
-              </b>
-              <button
-                type="button"
-                className="secondary small"
-                onClick={() => copy(session.code)}
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}{' '}
-                {copied ? 'Скопійовано' : 'Скопіювати'}
-              </button>
-            </div>
-          ) : (
-            !session.error && <p>Відкриваємо кімнату…</p>
-          )}
-          {session.code && (
-            <p>
-              Скажи цей код другові: він вводить його в «Приєднатися». Чекаємо.
-            </p>
-          )}
-        </>
-      )}
+      {session?.role === 'host' &&
+        (session.phase === 'waiting' || session.phase === 'connected') && (
+          <>
+            {session.code ? (
+              (session.phase === 'waiting' || free > 0) && (
+                <div className="room-code">
+                  <b
+                    aria-label={`Код кімнати ${session.code.split('').join(' ')}`}
+                  >
+                    {session.code}
+                  </b>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={() => copy(session.code)}
+                  >
+                    {copied ? <Check size={14} /> : <Copy size={14} />}{' '}
+                    {copied ? 'Скопійовано' : 'Скопіювати'}
+                  </button>
+                </div>
+              )
+            ) : (
+              !session.error && <p>Відкриваємо кімнату…</p>
+            )}
+            {session.code && session.phase === 'waiting' && (
+              <p>
+                Скажи цей код друзям (до трьох): кожен вводить його в
+                «Приєднатися». Чекаємо.
+              </p>
+            )}
+          </>
+        )}
       {session?.role === 'host' && session.phase === 'connected' && (
-        <p>
-          <b>Напарник підключений: {heroName(session.partner?.hero ?? '')}.</b>{' '}
-          Тисни «Вирушити в рейд»: друг буде поруч у кожному бою.
-          {session.via === 'relay' &&
-            ' З’єднання йде через резервний канал: затримка більша, а бій рахуєш лише ти.'}
-        </p>
+        <>
+          <ul className="room-guests" aria-label="Гравці в кімнаті">
+            {session.guests.map((g) => (
+              <li key={g.seat} className={g.link ? '' : 'away'}>
+                <b>{g.partner.name || heroName(g.partner.hero)}</b>
+                <small>
+                  {heroName(g.partner.hero)}
+                  {g.link ? '' : ' · відійшов, місце за ним'}
+                </small>
+              </li>
+            ))}
+          </ul>
+          <p>
+            <b>
+              Підключено: {session.here().length} із {MAX_PLAYERS - 1}.
+            </b>{' '}
+            Тисни «Вирушити в рейд»: усі будуть поруч у кожному бою.
+            {free > 0 &&
+              ` Можна запросити ще ${free}: скажи їм код ${session.code}.`}
+            {session.via === 'relay' &&
+              ' З’єднання когось іде через резервний канал: затримка більша, а бій рахуєш лише ти.'}
+          </p>
+        </>
       )}
       {session?.role === 'guest' && session.phase === 'joining' && (
         <p>{session.status || 'З’єднуємо з кімнатою…'}</p>
@@ -345,10 +412,13 @@ export function GuestRoom({
   const single = !!ballot && ballot.options.length < 2;
   // The host's run, to read the page from, and the guest's own house in it.
   const view = readView(session.view);
-  const house = useGuestHouse(view);
+  const house = useGuestHouse(view, session.seat);
   const page =
     view &&
-    (view.page === 'reward' || view.page === 'shop' || view.page === 'event');
+    (view.page === 'reward' ||
+      view.page === 'shop' ||
+      view.page === 'event' ||
+      view.page === 'council');
   const card = (
     <div className={`guest-card${view ? ' wide' : ''}`}>
       <span className="micro">
@@ -359,7 +429,7 @@ export function GuestRoom({
           ? 'Господар веде рейд'
           : single
             ? 'Карта рейду'
-            : 'Куди йти — вирішуєте вдвох'}
+            : 'Куди йти — вирішуєте разом'}
       </h2>
       <p className="guest-status">
         {session.status || 'Чекаємо, поки господар дійде до бою.'}
@@ -371,9 +441,8 @@ export function GuestRoom({
             run={map}
             onEnter={() => {}}
             vote={{
-              mine: ballot.guest,
-              partner: ballot.host,
-              partnerName: 'Господар',
+              mine: ballot.votes[session.seat] ?? null,
+              mates: matesOf(ballot, session.seat, (s) => session.nameOf(s)),
               done: ballot.done,
               onVote: (col) => session.voteGuest(col),
               locked: single
@@ -404,10 +473,11 @@ export function GuestRoom({
         </div>
       )}
       <p>
-        Коли господар почне бій, він відкриється тут сам. Ти ведеш другий
-        будинок: рух, ривок і вміння твого героя. Нагороди, магазин і мешканці
-        діляться на два будинки, каса спільна; карту веде господар, а куди йти,
-        вирішуєте вдвох.
+        Коли господар почне бій, він відкриється тут сам. Ти ведеш свій будинок:
+        рух, ривок і вміння твого героя. Нагороди, магазин і мешканці діляться
+        між будинками гравців, каса спільна; карту веде господар, а куди йти,
+        вирішуєте разом. Якщо вилетів або вийшов випадково, зайди знову: місце
+        за тобою до кінця рейду.
       </p>
       <button type="button" className="secondary" onClick={onLeave}>
         <LogOut size={16} /> Вийти з кімнати
@@ -416,12 +486,18 @@ export function GuestRoom({
   );
   if (!view || !house.mine)
     return (
-      <section className={`guest-room ${voting ? 'voting' : ''}`}>
+      <section
+        className={`guest-room ${voting ? 'voting' : ''}`}
+        data-seat={session.seat}
+      >
         {card}
       </section>
     );
   return (
-    <section className={`guest-room play ${voting ? 'voting' : ''}`}>
+    <section
+      className={`guest-room play ${voting ? 'voting' : ''}`}
+      data-seat={session.seat}
+    >
       <div className="play-layout">
         <section className="play-main">
           <div className="page-heading">

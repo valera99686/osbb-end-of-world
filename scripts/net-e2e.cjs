@@ -274,14 +274,14 @@ async function chestTest(host, guest) {
   }
   // Furniture in the guest's row: the guest takes it, the host puts it in the
   // guest's house.
-  await host.eval(`window.__osbbRun({ mateLoot: [{ kind: 'furniture', id: 'firedoor' }], picked: {} }); 0`);
+  await host.eval(`window.__osbbRun({ mateLoots: [[{ kind: 'furniture', id: 'firedoor' }]], picked: {} }); 0`);
   await until('furniture in the guest row', () =>
     guest.eval(`!!document.querySelector('.guest-room button.furniture-reward:not([disabled])')`),
   15000);
-  const before = await host.eval(`JSON.parse(localStorage.getItem('osbb.save.v1')).run.mate.furniture.length`);
+  const before = await host.eval(`JSON.parse(localStorage.getItem('osbb.save.v1')).run.mates[0].furniture.length`);
   await guest.eval(`[...document.querySelectorAll('.guest-room button.furniture-reward:not([disabled])')].pop().click(); 0`);
   const took = await until('the host gives it to the guest house', async () => {
-    const r = await host.eval(`(()=>{const run=JSON.parse(localStorage.getItem('osbb.save.v1')).run; return run && run.mate ? run.mate.furniture.map(f=>f.id) : null})()`);
+    const r = await host.eval(`(()=>{const run=JSON.parse(localStorage.getItem('osbb.save.v1')).run; return run && run.mates ? run.mates[0].furniture.map(f=>f.id) : null})()`);
     return r && r.length > before ? r : null;
   }, 15000).catch(() => null);
   console.log('guest house furniture after the take:', took);
@@ -487,7 +487,7 @@ async function chatTest(host, guest) {
   }
   // The online mode is a tab of the hub's "Хто грає?" block.
   for (const page of [host, guest])
-    await until('online tab', () => page.eval(click('Вдвох по мережі', 'button.play-mode')));
+    await until('online tab', () => page.eval(click('По мережі', 'button.play-mode')));
   if (MODE === 'host') {
     await host.eval(`document.querySelector('.online-more')?.setAttribute('open', '')`);
     await host.eval(click('Хост рахує', '.share-option'));
@@ -503,7 +503,7 @@ async function chatTest(host, guest) {
   await sleep(300);
   await guest.eval(click('^Зайти$'));
   await until('host sees the guest', () =>
-    host.eval(`/Напарник підключений/.test(document.body.innerText)`),
+    host.eval(`/Підключено: 1 із/.test(document.body.innerText)`),
   );
   await until('guest room screen', () => guest.eval(`!!document.querySelector('.guest-room')`));
   console.log('connected');
@@ -598,7 +598,7 @@ async function chatTest(host, guest) {
       // Each player picks a perk for their own house, at their own pace (the
       // guest a second later); both ends must go on together.
       const state = (page) =>
-        page.eval(`(()=>{const b=window.__battle; return b ? {step: b.sync?.step ?? -1, draft: !!b.choosing, stalled: (b.sync||b.client||b.feed||{}).stalled ?? 0, perks: (b.run.perks||[]).join(), mate: (b.run.mate?.perks||[]).join()} : null})()`);
+        page.eval(`(()=>{const b=window.__battle; return b ? {step: b.sync?.step ?? -1, draft: !!b.choosing, stalled: (b.sync||b.client||b.feed||{}).stalled ?? 0, perks: (b.run.perks||[]).join(), mate: (b.run.mates?.[0]?.perks||[]).join()} : null})()`);
       const pick = (page) =>
         page.eval(`(()=>{const c=document.querySelector('.perk-card'); if(!c) return ''; const who=document.querySelector('.perk-for')?.innerText ?? ''; c.click(); return who + ' | ' + c.innerText.replace(/\\s+/g, ' ').slice(0, 40)})()`);
       const hostPick = await pick(host);

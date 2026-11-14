@@ -31,8 +31,9 @@ export const QUICK = [
 export interface ChatLine {
   // A number that only grows, for the list keys and for «what is new».
   id: number;
-  // Whose line it is.
+  // Whose line it is, and the seat it came from (0 is the host).
   mine: boolean;
+  seat?: number;
   text: string;
   // The number of the quick phrase it was sent as, if it was one.
   quick?: number;

@@ -169,3 +169,12 @@ flowchart LR
 **Сцену чи репліку.** Рядок у `story.ts` (`L('галина', 'текст')`); потім `npm test`, `node scripts/voice/export-lines.cjs scripts/voice/lines.json` і `generate.py` (див. README озвучки). Тест сам скаже, якщо репліка без запису.
 
 **Малюнок.** PNG-джерело в `docs/art-source/`, `webp` у `public/art/`, промпт у `docs/art-prompts/`. Ліміту на розмір APK немає; розмір видно у виводі `npm run build:android`.
+
+
+## Партія з кількох будинків (0.41.0)
+
+- **Місця замість «господар і напарник».** `Run.mates[]` (до трьох будинків), `mateLoots[][]`, `picked`/`boughtBy` за місцем. Усі допоміжні функції будинку (`mateRun`, `withMateHouse`, `giveMate`, `settleReward`, `recruitAll`, `mateRows`…) приймають місце (за замовчуванням 1, тож виклики для двох не змінились). Старі збереження читаються: `mate` → `mates[0]`.
+- **Бій.** `Battle.allies: Ally[]`, `Ally` має `seat`, `stats`, `perks`, `draft`, `away`, `pin`; геттери `ally`, `mateStats`, `mateDrafting` дають першого партнера для двох і для тестів. Усе, що було «другий будинок», тепер ходить циклом по `allies` у порядку місць, тому для двох поведінка бітово та сама (прогін ботів дає ті самі числа).
+- **Мережа.** `NetSession` тримає `guests[]` (місце, токен, зв'язок); зв'язок `null` означає відсутнього, чиє місце збережене. `Lockstep` знає тип кожного місця (`own`, `peer`, `proxy`, `away`) і ретранслює кадри. `FightMux` розводить повідомлення гравців, що рахують разом із господарем, і тих, хто лише дивиться (`FeedGroup`).
+- **Збори й правила.** `modes.ts` (`PACTS`, `pactOf`, `heatEffects(heat, модифікатор, правило)`); `model.ts` (`councilOffers`, `openCouncil`, `choosePact`, `statsFor` застосовує числа будинку правила); `app/council.tsx` — екран для одного й для партії.
+- **Файли.** `app/rooms.ts` — що пам'ятає пристрій, щоб повернутись; `app/vote.ts` — що кожному показує голосування; `app/voice-chat.ts` — голос із мікшером господаря.

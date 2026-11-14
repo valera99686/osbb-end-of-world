@@ -17,7 +17,7 @@ import {
   heatSummary,
   type RunMode,
 } from '@/lib/game/modes';
-import type { Meta, Run } from '@/lib/game/model';
+import { partySize, type Meta, type Run } from '@/lib/game/model';
 
 export type Launch = {
   mode: RunMode;
@@ -220,9 +220,17 @@ export function RunBadge({ run }: { run: Run }) {
   return (
     <span className="run-badge">
       {run.coop && (
-        <span className="coop" title="Двоє гравців на одному пристрої">
-          <Users size={13} /> Вдвох ·{' '}
-          {CHARACTERS.find((c) => c.id === run.coop)?.name}
+        <span
+          className="coop"
+          title={
+            partySize(run) > 2
+              ? `${partySize(run)} гравці в одному рейді`
+              : 'Двоє гравців у рейді'
+          }
+        >
+          <Users size={13} />{' '}
+          {['', '', 'Вдвох', 'Втрьох', 'Вчотирьох'][partySize(run)] ?? 'Вдвох'}{' '}
+          · {CHARACTERS.find((c) => c.id === run.coop)?.name}
         </span>
       )}
       {run.mode === 'daily' && (

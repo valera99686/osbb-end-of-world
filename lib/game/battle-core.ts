@@ -3,13 +3,13 @@
 // and the HUD, the tuning constants of a fight and small drawing helpers. It
 // holds no fight of its own: nothing here changes while a battle runs.
 import type { AffixId, BattleEventId } from './modes';
-import type { BossPattern } from './bosses';
+import type { BossPattern, Hazard } from './bosses';
 import { ENEMY_DEFS, type EnemyBehavior } from './encounters';
-import type { HostFeed, MirrorClient } from './mirror';
+import type { FeedLike, MirrorClient } from './mirror';
 import type { Lockstep } from './net';
 import { MINIBOSS_TYPE } from './minibosses';
 import type { PerkId } from './upgrades';
-import type { Run, Settings } from './model';
+import type { Run, Settings, Stats } from './model';
 
 export const isLeader = (type: number) => type === 99 || type === MINIBOSS_TYPE;
 // Event courier: not in ENEMY_DEFS, never attacks, drawn by the engine.
@@ -173,6 +173,9 @@ export interface Enemy {
   targetY?: number;
   chargeLeft?: number;
   pendingBoss?: BossPattern;
+  // The zones the same attack opens under the other players (see
+  // Battle.echoZones): they fall with it.
+  pendingEcho?: Hazard[];
   // Knockback velocity, decays over ~0.3 s (see Battle.knock).
   knockX?: number;
   knockY?: number;
@@ -243,8 +246,9 @@ export interface Bullet {
   bounce?: number;
   homing?: boolean;
   hitSet?: Enemy[];
-  // Fired by the second house: its modules (explosion, chain) count.
-  mate?: true;
+  // Fired by a partner's house (its seat, 1..3): its modules (explosion,
+  // chain) and its perks count.
+  mate?: number;
   shard?: boolean;
   // Weapon-core projectile look and on-hit extras.
   kind?: 'pellet' | 'rail' | 'coin' | 'flame' | 'rocket';
@@ -348,20 +352,39 @@ export interface Hud {
   drafting?: boolean;
   hostDraft?: PerkId[] | null;
   mateDraft?: PerkId[] | null;
-  // Co-op only: the second player's health, revive progress and cooldowns.
-  ally?: {
-    hp: number;
-    max: number;
-    down: boolean;
-    revive: number;
-    dash: number;
-    pulse: number;
-  };
+  // The offers of every partner house by seat - 1 (null once taken).
+  drafts?: (PerkId[] | null)[];
+  // Co-op only: the first partner's health, revive progress and cooldowns.
+  ally?: AllyHud;
+  // All partners', in seat order (the first is `ally`).
+  allies?: (AllyHud & { seat: number; hero: string; away: boolean })[];
+}
+export interface AllyHud {
+  hp: number;
+  max: number;
+  down: boolean;
+  revive: number;
+  dash: number;
+  pulse: number;
 }
 // The second player of a co-op fight (coop.ts): a neighbour on foot who has the
 // house's build, but their own body, dash and ability.
 export interface Ally {
+  // The seat of its house in the party: 1..3 (the host's house is seat 0).
+  seat: number;
+  // How its player is called, shown over the house when there are several.
+  name?: string;
   hero: string;
+  // Its house's stats and perk levels, and the offers of its perk draft that
+  // are still on the table (null when none).
+  stats: Stats;
+  perks: Record<string, number>;
+  draft: PerkId[] | null;
+  // The player is not here (their device is gone): the house stands still, is
+  // not a target, shoots nothing and takes its perks by itself.
+  away?: boolean;
+  // Input from a remote feed (the guest's stick, -1..1), when it has one.
+  pin?: { x: number; y: number };
   x: number;
   y: number;
   // Smoothed velocity, px/s, for enemies that aim ahead and for the walk cycle.
@@ -438,18 +461,25 @@ export interface BattleOptions {
     offers: PerkId[],
     level: number,
     mateOffers: PerkId[] | null,
+    drafts?: (PerkId[] | null)[],
   ) => void;
   autoPerks?: boolean;
+  // The seat this device plays (0 is the host's house); a lockstep brings its
+  // own.
+  seat?: number;
+  // Seats whose players are not here as the fight begins (their houses stand
+  // still, and the fight is made for those who are).
+  away?: number[];
   // The boss's line under its name on the intro card (story.ts bossQuote).
   introQuote?: string;
   // Online co-op (net.ts): both devices run this fight in lockstep and the
   // simulation takes its inputs from there instead of the keys and sticks.
   sync?: Lockstep;
   // A perk was taken (0 the first house, 1 the second): that draft is over.
-  onPerkTaken?: (who: 0 | 1) => void;
+  onPerkTaken?: (who: number) => void;
   // Online, the other way (mirror.ts): the host streams its fight to a guest
   // who drives the partner, or the guest only draws what the host streams.
-  feed?: HostFeed;
+  feed?: FeedLike;
   client?: MirrorClient;
 }
 // Off-screen culling test for one frame; `margin` is how far the drawing

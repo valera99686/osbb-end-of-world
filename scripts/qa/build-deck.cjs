@@ -51,7 +51,7 @@ function base(title, kicker) {
     x: W - 1.0, y: H - 0.5, w: 0.5, h: 0.3,
     fontFace: FONT, fontSize: 10, color: C.muted, align: 'right', margin: 0,
   });
-  s.addText('ОСББ кінця світу · 0.40.1', {
+  s.addText('ОСББ кінця світу · 0.41.0', {
     x: 0.6, y: H - 0.5, w: 5, h: 0.3, fontFace: FONT, fontSize: 10, color: C.muted, margin: 0,
   });
   return s;
@@ -117,7 +117,7 @@ function stat(s, x, y, w, big, small, color = C.amber) {
   s.addText('Сам, вдвох на одному екрані або по мережі · веб і Android', {
     x: 0.7, y: 5.0, w: 4.9, h: 0.7, fontFace: FONT, fontSize: 14, color: C.muted, margin: 0, valign: 'top',
   });
-  s.addText('Версія 0.40.1 · valera99686.github.io/osbb-end-of-world', {
+  s.addText('Версія 0.41.0 · valera99686.github.io/osbb-end-of-world', {
     x: 0.7, y: 6.5, w: 5, h: 0.3, fontFace: FONT, fontSize: 11, color: C.teal, margin: 0,
   });
   s.addNotes(

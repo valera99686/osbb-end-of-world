@@ -9,8 +9,8 @@
 // the changed fields of every enemy (a delta against what the guest already
 // has), the bullets, drops, hazards and explosive props, the HUD numbers, and
 // a list of effects (sparks, rings, labels, sounds) that happened meanwhile.
-import type { Battle, Enemy, Hud } from './engine';
-import type { Link, Msg } from './net';
+import type { Ally, Battle, Enemy, Hud } from './engine';
+import type { FightLink, Lockstep, Msg, Wire } from './net';
 import type { Hazard } from './bosses';
 
 export const SNAP_HZ = 15;
@@ -33,8 +33,9 @@ export interface Snap {
   // House: x, y, vx, vy, facing x, facing y, dashing, invincible, muzzle,
   // muzzle angle, pulse ring, haste, audit.
   h: number[];
-  // Partner (same order as Ally in engine.ts), or null alone.
-  a: (number | string | boolean)[] | null;
+  // The partners, one row each (seat first, then the same order as Ally in
+  // engine.ts, then whether they are away); none alone.
+  a: (number | string | boolean)[][];
   // Run numbers the canvas reads: hp, coins, kills, level, xp.
   r: number[];
   // Enemies: uid -> fields changed since the last snapshot; gone uids.
@@ -70,9 +71,22 @@ function plain(e: Enemy): Fields {
   return out;
 }
 
-// The host's end of the mirror: builds the snapshots and takes the guest's
-// inputs. It is attached to a Battle that runs as usual.
-export class HostFeed {
+// What a Battle needs of the host's end of a mirror, whether it feeds one guest
+// (HostFeed) or several (FeedGroup).
+export interface FeedLike {
+  closed?: boolean;
+  battle: Battle | null;
+  attach(b: Battle): void;
+  pump(b: Battle, real: number): void;
+  finish(b: Battle, result: unknown): void;
+}
+// The feeds that are attached to a fight: its effects (sparks, rings, sounds)
+// are wrapped once, and each one is told to every feed.
+const feedsOf = new WeakMap<Battle, HostFeed[]>();
+
+// The host's end of the mirror for one guest: builds the snapshots and takes
+// the guest's inputs. It is attached to a Battle that runs as usual.
+export class HostFeed implements FeedLike, FightLink {
   closed = false;
   private n = 0;
   private acc = 0;
@@ -84,11 +98,24 @@ export class HostFeed {
   onOver?: () => void;
   constructor(
     readonly sid: number,
-    readonly link: Link,
+    readonly link: Wire,
+    // The seat of the guest this feed is for.
+    readonly seat = 1,
   ) {}
-  // Wraps the effect helpers of the fight so each one is also recorded.
+  // Wraps the effect helpers of the fight so each one is also recorded (for
+  // every guest the fight is fed to).
   attach(b: Battle) {
     b.hostRemote = true;
+    const taken = feedsOf.get(b);
+    if (taken) {
+      if (!taken.includes(this)) taken.push(this);
+      return;
+    }
+    const all = [this];
+    feedsOf.set(b, all);
+    const note = (item: unknown[]) => {
+      for (const f of all) if (f.fx.length < 240) f.fx.push(item);
+    };
     const tap = <
       K extends 'burst' | 'ring' | 'label' | 'debris' | 'banner' | 'addTrauma',
     >(
@@ -99,7 +126,7 @@ export class HostFeed {
       (b as unknown as Record<string, unknown>)[name] = (
         ...args: unknown[]
       ) => {
-        if (this.fx.length < 240) this.fx.push([code, ...args]);
+        note([code, ...args]);
         return original(...args);
       };
     };
@@ -111,9 +138,11 @@ export class HostFeed {
     tap('addTrauma', 't');
     const damage = b.damageNumber.bind(b);
     b.damageNumber = (e: Enemy, amount: number, crit: boolean) => {
-      const k = this.known.get(e);
-      if (k && this.fx.length < 240)
-        this.fx.push(['h', k.uid, r2(amount), crit]);
+      // The enemies are known to each feed by its own number.
+      for (const f of all) {
+        const k = f.known.get(e);
+        if (k && f.fx.length < 240) f.fx.push(['h', k.uid, r2(amount), crit]);
+      }
       return damage(e, amount, crit);
     };
     // The sounds too, through a stand-in: the shared audio engine stays as it is.
@@ -122,7 +151,7 @@ export class HostFeed {
       get: (target, prop) => {
         if (prop === 'play')
           return (kind: string, opts?: unknown) => {
-            if (this.fx.length < 240) this.fx.push(['s', kind, opts ?? null]);
+            note(['s', kind, opts ?? null]);
             return target.play(kind as never, opts as never);
           };
         const value = Reflect.get(target, prop, target);
@@ -133,17 +162,20 @@ export class HostFeed {
   // Called every frame: sends a snapshot at its own rate.
   pump(b: Battle, real: number) {
     this.acc += real;
-    const relay = this.link.kind === 'relay';
+    const relay = (this.link.kindOf?.(this.seat) ?? this.link.kind) === 'relay';
     if (this.acc < 1 / (relay ? RELAY_SNAP_HZ : SNAP_HZ) || !this.link.open)
       return;
     this.acc = 0;
     const key = relay && ++this.sinceKey >= RELAY_KEY_EVERY;
     if (key) this.sinceKey = 0;
-    this.link.send({
-      t: 'snap',
-      sid: this.sid,
-      s: this.snapshot(b, false, key),
-    });
+    this.link.send(
+      {
+        t: 'snap',
+        sid: this.sid,
+        s: this.snapshot(b, false, key),
+      },
+      [this.seat],
+    );
   }
   snapshot(b: Battle, end = false, key = false): Snap {
     // A snapshot that holds everything: each enemy as if it were new.
@@ -174,7 +206,6 @@ export class HostFeed {
         gone.push(k.uid);
         this.known.delete(e);
       }
-    const a = b.ally;
     const snap: Snap = {
       n: ++this.n,
       el: r2(b.elapsed),
@@ -194,28 +225,28 @@ export class HostFeed {
         b.hasteTime,
         b.auditTime,
       ].map(r2),
-      a: a
-        ? [
-            a.hero,
-            r2(a.x),
-            r2(a.y),
-            r2(a.vx),
-            r2(a.vy),
-            r2(a.hp),
-            r2(a.max),
-            a.down,
-            r2(a.downTime),
-            r2(a.revive),
-            r2(a.dashing),
-            r2(a.invincible),
-            r2(a.hasteTime),
-            r2(a.facing.x),
-            r2(a.facing.y),
-            r2(a.muzzle),
-            r2(a.aim),
-            r2(a.walk),
-          ]
-        : null,
+      a: b.allies.map((a) => [
+        a.seat,
+        a.hero,
+        r2(a.x),
+        r2(a.y),
+        r2(a.vx),
+        r2(a.vy),
+        r2(a.hp),
+        r2(a.max),
+        a.down,
+        r2(a.downTime),
+        r2(a.revive),
+        r2(a.dashing),
+        r2(a.invincible),
+        r2(a.hasteTime),
+        r2(a.facing.x),
+        r2(a.facing.y),
+        r2(a.muzzle),
+        r2(a.aim),
+        r2(a.walk),
+        !!a.away,
+      ]),
       r: [b.run.hp, b.run.coins, b.run.kills, b.run.level, b.run.xp].map(r2),
       en,
       gone,
@@ -255,12 +286,23 @@ export class HostFeed {
     if (m.t === 'pin') {
       const b = this.battle;
       if (!b) return;
-      b.stick2 = { x: m.x / 100, y: m.y / 100 };
-      if (m.f & 1) b.allyDash();
-      if (m.f & 2) b.allyPulse();
-    } else if (m.t === 'perk' && m.who === 1) {
-      // The guest took a perk for its own house: the host's fight takes it.
-      this.battle?.chooseMatePerk(m.id as never);
+      const v = { x: m.x / 100, y: m.y / 100 };
+      const a = b.allyOf(this.seat) ?? null;
+      // A fight the others simulate in lockstep makes this seat's frames from
+      // the stick; one the host simulates alone steers the house directly.
+      if (b.sync) b.sync.pin(this.seat, m.x, m.y, m.f);
+      else {
+        if (a) a.pin = v;
+        if (this.seat === 1) b.stick2 = v;
+        if (m.f & 1) b.allyDash(a);
+        if (m.f & 2) b.allyPulse(a);
+      }
+    } else if (m.t === 'perk') {
+      // The guest took a perk for its own house: the host's fight takes it (and,
+      // in a lockstep fight, tells the others).
+      const b = this.battle;
+      if (b?.sync) b.sync.receive({ ...m, who: this.seat }, this.seat);
+      else b?.chooseMatePerk(m.id as never, this.seat);
     } else if (m.t === 'over') this.onOver?.();
   }
   battle: Battle | null = null;
@@ -270,11 +312,139 @@ export class HostFeed {
   }
   // The fight is over: the guest gets the result (and a last snapshot).
   finish(b: Battle, result: unknown) {
-    this.link.send({ t: 'snap', sid: this.sid, s: this.snapshot(b, true) });
-    this.link.send({ t: 'end', sid: this.sid, result });
+    this.link.send({ t: 'snap', sid: this.sid, s: this.snapshot(b, true) }, [
+      this.seat,
+    ]);
+    this.link.send({ t: 'end', sid: this.sid, result }, [this.seat]);
   }
   leave() {
-    this.link.send({ t: 'over', sid: this.sid });
+    this.link.send({ t: 'over', sid: this.sid }, [this.seat]);
+  }
+}
+
+// The host's end of a mirror for several guests: one feed each, and the fight
+// goes on while any of them is still there.
+export class FeedGroup implements FeedLike, FightLink {
+  closed = false;
+  battle: Battle | null = null;
+  readonly feeds = new Map<number, HostFeed>();
+  onClosed?: () => void;
+  onOver?: () => void;
+  constructor(
+    readonly sid: number,
+    // The way to the guests, and the seats of those the fight is fed to.
+    readonly link: Wire,
+    seats: readonly number[],
+  ) {
+    for (const seat of seats) this.feeds.set(seat, new HostFeed(sid, link, seat));
+  }
+  attach(b: Battle) {
+    this.battle = b;
+    for (const f of this.feeds.values()) {
+      f.battle = b;
+      f.attach(b);
+    }
+  }
+  pump(b: Battle, real: number) {
+    for (const f of this.feeds.values()) f.pump(b, real);
+  }
+  receive(m: Msg, from?: number) {
+    if (m.t === 'over') {
+      // A guest left its fight: the others play on.
+      if (from !== undefined) this.seatLost(from);
+      else this.onOver?.();
+      return;
+    }
+    if (from !== undefined) this.feeds.get(from)?.receive(m);
+  }
+  // A guest comes into the fight that is on (or comes back to it): it is fed
+  // from the very next snapshot, a whole one.
+  add(seat: number) {
+    if (this.feeds.has(seat)) return;
+    const feed = new HostFeed(this.sid, this.link, seat);
+    this.feeds.set(seat, feed);
+    const b = this.battle;
+    if (!b) return;
+    feed.battle = b;
+    feed.attach(b);
+    b.setAway(seat, false);
+  }
+  // One guest's device is gone: its house is nobody's, the rest go on (the host
+  // alone, if it must).
+  seatLost(seat: number) {
+    if (!this.feeds.delete(seat)) return;
+    this.battle?.setAway(seat, true);
+  }
+  handleClose() {
+    this.closed = true;
+    this.onClosed?.();
+  }
+  finish(b: Battle, result: unknown) {
+    for (const f of this.feeds.values()) f.finish(b, result);
+  }
+  leave() {
+    for (const f of this.feeds.values()) f.leave();
+  }
+}
+
+// What the host's session hears of one fight: the guests that simulate it with
+// the host (a lockstep) and the ones that only watch it (a mirror feed) are
+// told apart by their seats, and a seat may pass from one to the other.
+export class FightMux implements FightLink {
+  closed = false;
+  // When a seat's fight was started over, so that the old end's farewell is
+  // not taken for it leaving.
+  private restarted = new Map<number, number>();
+  // A farewell is not believed at once: a screen that is built again says one
+  // before it speaks anew. It counts if nothing more comes from the seat.
+  private leaving = new Map<number, ReturnType<typeof setTimeout>>();
+  constructor(
+    readonly sid: number,
+    readonly lock: Lockstep | null,
+    readonly feeds: FeedGroup,
+    // How long a farewell waits for a word from the same seat (ms).
+    readonly grace = 1500,
+  ) {}
+  // A seat has been given the fight again (as a mirror).
+  restart(seat: number) {
+    this.restarted.set(seat, Date.now());
+  }
+  receive(m: Msg, from?: number) {
+    if (from !== undefined && m.t !== 'over') {
+      const wait = this.leaving.get(from);
+      if (wait !== undefined) {
+        clearTimeout(wait);
+        this.leaving.delete(from);
+      }
+    }
+    if (from !== undefined && m.t === 'over') {
+      const at = this.restarted.get(from);
+      if (at !== undefined && Date.now() - at < 4000) return;
+      // A guest left its fight: its house stands there, the others play on.
+      if (!this.leaving.has(from))
+        this.leaving.set(
+          from,
+          setTimeout(() => {
+            this.leaving.delete(from);
+            this.seatLost(from);
+          }, this.grace),
+        );
+      return;
+    }
+    if (from !== undefined && this.feeds.feeds.has(from))
+      this.feeds.receive(m, from);
+    else this.lock?.receive(m, from);
+  }
+  seatLost(seat: number) {
+    this.feeds.seatLost(seat);
+    this.lock?.seatLost(seat);
+  }
+  handleClose() {
+    this.closed = true;
+    for (const wait of this.leaving.values()) clearTimeout(wait);
+    this.leaving.clear();
+    this.lock?.handleClose();
+    this.feeds.handleClose();
   }
 }
 
@@ -307,7 +477,8 @@ export class MirrorClient {
   private enemies = new Map<number, Enemy>();
   private goal = new Map<number, { x: number; y: number }>();
   private house = { x: 0, y: 0 };
-  private mate = { x: 0, y: 0 };
+  // Where each partner is as of the last snapshot, by seat.
+  private mates = new Map<number, { x: number; y: number }>();
   private fresh = true;
   private lastAt = performance.now();
   private lastPin = '';
@@ -321,7 +492,7 @@ export class MirrorClient {
   }
   constructor(
     readonly sid: number,
-    readonly link: Link,
+    readonly link: Wire,
     readonly aim: () => { x: number; y: number },
   ) {}
   press(kind: 'dash' | 'pulse') {
@@ -331,7 +502,7 @@ export class MirrorClient {
   // The guest takes a perk for its own house; only the host's fight changes.
   choose(id: string) {
     if (this.link.open)
-      this.link.send({ t: 'perk', sid: this.sid, id, who: 1 });
+      this.link.send({ t: 'perk', sid: this.sid, id });
   }
   // How many messages of each kind have arrived (for tracing a lost one).
   seen: Record<string, number> = {};
@@ -385,9 +556,11 @@ export class MirrorClient {
     }
     b.x += (this.house.x - b.x) * ease;
     b.y += (this.house.y - b.y) * ease;
-    if (b.ally) {
-      b.ally.x += (this.mate.x - b.ally.x) * ease;
-      b.ally.y += (this.mate.y - b.ally.y) * ease;
+    for (const a of b.allies) {
+      const to = this.mates.get(a.seat);
+      if (!to) continue;
+      a.x += (to.x - a.x) * ease;
+      a.y += (to.y - a.y) * ease;
     }
     for (const bullet of b.bullets) {
       bullet.x += bullet.vx * real;
@@ -430,30 +603,15 @@ export class MirrorClient {
     b.pulseRing = ring;
     b.hasteTime = haste;
     b.auditTime = audit;
-    const a = s.a as unknown as
-      | [
-          string,
-          number,
-          number,
-          number,
-          number,
-          number,
-          number,
-          boolean,
-          number,
-          number,
-          number,
-          number,
-          number,
-          number,
-          number,
-          number,
-          number,
-          number,
-        ]
-      | null;
-    if (a) {
+    // The partners: each seat's house as the host has it, keeping what only this
+    // end knows of it (its stats and perks, drawn from the same run).
+    const seen = new Set<number>();
+    const hudOf = new Map((s.hud.allies ?? []).map((h) => [h.seat, h]));
+    const previous = new Map(b.allies.map((x) => [x.seat, x]));
+    const rows: Ally[] = [];
+    for (const row of s.a) {
       const [
+        seat,
         hero,
         ax,
         ay,
@@ -472,10 +630,40 @@ export class MirrorClient {
         mz,
         aim,
         walk,
-      ] = a;
-      this.mate = { x: ax, y: ay };
-      const old = b.ally;
-      b.ally = {
+        away,
+      ] = row as unknown as [
+        number,
+        string,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        boolean,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        boolean,
+      ];
+      seen.add(seat);
+      this.mates.set(seat, { x: ax, y: ay });
+      const old = previous.get(seat);
+      const hud = hudOf.get(seat) ?? (seat === 1 ? s.hud.ally : undefined);
+      rows.push({
+        seat,
+        name: old?.name,
+        stats: old?.stats ?? b.stats,
+        perks: old?.perks ?? {},
+        draft: old?.draft ?? null,
+        away,
         hero,
         x: this.fresh || !old ? ax : old.x,
         y: this.fresh || !old ? ay : old.y,
@@ -486,8 +674,8 @@ export class MirrorClient {
         down,
         downTime,
         revive,
-        dashCd: s.hud.ally?.dash ?? 0,
-        pulseCd: s.hud.ally?.pulse ?? 0,
+        dashCd: hud?.dash ?? 0,
+        pulseCd: hud?.pulse ?? 0,
         dashing: dashA,
         invincible: invA,
         hasteTime: hasteA,
@@ -496,9 +684,12 @@ export class MirrorClient {
         muzzle: mz,
         aim,
         walk,
-      };
-      b.allyFocus = down ? 0 : 1;
-    } else b.ally = null;
+      });
+    }
+    for (const seat of this.mates.keys())
+      if (!seen.has(seat)) this.mates.delete(seat);
+    b.allies = rows;
+    b.allyFocus = rows.some((r) => !r.down && !r.away) ? 1 : 0;
     this.fresh = false;
     [b.run.hp, b.run.coins, b.run.kills, b.run.level, b.run.xp] = s.r;
     // Enemies: apply the deltas, let the vanished ones fall.

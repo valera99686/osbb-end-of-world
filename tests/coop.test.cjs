@@ -89,15 +89,15 @@ test('Two keyboards never share a key, and alone the arrows still drive the hous
 test('Co-op fights have more and tougher enemies; the ladder of heat is untouched', () => {
   const heat = { enemyHealth: 1.2, spawnRate: 1.1, enemyDamage: 1.3, bossTime: 0.9 };
   const scaled = C.coopHeat(heat);
-  assert.ok(Math.abs(scaled.enemyHealth - 1.2 * C.COOP.enemyHealth) < 1e-9);
-  assert.ok(Math.abs(scaled.spawnRate - 1.1 * C.COOP.spawnRate) < 1e-9);
+  assert.ok(Math.abs(scaled.enemyHealth - 1.2 * C.PARTY[1].enemyHealth) < 1e-9);
+  assert.ok(Math.abs(scaled.spawnRate - 1.1 * C.PARTY[1].spawnRate) < 1e-9);
   assert.equal(scaled.enemyDamage, 1.3);
-  assert.ok(Math.abs(scaled.bossTime - 0.9 * C.COOP.bossTime) < 1e-9, 'two leaders swing a little less often');
+  assert.ok(Math.abs(scaled.bossTime - 0.9 * C.PARTY[1].bossTime) < 1e-9, 'a leader of a party swings as often as one of a lone player');
   const solo = fight('').b,
     duo = fight('flora').b;
   assert.equal(solo.ally, null);
   assert.ok(duo.ally);
-  assert.ok(Math.abs(duo.heat.enemyHealth / solo.heat.enemyHealth - C.COOP.enemyHealth) < 1e-9);
+  assert.ok(Math.abs(duo.heat.enemyHealth / solo.heat.enemyHealth - C.PARTY[1].enemyHealth) < 1e-9);
   assert.ok(duo.squadTotal > solo.squadTotal, 'more enemies are planned for two');
   assert.equal(duo.ally.max, C.allyHealth(duo.mateStats.health), 'the second house is as sturdy as its own build');
   assert.equal(duo.ally.hero, 'flora');
@@ -346,7 +346,7 @@ test('Pickups go to whoever is closer; kits heal the one who takes them', () => 
   b.drops.push({ x: 1190, y: 690, kind: 'coin', value: 7 });
   const coins = b.run.coins;
   step(b, 0.2);
-  assert.equal(b.run.coins, coins + Math.floor(7 * C.COOP.coins), 'the coin goes into the shared till, at the co-op coin share');
+  assert.equal(b.run.coins, coins + Math.floor(7 * C.PARTY[1].coins), 'the coin goes into the shared till, at the co-op coin share');
   assert.equal(b.run.hp, 50, 'the kit did not heal the distant house');
   assert.ok(b.ally.hp > 10, 'it healed the one who took it');
   // Crystals still level up the shared build.
@@ -494,8 +494,8 @@ test('With two guns the floor pays coins in full and crystals by a share, carrie
   assert.equal(solo.loot(7, 'coin'), 7);
   assert.equal(solo.loot(3, 'xp'), 3);
   const { b } = fight('mechanic');
-  assert.equal(C.COOP.xp, 0.5);
-  assert.equal(C.COOP.coins, 1);
+  assert.equal(C.PARTY[1].xp, 0.5);
+  assert.equal(C.PARTY[1].coins, 1);
   let paid = 0;
   for (let i = 0; i < 100; i++) paid += b.loot(1, 'coin');
   assert.equal(paid, 100, 'coins are worth the whole sum: the till is shared by two houses');
@@ -537,7 +537,7 @@ test('Online every hit leaves a moment more of safety; on one device it does not
   assert.equal(local.invincible, 0.7);
 });
 
-test('With a partner a leader fight has a leader for each of the two and ends with the last one', () => {
+test('A leader fight has one leader whatever the party: tougher by its size, and it ends with its fall', () => {
   for (const kind of ['boss', 'miniboss']) {
     const solo = fight('', { kind, chapter: 1 }).b;
     solo.spawnTimer = 999;
@@ -545,42 +545,48 @@ test('With a partner a leader fight has a leader for each of the two and ends wi
     const { b } = fight('flora', { kind, chapter: 1 });
     b.spawnTimer = 999;
     step(b, 0.1);
-    const leaders = b.enemies.filter((e) => e.max > 100 && (e.type === 99 || e.type === b.enemies[0].type));
-    assert.equal(leaders.length, C.COOP.leaders, `${kind}: ${leaders.length} leaders`);
-    assert.ok(Math.hypot(leaders[0].x - leaders[1].x, leaders[0].y - leaders[1].y) > 300, 'on opposite sides');
-    const hud = b.hud();
-    assert.equal(hud.bossMax, leaders[0].max + leaders[1].max, 'the bar adds them up');
-    // Alone the same fight has one.
-    const alone = solo.enemies.filter((e) => e.type === leaders[0].type);
-    assert.equal(alone.length, 1);
-    // The first one's fall is only a beat.
-    b.damage(leaders[0], 1e9);
-    assert.ok(!b.ended, 'the fight goes on with the other one standing');
-    assert.equal(b.enemies.filter((e) => e.hp > 0 && e.type === leaders[1].type).length, 1);
-    b.damage(leaders[1], 1e9);
-    assert.ok(b.ended, 'and ends with the last one');
+    const leaderOf = (fighters) => fighters.enemies.reduce((a, e) => (e.max > a.max ? e : a));
+    const leader = leaderOf(b),
+      lone = leaderOf(solo);
+    assert.equal(leader.type, lone.type, 'the same leader');
+    assert.equal(b.enemies.filter((e) => e.type === leader.type).length, 1, `${kind}: one leader`);
+    assert.equal(solo.enemies.filter((e) => e.type === lone.type).length, 1);
+    assert.ok(
+      Math.abs(leader.max / lone.max - C.PARTY[1].leaderHealth) < 0.01,
+      `${kind}: ${leader.max} / ${lone.max}`,
+    );
+    assert.equal(b.hud().bossMax, leader.max, 'the bar is the leader');
+    b.damage(leader, 1e9);
+    assert.ok(b.ended, 'it ends with the leader');
     assert.equal(b.endReason, 'leader');
   }
 });
 
-test('A fight with a partner brings as many more enemies as there are players, as tough as for one', () => {
-  assert.equal(C.COOP.players, 2);
-  assert.equal(C.COOP.spawnRate, C.COOP.players);
-  assert.equal(C.COOP.leaders, C.COOP.players);
-  assert.equal(C.COOP.enemyHealth, 1);
+test('A fight for a party brings as many more enemies as the table says: for two, what it has always been', () => {
+  assert.deepEqual(C.PARTY.map((p) => p.spawnRate), [1, 2, 2.5, 3]);
+  assert.equal(C.PARTY[1].enemyHealth, 1);
+  assert.equal(C.PARTY.length, C.MAX_PLAYERS);
   const solo = fight('').b,
     duo = fight('flora').b;
   assert.ok(duo.squadTotal >= solo.squadTotal * 1.6, `${duo.squadTotal} against ${solo.squadTotal}`);
   assert.equal(duo.heat.enemyHealth, solo.heat.enemyHealth);
+  assert.equal(duo.party, C.PARTY[1]);
+  assert.equal(solo.party, C.PARTY[0]);
 });
 
-test('Each of the two leaders is a little weaker than a lone one, and solo leaders are untouched', () => {
-  const lone = fight('', { kind: 'boss', chapter: 1 }).b,
-    pair = fight('flora', { kind: 'boss', chapter: 1 }).b;
-  lone.spawnTimer = pair.spawnTimer = 999;
-  step(lone, 0.1);
-  step(pair, 0.1);
-  const biggest = (b) => Math.max(...b.enemies.map((e) => e.max));
-  assert.ok(Math.abs(biggest(pair) / biggest(lone) - C.COOP.leaderHealth) < 0.01, `${biggest(pair)} / ${biggest(lone)}`);
-  assert.ok(C.COOP.leaderHealth < 1 && C.COOP.bossTime > 1);
+test('The table of a party is monotone: more players, more enemies, tougher leader, a thinner share of the floor', () => {
+  for (let n = 1; n < C.PARTY.length; n++) {
+    const a = C.PARTY[n - 1],
+      b = C.PARTY[n];
+    assert.ok(b.spawnRate > a.spawnRate && b.enemyHealth >= a.enemyHealth, `enemies at ${n + 1}`);
+    assert.ok(b.leaderHealth > a.leaderHealth && b.leaderTime > a.leaderTime, `the leader at ${n + 1}`);
+    assert.ok(b.xp < a.xp && b.money > a.money, `the share at ${n + 1}`);
+  }
+  // Whatever number asks for a party gets the nearest one.
+  assert.equal(C.party(0), C.PARTY[0]);
+  assert.equal(C.party(9), C.PARTY[3]);
+  assert.equal(C.party(NaN), C.PARTY[0]);
+  assert.equal(C.party(3), C.PARTY[2]);
+  // Shooting through the floor for a whole party of crystals costs a lone player's share.
+  for (const p of C.PARTY.slice(1)) assert.ok(p.xp * 3 >= 1 && p.xp <= 0.5);
 });

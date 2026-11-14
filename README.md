@@ -1,8 +1,66 @@
-# ОСББ кінця світу
+<h1 align="center">
+  <img src="docs/img/banner.jpg" alt="ОСББ кінця світу: панельний будинок на механічних ногах серед руїн" width="100%">
+</h1>
 
-[![CI](https://github.com/valera99686/osbb-end-of-world/actions/workflows/ci.yml/badge.svg)](https://github.com/valera99686/osbb-end-of-world/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://valera99686.github.io/osbb-end-of-world/"><img alt="Грати в браузері" src="https://img.shields.io/badge/%D0%B3%D1%80%D0%B0%D1%82%D0%B8-%D0%B2%20%D0%B1%D1%80%D0%B0%D1%83%D0%B7%D0%B5%D1%80%D1%96-6cbfac?style=for-the-badge"></a>
+  <a href="https://github.com/valera99686/osbb-end-of-world/releases/latest"><img alt="Android APK" src="https://img.shields.io/badge/Android-APK-e0a54a?style=for-the-badge&logo=android&logoColor=white"></a>
+</p>
 
-Український 2D roguelite у світі 2086 року: механічний будинок №17 на ногах, мешканці та їхні квартири, бойові модулі, автоматичний вогонь, ривки, розгалужені експедиції, сюжет із чотирма кінцівками й озвучкою. Грати можна самому, вдвох на одному екрані або вдвох по мережі з чатом і голосом.
+<p align="center">
+  <a href="https://github.com/valera99686/osbb-end-of-world/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/valera99686/osbb-end-of-world/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/valera99686/osbb-end-of-world/releases/latest"><img alt="Остання версія" src="https://img.shields.io/github/v/release/valera99686/osbb-end-of-world?color=e0a54a&label=%D0%B2%D0%B5%D1%80%D1%81%D1%96%D1%8F"></a>
+  <img alt="Тести" src="https://img.shields.io/badge/%D1%82%D0%B5%D1%81%D1%82%D0%B8-451%20%D0%B7%D0%B5%D0%BB%D0%B5%D0%BD%D1%96-3fa27a">
+  <img alt="Стек" src="https://img.shields.io/badge/React%2019%20%C2%B7%20TypeScript%20%C2%B7%20Canvas-20323b">
+  <img alt="Без реклами" src="https://img.shields.io/badge/%D1%80%D0%B5%D0%BA%D0%BB%D0%B0%D0%BC%D0%B8-%D0%BD%D0%B5%D0%BC%D0%B0%D1%94-20323b">
+</p>
+
+<p align="center">
+  <a href="#швидкий-старт">Швидкий старт</a> ·
+  <a href="docs/game-description.md">Опис гри</a> ·
+  <a href="docs/guide/osbb-putivnyk-gravtsya.pdf">Путівник</a> ·
+  <a href="docs/leaders.md">Боси</a> ·
+  <a href="docs/architecture.md">Архітектура</a> ·
+  <a href="CHANGELOG.md">Зміни</a>
+</p>
+
+Український 2D roguelite у світі 2086 року: механічний будинок №17 на ногах, мешканці та їхні квартири, бойові модулі, автоматичний вогонь, ривки, розгалужені експедиції, сюжет із чотирма кінцівками й озвучкою. Грати можна самому, вдвох на одному екрані або **до чотирьох по мережі** з чатом і голосом. Працює в браузері (і без мережі після першого відкриття) та як Android-застосунок. Немає реклами, облікових записів і телеметрії.
+
+## Чим вона цікава
+
+- **Будинок як зброя.** Ти не цілишся: будинок стріляє сам, а ти обираєш місце, ривком виходиш із позначених зон і ставиш у квартири сусідів, які дають бонуси. Правильний сусід вмикає еволюцію зброї.
+- **Кожен бос і мінібос із власним прийомом.** Броня спереду, антени, що захищають, кокони, що лікують, потоп і клапан, яйця, креслення підлоги, дроти, зупинка часу... 18 різних механік, у босів ще фаза «Лють» ([докладно](docs/leaders.md)).
+- **До чотирьох гравців.** Кожен у своєму будинку й зі своїми перками, один бос на всіх; вилетів — зайдеш у ту саму гру. Збори ОСББ між локаціями, спільні події з ролями, голос.
+- **Велика кампанія.** 3 локації, дев'ять героїв, 55 предметів, 28 перків, сюжет «Справа 04:17» із чотирма кінцівками й 650 озвученими репліками.
+- **Чесно виміряно.** Баланс, тривалість гри й кооператив перевіряють боти справжнім кодом гри ([фінмодель](docs/finmodel.md), [прогони](docs/balance/)).
+
+## Скриншоти
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/guide/img/01-hub.jpg" alt="Притулок"><br><sub>Притулок: хто грає, мета, вихід у рейд</sub></td>
+    <td width="50%"><img src="docs/guide/img/05-combat.jpg" alt="Бій"><br><sub>Бій: будинок стріляє сам, ти обираєш місце</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/guide/img/12-house-plan.jpg" alt="План будинку"><br><sub>План будинку: квартири, мешканці, обладнання, меблі</sub></td>
+    <td><img src="docs/guide/img/06-perk-draft.jpg" alt="Вибір перка"><br><sub>На кожному рівні сусіди пропонують по перку</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/guide/img/13-duo-combat.jpg" alt="Двоє на одному екрані"><br><sub>Вдвох на одному екрані</sub></td>
+    <td><img src="docs/guide/img/14-online-room.jpg" alt="Кімната по мережі"><br><sub>Кімната по мережі: код із п'яти символів</sub></td>
+  </tr>
+</table>
+
+### Боси зі своїми прийомами
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/leaders/commandant.jpg" alt="Комендант брами"><br><sub><b>Комендант:</b> броня спереду, обходь із флангу</sub></td>
+    <td width="25%"><img src="docs/leaders/signalman.jpg" alt="Диспетчер патруля"><br><sub><b>Диспетчер:</b> антени дають захист і кличуть патруль</sub></td>
+    <td width="25%"><img src="docs/leaders/architect.jpg" alt="Архітектор знесення"><br><sub><b>Архітектор:</b> стань на цілу клітину креслення</sub></td>
+    <td width="25%"><img src="docs/leaders/chronarch.jpg" alt="Хранитель 04:17"><br><sub><b>Хранитель:</b> зупиняє час і шле відлуння</sub></td>
+  </tr>
+</table>
 
 ## Грати
 
@@ -122,13 +180,32 @@ APK збирається окремо (потрібні JDK 21 і Android SDK, �
 
 ## Перевірки
 
-- `npm test` (355 тестів), `npm run typecheck`, `npm run lint` (помилок немає; лишилося 36 попереджень про залежності ефектів React). CI на кожен push робить типи, тести й збірку.
+- `npm test` (451 тест, близько 10 с), `npm run typecheck`, `npm run lint` (помилок немає; лишилося 56 попереджень про залежності ефектів React). CI на кожен push робить типи, тести й збірку.
 - `scripts/balance-audit.cjs` і `scripts/coop-bench.cjs` — баланс бою й кооперативу.
 - `scripts/net-e2e.cjs` — два справжніх Chrome через публічний брокер: бій, голосування, події, чат, голос, резервний канал.
 - `scripts/qa/screens.cjs` — знімки екрана з живої гри для путівника; `scripts/qa/build-deck.cjs` — слайди.
 - **Чесно:** APK з дозволом мікрофона, голос через справжній мікрофон і колірні фільтри на справжніх пристроях не перевірено; живих плейтестів було кілька.
 
 ## Архітектура
+
+```mermaid
+flowchart LR
+  UI["app/ — React-інтерфейс і Canvas"] --> Core["lib/game/ — правила, бій, мережа (без DOM)"]
+  Core --> Tests["tests/ — 451 тест у Node"]
+  Core -. "той самий код" .-> Bots["scripts/ — боти: баланс і тривалість гри"]
+  UI --> Web["Веб і PWA (GitHub Pages)"]
+  UI --> APK["Android APK (WebView)"]
+```
+
+Гра по мережі: **зірка**. Гості говорять лише з господарем, він пересилає решті; бій ділиться двома способами (усі рахують один бій у lockstep або господар рахує, а гості бачать «дзеркало»).
+
+```mermaid
+flowchart LR
+  H(("Господар")) --- G1(("Гість 1"))
+  H --- G2(("Гість 2"))
+  H --- G3(("Гість 3"))
+```
+
 
 Повний опис шарів, збереження, озвучки, мережі й рецептів «як додати ворога, перк, досягнення» — у [docs/architecture.md](docs/architecture.md). Коротко:
 

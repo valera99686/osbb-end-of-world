@@ -236,6 +236,63 @@ async function run(view, port) {
     await sleep(1500);
     await shot(p, view, 'miniboss');
   });
+  // 0.42.0: a boss with a mechanic of its own: the line under the health bar must fit the
+  // phone, the page must not scroll sideways, and the controls stay free of it.
+  const leaderFight = async (kind, chapter, variant, waitS) => {
+    await p.eval(`window.__osbbRun({ page: 'map' }); 0`);
+    await sleep(700);
+    await p.eval(
+      `window.__osbbRun(${JSON.stringify({
+        page: 'combat',
+        kind,
+        chapter,
+        step: kind === 'boss' ? 9 : 5,
+        bossVariants: [0, 1, 2].map((c) => (c === chapter ? variant : 0)),
+        minibossVariants: { [`${chapter}:5:0`]: variant },
+      })}); 0`,
+    );
+    await p.until('the fight', `!!document.querySelector('canvas.battle-canvas')`, 20000);
+    await sleep(900);
+    await p.eval(`document.querySelector('canvas.battle-canvas')?.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); 0`);
+    // The levels left from the perk step: take the drafts till none comes, so the fight shows.
+    for (let quiet = 0, i = 0; quiet < 6 && i < 80; i++) {
+      const drafted = await p.eval(`(()=>{const c=document.querySelector('.perk-card'); c?.click(); return !!c})()`);
+      quiet = drafted ? 0 : quiet + 1;
+      await sleep(250);
+    }
+    await p.eval(`if (window.__battle) { window.__battle.invincible = 1e9; window.__battle.run.xp = 0; } 0`);
+    await sleep(waitS * 1000);
+  };
+  const layout = (p) =>
+    p.eval(`(()=>{
+      const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), r: Math.round(b.right), b: Math.round(b.bottom) }; };
+      return JSON.stringify({ cue: r('.boss-mech-cue'), bar: r('.boss-health'), vw: innerWidth, vh: innerHeight, sw: document.documentElement.scrollWidth, text: document.querySelector('.boss-mech-cue')?.innerText });
+    })()`);
+  for (const [name, kind, chapter, variant, waitS] of [
+    ['boss commandant', 'boss', 0, 0, 3],
+    ['boss architect', 'boss', 2, 0, 11],
+    ['miniboss magnet', 'miniboss', 0, 1, 8],
+  ]) {
+    await step(`${view} ${name}`, async () => {
+      await leaderFight(kind, chapter, variant, waitS);
+      const l = JSON.parse(await layout(p));
+      log('     ', name, JSON.stringify(l));
+      await shot(p, view, name.replace(' ', '-'));
+      if (!l.cue) throw new Error('no line with the mechanic under the bar');
+      if (l.cue.r > l.vw + 1 || l.cue.x < -1) throw new Error('the line is outside the screen');
+      if (l.sw > l.vw + 1) throw new Error('the page scrolls sideways');
+    });
+  }
+  // The council between locations on a phone.
+  await step(`${view} council`, async () => {
+    await p.eval(`window.__osbbRun({ page: 'council' }); 0`);
+    await p.until('the council', `document.querySelectorAll('.council-pact').length > 1`, 12000);
+    await sleep(600);
+    const o = JSON.parse(await p.eval(`JSON.stringify({ n: document.querySelectorAll('.council-pact').length, vw: innerWidth, sw: document.documentElement.scrollWidth })`));
+    log('      council', JSON.stringify(o));
+    await shot(p, view, 'council');
+    if (o.sw > o.vw + 1) throw new Error('the page scrolls sideways');
+  });
   log(view, 'errors', p.errors.slice(0, 3));
   closeAll();
 }

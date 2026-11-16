@@ -19,6 +19,8 @@ const RATES = process.argv.slice(2).map(Number).filter((n) => n >= 1);
 const SECONDS = Number(process.env.SECONDS) || 14;
 const DUO = !!process.env.DUO;
 const PLAYERS = Math.max(1, Math.min(4, Number(process.env.PLAYERS) || 1));
+// LEADER=chapter:variant plays that boss instead of the first fight of the map.
+const LEADER = process.env.LEADER || '';
 const log = (...a) => console.log(...a);
 
 // Frame intervals of the page, from requestAnimationFrame.
@@ -56,6 +58,19 @@ async function fight(port, rate) {
     const M = require(path.join(T, 'model.js'));
     const save = JSON.parse(prof.value);
     const run = M.withCrew(M.makeRun(save.meta, 'mechanic', 0, 7), ['flora', 'spark', 'nina'].slice(0, PLAYERS - 1));
+    value = M.saveData(save.meta, run);
+  } else if (LEADER) {
+    // A boss of that location and variant (0.42.0: each with a mechanic of its own),
+    // saved as the fight to continue: the map then offers «Продовжити» on it.
+    const path = require('node:path');
+    const T = path.resolve(__dirname, '../../.test-build');
+    const M = require(path.join(T, 'model.js'));
+    const save = JSON.parse(prof.value);
+    const [chapter, variant] = LEADER.split(':').map(Number);
+    const run = M.makeRun(save.meta, 'mechanic', chapter, 7);
+    const step = run.nodes.findIndex((row) => row.includes('boss'));
+    run.bossVariants[chapter] = variant;
+    Object.assign(run, { step, page: 'combat', kind: 'boss', path: Array.from({ length: step + 1 }, () => 0) });
     value = M.saveData(save.meta, run);
   }
   await p.eval(`localStorage.setItem(${JSON.stringify(prof.key)}, ${JSON.stringify(value)}); 0`);
@@ -174,9 +189,10 @@ async function fight(port, rate) {
   };
   const frames = await p.eval('window.__frames');
   const scene = await p.eval(`({enemies: document.querySelector('.battle-hud') ? 1 : 0, canvas: (()=>{const c=document.querySelector('canvas.battle-canvas'); return c ? [c.width, c.height, Math.round(c.getBoundingClientRect().width), Math.round(c.getBoundingClientRect().height)] : null})()})`);
+  const leader = await p.eval(`document.querySelector('.boss-health > span')?.innerText || ''`);
   await p.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   closeAll();
-  return { rate, ...stats(frames), canvas: scene.canvas, main, errors: p.errors.length };
+  return { rate, ...stats(frames), canvas: scene.canvas, leader, main, errors: p.errors.length };
 }
 
 (async () => {

@@ -1,19 +1,7 @@
 import { apartmentSlot } from '@/lib/game/equipment';
 import { ITEM_BY_ID } from '@/lib/game/data';
-import {
-  Wrench,
-  Hammer,
-  Heart,
-  Footprints,
-  Wifi,
-  ScanEye,
-  Coffee,
-  Sprout,
-  BriefcaseMedical,
-  Radio,
-  Bike,
-  X,
-} from 'lucide-react';
+import { X } from 'lucide-react';
+import { Glyph } from './glyph';
 import {
   FURNITURE_BY_ID,
   furnitureEffect,
@@ -27,19 +15,6 @@ import {
   type Meta,
 } from '@/lib/game/model';
 
-const ICONS = {
-  hammer: Hammer,
-  heart: Heart,
-  footprints: Footprints,
-  wifi: Wifi,
-  scan: ScanEye,
-  wrench: Wrench,
-  coffee: Coffee,
-  sprout: Sprout,
-  medical: BriefcaseMedical,
-  radio: Radio,
-  bike: Bike,
-};
 export function FurnitureIcon({
   id,
   size = 20,
@@ -51,9 +26,7 @@ export function FurnitureIcon({
   x?: number;
   y?: number;
 }) {
-  const icon = FURNITURE_BY_ID[id].icon as keyof typeof ICONS;
-  const Icon = ICONS[icon];
-  return <Icon size={size} x={x} y={y} strokeWidth={1.7} aria-hidden="true" />;
+  return <Glyph name={FURNITURE_BY_ID[id].icon} size={size} x={x} y={y} />;
 }
 export function ApartmentFurniture({
   run,
@@ -72,7 +45,6 @@ export function ApartmentFurniture({
   onChange: (run: Run) => void;
   onMessage: (message: string) => void;
 }) {
-  const inventory = run.furniture.filter((item) => item.resident === null);
   const person = resident ? RESIDENT_BY_ID[resident] : null;
   const aboard = run.residents.some((room) => room.id === resident);
   function install(cell: number) {
@@ -93,8 +65,8 @@ export function ApartmentFurniture({
     <section className="apartment-furniture" aria-label="Меблі для квартир">
       <h3>Меблі для квартир</h3>
       <p>
-        Обери предмет, потім вільний слот у квартирі на плані або нижче. Меблі
-        рухаються й повертаються разом із кімнатою.
+        Меблі з лотка під планом став у вільний слот квартири на плані або
+        нижче. Меблі рухаються й повертаються разом із кімнатою.
       </p>
       {aboard && person && resident && (
         <div className="apartment-slots">
@@ -151,42 +123,6 @@ export function ApartmentFurniture({
           })}
         </div>
       )}
-      <div className="furniture-stock-title">
-        <b>У запасі · {inventory.length}</b>
-        {picked !== null && (
-          <button className="text-button" onClick={() => onPick(null)}>
-            Скасувати
-          </button>
-        )}
-      </div>
-      <div className="furniture-stock">
-        {inventory.map((item) => (
-          <button
-            key={item.uid}
-            data-drag="furniture"
-            data-drag-id={item.uid}
-            data-drag-label={FURNITURE_BY_ID[item.id].name}
-            className={picked === item.uid ? 'selected' : ''}
-            aria-pressed={picked === item.uid}
-            onClick={() => {
-              onPick(picked === item.uid ? null : item.uid);
-              onMessage(
-                'Натисни вільний слот усередині квартири. Клітинка з портретом зайнята мешканцем.',
-              );
-            }}
-          >
-            <FurnitureIcon id={item.id} />
-            <span>{FURNITURE_BY_ID[item.id].name}</span>
-          </button>
-        ))}
-      </div>
-      {!inventory.length && (
-        <p>
-          У запасі немає меблів. Шукай їх у скринях, магазинах, подіях і після
-          боїв.
-        </p>
-      )}
-
       <p>
         Меблі та добудови належать поточній експедиції. Предмети дають бонуси
         лише після встановлення у квартирі.

@@ -911,7 +911,6 @@ h3 {
   min-height: 280px;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #435a62 #102129;
   background:
@@ -1532,6 +1531,9 @@ button.item-card:hover:not(:disabled) {
   color: #9eb3be;
   margin: 16px 0 22px;
   flex: 1;
+}
+.item-card .item-minus {
+  color: #efa48a;
 }
 .item-footer {
   display: flex;

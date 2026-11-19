@@ -1,5 +1,5 @@
 import { ITEMS, ITEM_BY_ID, RESEARCH, UNLOCK_TEXT } from './data';
-import { FURNITURE_BY_ID } from './furniture';
+import { FURNITURE_BY_ID, furnitureText } from './furniture';
 import type { Meta, Run } from './model';
 
 // Lifetime counters on Meta that unlocks, blueprints and goals can follow.
@@ -261,6 +261,38 @@ export const BLUEPRINTS: {
     target: 2,
     requirement: 'Завершити 2 повні рейди перемогою',
   },
+  {
+    id: 'gyroscope',
+    kind: 'module',
+    cost: 7,
+    gate: 'totalMinibosses',
+    target: 2,
+    requirement: 'Перемогти 2 мінібосів',
+  },
+  {
+    id: 'drone_dock',
+    kind: 'module',
+    cost: 9,
+    gate: 'totalBosses',
+    target: 2,
+    requirement: 'Перемогти 2 босів локацій',
+  },
+  {
+    id: 'bee_swarm',
+    kind: 'module',
+    cost: 10,
+    gate: 'totalRescues',
+    target: 8,
+    requirement: 'Урятувати 8 мешканців за всі експедиції',
+  },
+  {
+    id: 'ghost_turret',
+    kind: 'module',
+    cost: 12,
+    gate: 'wins',
+    target: 2,
+    requirement: 'Завершити 2 повні рейди перемогою',
+  },
 ];
 export const BLUEPRINT_BY_ID = Object.fromEntries(
   BLUEPRINTS.map((b) => [b.id, b]),
@@ -279,7 +311,7 @@ export function blueprintInfo(id: string) {
   return {
     name: f.name,
     icon: f.icon,
-    description: `+${f.stat === 'rate' || f.stat === 'crit' ? Math.round(f.value * 100) + '%' : f.value} ${f.unit}. ${f.bonus}.`,
+    description: furnitureText(id) + '.',
   };
 }
 export function buyBlueprint(meta: Meta, id: string): Meta {

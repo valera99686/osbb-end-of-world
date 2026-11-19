@@ -43,9 +43,12 @@ import {
   type Run,
 } from '@/lib/game/model';
 import { ApartmentFurniture, FurnitureIcon } from './furniture';
+import { HouseTray } from './house-tray';
+import { scrollParent } from './scroll-parent';
 import {
   FURNITURE_BY_ID,
   furnitureEffect,
+  canFurnish,
   type Furnishing,
 } from '@/lib/game/furniture';
 
@@ -456,6 +459,80 @@ export function EquipmentPlacement({
   );
 }
 
+// A piece of furniture just taken: tap a free cell of a flat (not the
+// portrait, not a cell with a module) or keep it for later.
+export function FurniturePlacement({
+  run,
+  uid,
+  onPlace,
+}: {
+  run: Run;
+  uid: number;
+  onPlace: (resident: string, cell: number) => void;
+}) {
+  const size = houseSize(run.houseLevel);
+  const piece = run.furniture.find((f) => f.uid === uid);
+  if (!piece) return null;
+  const name = FURNITURE_BY_ID[piece.id].name;
+  return (
+    <div className="equipment-picker">
+      <p>
+        <b>{name}</b> → натисни вільне місце всередині квартири
+      </p>
+      <div
+        className="housing-canvas"
+        style={
+          {
+            aspectRatio: `${size.width} / ${size.height}`,
+            '--plan-ratio': size.width / size.height,
+          } as CSSProperties
+        }
+      >
+        <HousePlan
+          rooms={run.residents}
+          links={run.roomLinks}
+          level={run.houseLevel}
+          furniture={run.furniture}
+          items={run.items}
+        />
+        <div
+          className="housing-hit-grid equipment-target-grid"
+          style={{
+            gridTemplateColumns: `repeat(${size.width}, minmax(0,1fr))`,
+            gridTemplateRows: `repeat(${size.height}, minmax(0,1fr))`,
+          }}
+        >
+          {equipmentTargets(run).map((target) => (
+            <button
+              key={target.slot}
+              type="button"
+              disabled={
+                !!run.items[target.slot] ||
+                !canFurnish(
+                  run.furniture,
+                  run.residents,
+                  uid,
+                  target.resident,
+                  target.cell,
+                )
+              }
+              style={{ gridColumn: target.x + 1, gridRow: target.y + 1 }}
+              className="equipment-free-target"
+              aria-label={`Поставити ${name}: квартира ${RESIDENT_BY_ID[target.resident].name}, місце ${target.cell}. ${furnitureEffect(piece.id, target.resident).label}`}
+              title={`${RESIDENT_BY_ID[target.resident].name}: ${furnitureEffect(piece.id, target.resident).label}`}
+              onClick={() => onPlace(target.resident, target.cell)}
+            />
+          ))}
+        </div>
+      </div>
+      <p className="housing-hint">
+        Улюблені меблі мешканця дають подвійний плюс. Клітинки з модулями
+        зайняті: модуль спершу треба зняти у вікні квартир.
+      </p>
+    </div>
+  );
+}
+
 type Lift = 'module' | 'furniture' | 'slot' | 'resident';
 type Cell = [number, number];
 
@@ -539,15 +616,6 @@ export function Residents({
       const cell = el?.dataset.cell?.split(':').map(Number);
       return cell ? [cell[0], cell[1]] : null;
     };
-    // The box that scrolls (the window of the flats, or the page).
-    const scroller = (el: HTMLElement) => {
-      for (let p = el.parentElement; p; p = p.parentElement) {
-        const o = getComputedStyle(p).overflowY;
-        if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight)
-          return p;
-      }
-      return document.scrollingElement as HTMLElement;
-    };
     const follow = () => {
       const d = itemDrag.current!;
       const cell = cellAt(d.x, d.y);
@@ -566,7 +634,7 @@ export function Residents({
         h = window.innerHeight;
       const v = d.y < edge ? d.y - edge : d.y > h - edge ? d.y - (h - edge) : 0;
       if (!v) return;
-      const box = scroller(d.el);
+      const box = scrollParent(d.el);
       const before = box.scrollTop;
       box.scrollTop += Math.round(v / 4);
       if (box.scrollTop !== before) follow();
@@ -924,168 +992,196 @@ export function Residents({
       </div>
       <div className="housing-layout">
         <div className="housing-workspace">
-          <div className="house-blueprint">
-            <div className="plan-heading">
-              <span>ПЛАН ЖИТЛОВОГО ПОВЕРХУ</span>
-              <span>
-                {size.width} × {size.height}
-              </span>
-            </div>
-            <div
-              className="housing-canvas"
-              style={
-                {
-                  aspectRatio: `${size.width} / ${size.height}`,
-                  '--plan-ratio': size.width / size.height,
-                } as CSSProperties
-              }
-            >
-              <HousePlan
-                rooms={run.residents}
-                links={run.roomLinks}
-                level={run.houseLevel}
-                furniture={run.furniture}
-                items={run.items}
-                selected={selected}
-                target={target}
-                targets={ghostRooms}
-                valid={valid}
-              />
+          <div className="house-stage">
+            <div className="house-blueprint">
+              <div className="plan-heading">
+                <span>ПЛАН ЖИТЛОВОГО ПОВЕРХУ</span>
+                <span>
+                  {size.width} × {size.height}
+                </span>
+              </div>
               <div
-                className={`housing-hit-grid ${placing ? 'is-placing' : ''}`}
-                ref={grid}
-                style={{
-                  gridTemplateColumns: `repeat(${size.width}, minmax(0,1fr))`,
-                  gridTemplateRows: `repeat(${size.height}, minmax(0,1fr))`,
-                }}
-                onPointerMove={(e) => {
-                  const d = drag.current;
-                  if (!d || d.pointerId !== e.pointerId) return;
-                  if (
-                    Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 5
-                  ) {
-                    d.moved = true;
-                    grid.current?.setPointerCapture(e.pointerId);
-                  }
-                  if (d.moved) {
-                    const p = position(e.clientX, e.clientY);
-                    setPlacing(true);
-                    setGhost({ x: p.x - d.dx, y: p.y - d.dy });
-                  }
-                }}
-                onPointerUp={(e) => {
-                  const d = drag.current;
-                  if (!d || d.pointerId !== e.pointerId) return;
-                  if (d.moved) {
-                    const p = position(e.clientX, e.clientY);
-                    place({
-                      id: d.id,
-                      x: p.x - d.dx,
-                      y: p.y - d.dy,
-                      rotation: d.rotation,
-                    });
-                    suppress.current = true;
-                  }
-                  drag.current = null;
-                }}
-                onPointerCancel={(e) => {
-                  if (drag.current?.pointerId !== e.pointerId) return;
-                  drag.current = null;
-                  cancelPlacement();
-                }}
-                onLostPointerCapture={(e) => {
-                  if (e.target !== e.currentTarget) return;
-                  if (drag.current?.pointerId === e.pointerId) {
+                className="housing-canvas"
+                style={
+                  {
+                    aspectRatio: `${size.width} / ${size.height}`,
+                    '--plan-ratio': size.width / size.height,
+                  } as CSSProperties
+                }
+              >
+                <HousePlan
+                  rooms={run.residents}
+                  links={run.roomLinks}
+                  level={run.houseLevel}
+                  furniture={run.furniture}
+                  items={run.items}
+                  selected={selected}
+                  target={target}
+                  targets={ghostRooms}
+                  valid={valid}
+                />
+                <div
+                  className={`housing-hit-grid ${placing ? 'is-placing' : ''}`}
+                  ref={grid}
+                  style={{
+                    gridTemplateColumns: `repeat(${size.width}, minmax(0,1fr))`,
+                    gridTemplateRows: `repeat(${size.height}, minmax(0,1fr))`,
+                  }}
+                  onPointerMove={(e) => {
+                    const d = drag.current;
+                    if (!d || d.pointerId !== e.pointerId) return;
+                    if (
+                      Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 5
+                    ) {
+                      d.moved = true;
+                      grid.current?.setPointerCapture(e.pointerId);
+                    }
+                    if (d.moved) {
+                      const p = position(e.clientX, e.clientY);
+                      setPlacing(true);
+                      setGhost({ x: p.x - d.dx, y: p.y - d.dy });
+                    }
+                  }}
+                  onPointerUp={(e) => {
+                    const d = drag.current;
+                    if (!d || d.pointerId !== e.pointerId) return;
+                    if (d.moved) {
+                      const p = position(e.clientX, e.clientY);
+                      place({
+                        id: d.id,
+                        x: p.x - d.dx,
+                        y: p.y - d.dy,
+                        rotation: d.rotation,
+                      });
+                      suppress.current = true;
+                    }
+                    drag.current = null;
+                  }}
+                  onPointerCancel={(e) => {
+                    if (drag.current?.pointerId !== e.pointerId) return;
                     drag.current = null;
                     cancelPlacement();
-                  }
-                }}
-              >
-                {Array.from({ length: size.width * size.height }, (_, i) => {
-                  const x = i % size.width,
-                    y = Math.floor(i / size.width),
-                    current = occupied.get(`${x}:${y}`);
-                  const currentCell = current
-                    ? residentCells(current.id, current.rotation).findIndex(
-                        ([cx, cy]) =>
-                          cx + current.x === x && cy + current.y === y,
-                      )
-                    : -1;
-                  const currentSlot = current
-                    ? apartmentSlot(current.id, currentCell)
-                    : -1;
-                  const moduleMode =
-                    pickedModule !== null || movingModule !== null;
-                  const gearTarget = moduleMode && canEquipAt(run, currentSlot);
-                  const fitted =
-                    currentCell > 0 ? run.items[currentSlot] : undefined;
-                  return (
-                    <button
-                      type="button"
-                      key={i}
-                      data-cell={`${x}:${y}`}
-                      {...(fitted
-                        ? {
-                            'data-drag': 'slot',
-                            'data-drag-id': currentSlot,
-                            'data-drag-label': ITEM_BY_ID[fitted].name,
-                          }
-                        : {})}
-                      className={[
-                        gearTarget
-                          ? run.items[currentSlot]
-                            ? 'equipment-swap-target'
-                            : 'equipment-free-target'
-                          : current
-                            ? 'has-room'
-                            : '',
-                        currentCell === 0 || fitted ? 'drag-handle' : '',
-                        dropCell === `${x}:${y}` ? 'drop-hover' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      aria-label={`Клітинка ${x + 1}, ${y + 1}: ${current ? 'квартира ' + RESIDENT_BY_ID[current.id].name : 'поза квартирою'}${run.items[currentSlot] ? '. ' + ITEM_BY_ID[run.items[currentSlot]!].name : currentCell > 0 ? '. Місце для обладнання' : current ? '. Портрет мешканця' : ''}${placing ? '. Обрати місце для кімнати' : ''}`}
-                      onPointerDown={(e) => {
-                        if (drag.current || e.button !== 0) return;
-                        suppress.current = false;
-                        if (
-                          !current ||
-                          placing ||
-                          pickedFurniture !== null ||
-                          moduleMode ||
-                          currentCell !== 0
+                  }}
+                  onLostPointerCapture={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (drag.current?.pointerId === e.pointerId) {
+                      drag.current = null;
+                      cancelPlacement();
+                    }
+                  }}
+                >
+                  {Array.from({ length: size.width * size.height }, (_, i) => {
+                    const x = i % size.width,
+                      y = Math.floor(i / size.width),
+                      current = occupied.get(`${x}:${y}`);
+                    const currentCell = current
+                      ? residentCells(current.id, current.rotation).findIndex(
+                          ([cx, cy]) =>
+                            cx + current.x === x && cy + current.y === y,
                         )
-                          return;
-                        choose(current.id);
-                        drag.current = {
-                          pointerId: e.pointerId,
-                          id: current.id,
-                          startX: e.clientX,
-                          startY: e.clientY,
-                          dx: x - current.x,
-                          dy: y - current.y,
-                          rotation: current.rotation,
-                          moved: false,
-                        };
-                      }}
-                      onClick={() => {
-                        if (suppress.current) {
+                      : -1;
+                    const currentSlot = current
+                      ? apartmentSlot(current.id, currentCell)
+                      : -1;
+                    const moduleMode =
+                      pickedModule !== null || movingModule !== null;
+                    const gearTarget =
+                      moduleMode && canEquipAt(run, currentSlot);
+                    const fitted =
+                      currentCell > 0 ? run.items[currentSlot] : undefined;
+                    return (
+                      <button
+                        type="button"
+                        key={i}
+                        data-cell={`${x}:${y}`}
+                        {...(fitted
+                          ? {
+                              'data-drag': 'slot',
+                              'data-drag-id': currentSlot,
+                              'data-drag-label': ITEM_BY_ID[fitted].name,
+                            }
+                          : {})}
+                        className={[
+                          gearTarget
+                            ? run.items[currentSlot]
+                              ? 'equipment-swap-target'
+                              : 'equipment-free-target'
+                            : current
+                              ? 'has-room'
+                              : '',
+                          currentCell === 0 || fitted ? 'drag-handle' : '',
+                          dropCell === `${x}:${y}` ? 'drop-hover' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-label={`Клітинка ${x + 1}, ${y + 1}: ${current ? 'квартира ' + RESIDENT_BY_ID[current.id].name : 'поза квартирою'}${run.items[currentSlot] ? '. ' + ITEM_BY_ID[run.items[currentSlot]!].name : currentCell > 0 ? '. Місце для обладнання' : current ? '. Портрет мешканця' : ''}${placing ? '. Обрати місце для кімнати' : ''}`}
+                        onPointerDown={(e) => {
+                          if (drag.current || e.button !== 0) return;
                           suppress.current = false;
-                          return;
-                        }
-                        applyAt(x, y);
-                      }}
-                    />
-                  );
-                })}
+                          if (
+                            !current ||
+                            placing ||
+                            pickedFurniture !== null ||
+                            moduleMode ||
+                            currentCell !== 0
+                          )
+                            return;
+                          choose(current.id);
+                          drag.current = {
+                            pointerId: e.pointerId,
+                            id: current.id,
+                            startX: e.clientX,
+                            startY: e.clientY,
+                            dx: x - current.x,
+                            dy: y - current.y,
+                            rotation: current.rotation,
+                            moved: false,
+                          };
+                        }}
+                        onClick={() => {
+                          if (suppress.current) {
+                            suppress.current = false;
+                            return;
+                          }
+                          applyAt(x, y);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="plan-legend">
+                <span>
+                  <i /> Заселена кімната
+                </span>
+                <span>Спільна стіна → бонус сусідства</span>
               </div>
             </div>
-            <div className="plan-legend">
-              <span>
-                <i /> Заселена кімната
-              </span>
-              <span>Спільна стіна → бонус сусідства</span>
-            </div>
+            <HouseTray
+              run={run}
+              people={[...groups.aboard, ...groups.reserve]}
+              selected={selected}
+              pickedModule={pickedModule}
+              pickedFurniture={pickedFurniture}
+              message={message}
+              onChoose={choose}
+              onPickModule={(uid) => {
+                stopDrag();
+                cancelPlacement();
+                setPickedFurniture(null);
+                setMovingModule(null);
+                setPickedModule(uid);
+                setMessage('');
+              }}
+              onPickFurniture={(uid) => {
+                stopDrag();
+                cancelPlacement();
+                setPickedModule(null);
+                setMovingModule(null);
+                setPickedFurniture(uid);
+                setMessage('');
+              }}
+            />
           </div>
           <section className="apartment-effects" aria-label="Вплив планування">
             <h3>{placing ? 'Після розміщення' : 'Як працює твій будинок'}</h3>
@@ -1235,47 +1331,6 @@ export function Residents({
           </output>
         </div>
         <div className="housing-sidebar">
-          <h3>Урятовані в цій експедиції · {run.rescued.length}</h3>
-          <p className="roster-explainer">
-            Бонуси діють у заселених квартирах. Урятовані без кімнати чекають на
-            перепланування або добудову.
-          </p>
-          <div className="resident-roster">
-            {[...groups.aboard, ...groups.reserve].map((resident) => (
-              <button
-                key={resident.id}
-                data-drag="resident"
-                data-drag-id={resident.id}
-                data-drag-label={resident.name}
-                className={`resident-card ${selected === resident.id ? 'active' : ''}`}
-                onClick={() => choose(resident.id)}
-                aria-pressed={selected === resident.id}
-              >
-                <Portrait id={resident.id} />
-                <span>
-                  <b>{resident.name}</b>
-                  <small>
-                    {resident.id === run.character
-                      ? 'Голова ОСББ · на борту'
-                      : resident.job +
-                        (run.residents.some((r) => r.id === resident.id)
-                          ? ' · заселено'
-                          : ' · потрібна квартира')}
-                  </small>
-                </span>
-                {run.residents.some((r) => r.id === resident.id) ? (
-                  <Check size={16} className="aboard-check" />
-                ) : (
-                  <ResidentShape id={resident.id} />
-                )}
-              </button>
-            ))}
-            {![...groups.aboard, ...groups.reserve].length && (
-              <p className="roster-empty">
-                Усі врятовані мешканці зараз у будинку.
-              </p>
-            )}
-          </div>
           {[...groups.aboard, ...groups.reserve].some(
             (r) => r.id === selected,
           ) && (

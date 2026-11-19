@@ -356,6 +356,20 @@ test('Pickups go to whoever is closer; kits heal the one who takes them', () => 
   assert.ok(b.run.xp > xp || b.run.level > 1);
 });
 
+test('Online every player has a field of view of their own: nobody is pulled back', () => {
+  const { b } = fight('mechanic');
+  // The host counts the fight for a guest on another device.
+  b.hostRemote = true;
+  b.x = 100;
+  b.y = 500;
+  b.ally.x = 1500;
+  b.ally.y = 500;
+  b.ally.pin = { x: 1, y: 0 };
+  step(b, 0.5);
+  assert.ok(b.ally.x - b.x > C.COOP.spreadX + 100, `${b.ally.x - b.x}`);
+  assert.equal(b.x, 100, 'the host is not dragged either');
+});
+
 test('Both heroes are kept in one picture', () => {
   const { b } = fight('mechanic');
   b.x = 100;

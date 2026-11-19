@@ -401,11 +401,26 @@ function furnitureScan() {
       // A furnishing consumes the same slot as equipment, never both bonuses.
       r.items[E.apartmentSlot(resident.id, 1)] = 'cannon';
       assert.equal(E.activeEquipment(r).length, 0);
+      // The minus is never doubled by a favourite; regen stops at zero.
+      const minus = item.minus
+        ? after[item.minus.stat] - before[item.minus.stat]
+        : 0;
+      if (item.minus && item.minus.stat !== 'regen')
+        assert.ok(
+          Math.abs(
+            minus -
+              (item.minus.stat === 'rate' ? 1.65 : 1) * item.minus.value,
+          ) < 1e-8,
+          item.id,
+        );
       out.push({
         resident: resident.id,
         item: item.id,
         stat: item.stat,
         delta: round(after[item.stat] - before[item.stat]),
+        ...(item.minus
+          ? { minus: item.minus.stat, minusDelta: round(minus) }
+          : {}),
         favorite: item.favorites.includes(resident.id),
       });
     }

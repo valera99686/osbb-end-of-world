@@ -1392,6 +1392,62 @@
 .partner-house .house-preview.still {
   max-width: 240px;
 }
+.partner-plan {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.partner-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.partner-actions > button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.house-view.game-modal[data-slot='dialog-content'] {
+  width: 860px !important;
+  max-width: calc(100vw - 24px) !important;
+}
+.house-view-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.house-view-body .house-preview.still {
+  max-width: none;
+}
+.house-view-lists h3 {
+  margin: 0 0 6px;
+  color: #e1e9dc;
+  font-size: 14px;
+}
+.house-view-lists ul {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: #a8bcc0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.house-view-lists b {
+  color: #dfe6dc;
+}
+.house-view-lists .item-minus {
+  color: #efa48a;
+}
+@media (max-width: 700px) {
+  .house-view-body {
+    grid-template-columns: 1fr;
+  }
+}
 /* The other player's row: to look at, never to take */
 .item-card.locked {
   opacity: 0.42;

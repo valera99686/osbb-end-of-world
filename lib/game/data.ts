@@ -1,4 +1,5 @@
 import type { WeaponId } from './weapons';
+import { GEAR } from './gear';
 export type Family = 'machine' | 'electric' | 'organic' | 'cursed';
 export type Stat =
   | 'damage'
@@ -42,7 +43,7 @@ const item = (
   stats: Item['stats'],
   unlock = 'start',
 ): Item => ({ id, name, icon, family, rarity, price, desc, stats, unlock });
-export const ITEMS: Item[] = [
+const BASE_ITEMS: Item[] = [
   item(
     'airbag',
     'Подушка безпеки будинку',
@@ -658,6 +659,7 @@ export const ITEMS: Item[] = [
     weapon: 'rocket',
   },
 ];
+export const ITEMS: Item[] = [...BASE_ITEMS, ...GEAR];
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 export const FAMILY: Record<Family, { name: string; color: string }> = {
   machine: { name: 'Механіка', color: '#e9b666' },

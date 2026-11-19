@@ -79,6 +79,8 @@ export function ItemCard({
   // Shown for looking at (the other player's row), not to be taken.
   locked?: boolean;
 }) {
+  // The new modules end their text with «Мінус: …» (stat-text.ts): shown apart.
+  const [gain, cost] = item.desc.split(' Мінус: ');
   const className = `item-card rarity-${item.rarity} ${compact ? 'compact' : ''} ${fresh ? 'fresh' : ''} ${locked ? 'locked' : ''}`;
   const content = (
     <>
@@ -91,7 +93,10 @@ export function ItemCard({
       </div>
       <h3>{item.name}</h3>
       <span className="family-label">{FAMILY[item.family].name}</span>
-      <p>{item.desc}</p>
+      <p>
+        {gain}
+        {cost && <span className="item-minus"> Мінус: {cost}</span>}
+      </p>
       {!compact && item.weapon && <EvolutionHint weapon={item.weapon} />}
       {footer && <div className="item-footer">{footer}</div>}
     </>

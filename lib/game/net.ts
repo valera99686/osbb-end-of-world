@@ -12,7 +12,7 @@ import type { Battle } from './engine';
 
 // Both ends must run the same build: the simulation is only repeatable inside
 // one version of the code, so a mismatch is refused at the door.
-export const NET_PROTOCOL = 9;
+export const NET_PROTOCOL = 10;
 // How a fight is shared: both ends simulate it and trade inputs ('sync'), or
 // the host alone simulates and streams it to the guest ('host').
 export type ShareMode = 'sync' | 'host';

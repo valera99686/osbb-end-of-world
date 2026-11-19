@@ -75,8 +75,9 @@ async function carry(p, sel, target) {
   await sleep(250);
   return lifted;
 }
+// A place the finger can reach: on the screen and not under the tray of things to place.
 const onScreen = (sel) =>
-  `(()=>{const b=[...document.querySelectorAll(${JSON.stringify(sel)})].find(b=>{const r=b.getBoundingClientRect(); const c=r.top+r.height/2; return c>70&&c<innerHeight-70}); if(!b) return null; const r=b.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}})()`;
+  `(()=>{const b=[...document.querySelectorAll(${JSON.stringify(sel)})].find(b=>{const r=b.getBoundingClientRect(); const c=r.top+r.height/2; const hit=document.elementFromPoint(r.left+r.width/2,c); return c>70&&c<innerHeight-70&&!!hit&&(hit===b||b.contains(hit))}); if(!b) return null; const r=b.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}})()`;
 
 async function run(view, port) {
   const p = await phone(view, port);
@@ -103,6 +104,17 @@ async function run(view, port) {
     await p.click('Квартири й обладнання');
     await sleep(1200);
     await shot(p, view, 'house');
+  });
+  // 0.43.0: what goes onto the plan is right by it, no scrolling between them.
+  await step(`${view} plan and tray together`, async () => {
+    await p.eval(`document.querySelector('.housing-canvas').scrollIntoView({block:'start'}); 0`);
+    await sleep(500);
+    const box = (sel) => `(()=>{const r=document.querySelector('${sel}').getBoundingClientRect(); return {t:Math.round(r.top), b:Math.round(r.bottom)}})()`;
+    const r = { plan: await p.eval(box('.housing-canvas')), tray: await p.eval(box('.house-tray')), vh: await p.eval('innerHeight') };
+    log('     ', JSON.stringify(r));
+    await shot(p, view, 'house-tray');
+    if (r.tray.t < 0 || r.tray.b > r.vh + 1) throw new Error('the tray is off the screen');
+    if (r.plan.b < 60 || r.plan.t > r.vh - 60) throw new Error('the plan is off the screen');
   });
   await step(`${view} drag module`, async () => {
     const lifted = await carry(p, '[data-drag="module"]', onScreen('.housing-hit-grid button.equipment-free-target, .housing-hit-grid button.equipment-swap-target'));
@@ -162,6 +174,8 @@ async function run(view, port) {
   await step(`${view} drag resident`, async () => {
     const portraits = `JSON.stringify([...document.querySelectorAll('.housing-hit-grid button.drag-handle:not([data-drag])')].map(b=>b.dataset.cell))`;
     const before = await p.eval(portraits);
+    await p.click('Мешканці', '.tray-tabs button');
+    await sleep(300);
     await carry(p, '[data-drag="resident"]', onScreen('.housing-hit-grid [data-cell="0:0"]'));
     await touch(p, 'touchEnd');
     await sleep(500);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,7 +35,7 @@ const DESCRIPTIONS = [
   'Ти — голова ОСББ. Виведи будинок №17 з петлі 04:17: дійди до диспетчерської й вивези ядро «Світанку».',
   'Натисни одну з трьох клітинок.',
   'Стрільба сама. Рухайся, ухиляйся, вмикай вміння.',
-  'Постав Ніну поруч із Петровичем.',
+  'Мешканці через спільну стіну посилюють одне одного. Куди поселити Ніну?',
   'Навчання нічого не витрачає. Далі — справжній рейд.',
 ];
 export function Tutorial({
@@ -52,7 +52,13 @@ export function Tutorial({
   const [actions, setActions] = useState<string[]>([]);
   const [neighbor, setNeighbor] = useState<'near' | 'far' | null>(null);
   const [effect, setEffect] = useState('');
+  // The last step's direction: a dash goes that way, as in a fight.
+  const facing = useRef<[number, number]>([1, 0]);
+  function dash() {
+    act('dash', facing.current[0] * 16, facing.current[1] * 16);
+  }
   function act(name: string, dx = 0, dy = 0) {
+    if (name === 'move') facing.current = [Math.sign(dx), Math.sign(dy)];
     setActions((a) => [...new Set([...a, name])]);
     setPosition((p) => ({
       x: Math.max(12, Math.min(78, p.x + dx)),
@@ -89,7 +95,7 @@ export function Tutorial({
         !(e.target instanceof HTMLElement && e.target.closest('button'))
       ) {
         e.preventDefault();
-        act('dash', 16, 0);
+        dash();
       }
       if (e.code === 'KeyE') {
         e.preventDefault();
@@ -235,7 +241,7 @@ export function Tutorial({
                     );
                   })}
                 </div>
-                <button onClick={() => act('dash', 16, 0)}>
+                <button onClick={dash}>
                   <Footprints />
                   Ривок
                 </button>
@@ -247,7 +253,10 @@ export function Tutorial({
               <ul className="tutorial-checks">
                 {[
                   ['move', 'WASD / стрілки — рух'],
-                  ['dash', 'Пробіл — ривок із коротким захистом'],
+                  [
+                    'dash',
+                    'Пробіл — ривок туди, куди рухаєшся, з коротким захистом',
+                  ],
                   ['pulse', 'E — вміння героя проти ворогів поруч'],
                 ].map(([id, label]) => (
                   <li key={id} className={actions.includes(id) ? 'done' : ''}>
@@ -273,7 +282,7 @@ export function Tutorial({
                 >
                   Ніна
                   <br />
-                  Поруч
+                  впритул
                 </button>
                 <span />
                 <button
@@ -282,15 +291,15 @@ export function Tutorial({
                 >
                   Ніна
                   <br />
-                  Окремо
+                  через клітинку
                 </button>
               </div>
               <p role="status">
                 {neighbor === 'near'
-                  ? 'Спільна стіна: +6% темпу. Так сусіди посилюють дім.'
+                  ? 'Квартири стіна до стіни: +6% темпу. У будинку теж став мешканців впритул, щоб діяли їхні бонуси.'
                   : neighbor === 'far'
-                    ? 'Є проміжок — бонусу нема. Спробуй ближче.'
-                    : 'Натисни «Поруч».'}
+                    ? 'Між квартирами порожня клітинка, тому бонусу нема. Постав Ніну впритул до Петровича.'
+                    : 'Натисни клітинку, куди поселити Ніну.'}
               </p>
             </div>
           )}

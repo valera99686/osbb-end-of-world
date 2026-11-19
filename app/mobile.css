@@ -73,9 +73,13 @@
 }
 
 /* --- The plan of the flats fits the screen's height (on a phone on its side
-   it was taller than the screen). --- */
+   it was taller than the screen), with the heading of the window and the tray
+   of things to place under it. --- */
 :root .housing-canvas {
-  width: min(100%, calc(var(--plan-h, 70svh) * var(--plan-ratio, 99)));
+  width: min(
+    100%,
+    calc(var(--plan-h, max(220px, 100svh - 520px)) * var(--plan-ratio, 99))
+  );
   margin-inline: auto;
 }
 
@@ -84,9 +88,6 @@
 @media (max-width: 690px), (max-height: 520px) and (orientation: landscape) {
   :root .route-tree {
     overflow: clip;
-  }
-  :root .tree-viewport {
-    overscroll-behavior: auto;
   }
   :root .tree-detail {
     position: sticky;

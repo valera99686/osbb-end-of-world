@@ -1,20 +1,33 @@
 // The side panel of a house: its plan, what is in it, what it can do. The
 // first house's panel and the second one's are this same panel, so both
 // players read the same screen.
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Crosshair,
+  Eye,
   Footprints,
+  Hammer,
   Heart,
   Home,
   Recycle,
   Shield,
   Zap,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { activeEquipment } from '@/lib/game/equipment';
 import { ITEM_BY_ID } from '@/lib/game/data';
+import { FURNITURE_BY_ID, furnitureEffect } from '@/lib/game/furniture';
 import { statsFor, type Meta, type Run } from '@/lib/game/model';
-import { houseSize, residentCells } from '@/lib/game/residents';
+import {
+  RESIDENT_BY_ID,
+  houseSize,
+  residentCells,
+} from '@/lib/game/residents';
 import { Glyph } from './glyph';
 import { HousePreview, HouseStill } from './residents';
 
@@ -125,24 +138,40 @@ export function HouseAside({
 }
 
 // The other player's house: its plan and what it carries, only to look at.
+// The whole house opens in a window; on one screen the second player arranges
+// theirs from here.
 export function PartnerHouse({
   house,
   name,
   meta,
+  health,
+  onEdit,
 }: {
   house: Run;
   name: string;
   meta: Meta;
+  // The share of its health the house goes into the next fight with.
+  health?: number;
+  onEdit?: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const gear = activeEquipment(house).map((i) => i.id);
   const stats = statsFor(house, meta);
+  const placed = house.furniture.filter((f) => f.resident && f.cell !== null);
   return (
     <div className="partner-house">
       <div className="section-kicker">
         <Home size={16} /> ДІМ: {name.toUpperCase()}{' '}
         <span>{house.residents.length} мешканців</span>
       </div>
-      <HouseStill run={house} items={house.items} />
+      <button
+        type="button"
+        className="partner-plan"
+        onClick={() => setOpen(true)}
+        aria-label={`Переглянути будинок: ${name}`}
+      >
+        <HouseStill run={house} items={house.items} />
+      </button>
       <div className="mate-gear">
         {gear.length ? (
           gear.map((id, i) => (
@@ -162,7 +191,79 @@ export function PartnerHouse({
       <p className="board-help">
         Міцність {stats.health}, шкода {Math.round(stats.damage)}, темп{' '}
         {stats.rate.toFixed(1)}/с.
+        {health !== undefined &&
+          ` Після події почне наступний бій з ${Math.round(health * 100)}% міцності.`}
       </p>
+      <div className="partner-actions">
+        <button type="button" className="secondary small" onClick={() => setOpen(true)}>
+          <Eye size={15} /> Переглянути
+        </button>
+        {onEdit && (
+          <button type="button" className="primary small" onClick={onEdit}>
+            <Hammer size={15} /> Облаштувати
+          </button>
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="game-modal house-view">
+          <DialogTitle>Дім: {name}</DialogTitle>
+          <DialogDescription>
+            Лише перегляд. Міцність {stats.health}, шкода{' '}
+            {Math.round(stats.damage)}, темп {stats.rate.toFixed(1)}/с
+            {health !== undefined &&
+              `, після події почне наступний бій з ${Math.round(health * 100)}% міцності`}
+            .
+          </DialogDescription>
+          <div className="house-view-body">
+            <HouseStill run={house} items={house.items} />
+            <div className="house-view-lists">
+              <h3>Мешканці · {house.residents.length}</h3>
+              <ul>
+                {house.residents.map((r) => (
+                  <li key={r.id}>
+                    <b>{RESIDENT_BY_ID[r.id].name}</b>{' '}
+                    {RESIDENT_BY_ID[r.id].effect}
+                  </li>
+                ))}
+              </ul>
+              <h3>Обладнання · {gear.length}</h3>
+              <ul>
+                {gear.map((id, i) => {
+                  const [gain, cost] = ITEM_BY_ID[id].desc.split(' Мінус: ');
+                  return (
+                    <li key={id + i}>
+                      <b>{ITEM_BY_ID[id].name}.</b> {gain}
+                      {cost && <span className="item-minus"> Мінус: {cost}</span>}
+                    </li>
+                  );
+                })}
+                {!gear.length && <li>Модулів у квартирах нема.</li>}
+              </ul>
+              {house.backpack.length > 0 && (
+                <p className="board-help">
+                  У запасі ще {house.backpack.length} модулів.
+                </p>
+              )}
+              <h3>Меблі · {placed.length}</h3>
+              <ul>
+                {placed.map((f) => (
+                  <li key={f.uid}>
+                    <b>{FURNITURE_BY_ID[f.id].name}</b> (квартира{' '}
+                    {RESIDENT_BY_ID[f.resident!].name}):{' '}
+                    {furnitureEffect(f.id, f.resident).label}
+                  </li>
+                ))}
+                {!placed.length && <li>Меблів у квартирах нема.</li>}
+              </ul>
+              {house.furniture.length > placed.length && (
+                <p className="board-help">
+                  У запасі ще {house.furniture.length - placed.length} меблів.
+                </p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

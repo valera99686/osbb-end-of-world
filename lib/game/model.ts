@@ -339,6 +339,24 @@ export interface MateHouse {
   // The second house's own level perks: at a level-up each player takes one for
   // their own house (the first house's are Run.perks).
   perks?: string[];
+  // A partner's house is whole at the start of every fight; an event that hurt
+  // or healed the houses leaves here the share of its health it goes into the
+  // next fight with (absent: whole). The fight clears it.
+  health?: number;
+}
+// The share of health a partner's house goes into the next fight with, after
+// an event took `damage` and gave `heal` (shares of the full health), as the
+// first house's own health moves.
+function eventHealth(run: Run, damage: number, heal: number): Run {
+  if (!run.mates?.length || (!damage && !heal)) return run;
+  return {
+    ...run,
+    mates: run.mates.map((m) => {
+      const share = Math.max(0.05, Math.min(1, (m.health ?? 1) - damage + heal));
+      const { health: _, ...house } = m;
+      return share < 1 ? { ...house, health: share } : house;
+    }),
+  };
 }
 export interface RunOptions {
   mode?: RunMode;
@@ -1145,7 +1163,7 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
   const max = statsFor(run, meta).health;
   if (run.kind === 'rest')
     return {
-      ...run,
+      ...eventHealth(run, 0, choice === 0 ? 0.35 : 0),
       eventDone: true,
       eventMark: undefined,
       eventResult:
@@ -1166,7 +1184,7 @@ export function resolveEvent(run: Run, meta: Meta, choice: number): Run {
   const failed = !!selected.risk && rng() >= selected.risk.chance;
   const e = failed && selected.risk ? selected.risk.fail : selected.effect;
   let next: Run = {
-    ...run,
+    ...eventHealth(run, e.damageMax ?? 0, e.healMax ?? 0),
     eventDone: true,
     eventMark: selected.mark,
     eventResult: forParty(
@@ -1615,6 +1633,9 @@ function baseStats(run: Run, meta: Meta, legacyLayout = false): Stats {
   rate += perked.rate;
   if (run.perks?.length) s.synergies.push(`Перки рівнів: ${run.perks.length}`);
   s.rate *= Math.max(0.3, 1 + rate);
+  // Modules and furniture with a minus may pile up; the house still shoots
+  // across the yard before a weapon core shortens or lengthens it.
+  s.range = Math.max(260, s.range);
   const armed = weaponFor(installed, (id) => ITEM_BY_ID[id]?.weapon);
   s.weapon = armed.weapon;
   s.evolution = armed.evolution;
@@ -1633,7 +1654,8 @@ function baseStats(run: Run, meta: Meta, legacyLayout = false): Stats {
   s.shots = Math.min(7, s.shots);
   s.drones = Math.min(6, s.drones);
   s.orbit = Math.min(8, s.orbit);
-  s.crit = Math.min(0.8, s.crit);
+  s.crit = Math.max(0, Math.min(0.8, s.crit));
+  s.luck = Math.max(-1, s.luck);
   const specials = specialEffects(run);
   s.regen += specials.gardenRegen;
   if (specials.shields)
@@ -1655,7 +1677,7 @@ function baseStats(run: Run, meta: Meta, legacyLayout = false): Stats {
       'Бібліотека насіння: сусідство з Флорою +0,35 відновлення/с',
     );
   s.regen = Math.max(0, Math.min(4, s.regen));
-  s.armor = Math.min(12, s.armor);
+  s.armor = Math.max(-4, Math.min(12, s.armor));
   s.rate = Math.min(4.5, s.rate) * (s.housing.echo ? 0.85 : 1);
   s.speed = Math.min(260, s.speed);
   return s;
@@ -1941,6 +1963,9 @@ export function readHouse(
     items,
     backpack,
     nextBagId: Math.max(nextBagId, ...backpack.map((i) => i.uid + 1)),
+    ...(typeof r.health === 'number' && r.health >= 0.05 && r.health < 1
+      ? { health: r.health }
+      : {}),
     houseLevel: level,
     perks: Array.isArray(r.perks)
       ? r.perks
@@ -2074,7 +2099,13 @@ export function acceptMateHouse(run: Run, raw: unknown, seat = 1): Run | null {
   )
     return null;
   const mates = [...run.mates!];
-  mates[seat - 1] = { ...next, perks: prev.perks ?? [] };
+  // The guest arranges its rooms; its health is the raid's to say.
+  const { health: _, ...house } = next;
+  mates[seat - 1] = {
+    ...house,
+    perks: prev.perks ?? [],
+    ...(prev.health !== undefined ? { health: prev.health } : {}),
+  };
   return { ...run, mates, coins: o.coins, scrap: o.scrap };
 }
 export function reachableColumns(run: Run): number[][] {
@@ -2271,6 +2302,10 @@ export function houseOf(run: Run): MateHouse {
     houseLevel: run.houseLevel,
     perks: run.perks ?? [],
     hero: run.character,
+    // A partner's house seen as a run (mateRun) carries its health share.
+    ...('health' in run && typeof run.health === 'number'
+      ? { health: run.health }
+      : {}),
   };
 }
 // A new house for a head of ОСББ: their own room, the starting kit, nothing

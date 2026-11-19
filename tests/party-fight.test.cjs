@@ -437,3 +437,61 @@ test('A hash of the fight sees every house, so a house that drifts is noticed', 
     assert.notEqual(x.stateHash(), a.stateHash(), `partner ${i + 1}`);
   }
 });
+
+test('An event that hurts or heals the houses reaches the partners too, till the next fight', () => {
+  const meta = veteran();
+  const base = M.withCrew(
+    M.makeRun(meta, 'mechanic', 0, 5),
+    HEROES.slice(0, 2),
+  );
+  // A raid at an event that takes 12% of the health of a house (a sure loss).
+  let run = null;
+  for (let seed = 1; seed < 3000 && !run; seed++)
+    for (let s = 1; s < 9 && !run; s++) {
+      const r = {
+        ...base,
+        seed,
+        step: s,
+        page: 'event',
+        kind: 'event',
+        eventDone: false,
+      };
+      if (M.eventFor(r)?.id === 'rust-lift') run = r;
+    }
+  assert.ok(run, 'the event comes up on some seed');
+  const hurt = M.resolveEvent(run, meta, 0);
+  assert.ok(hurt.hp < run.hp, 'the first house is hurt');
+  for (const m of hurt.mates) assert.ok(Math.abs(m.health - 0.88) < 1e-9);
+  // A rest heals them back a part of the way (35%), a whole house drops the mark.
+  const rest = M.resolveEvent(
+    { ...hurt, page: 'event', kind: 'rest', eventDone: false },
+    meta,
+    0,
+  );
+  for (const m of rest.mates) assert.equal(m.health, undefined);
+  // The next fight: the partners start with what the event left, and the mark goes.
+  const b = new Battle(
+    null,
+    { ...hurt, page: 'combat', kind: 'battle' },
+    meta,
+    silent,
+    () => {},
+    () => {},
+    { autoPerks: true },
+  );
+  for (const a of b.allies)
+    assert.equal(a.hp, Math.max(1, Math.round(a.max * 0.88)));
+  assert.ok(b.run.mates.every((m) => m.health === undefined));
+  // A guest who sends its house cannot make itself whole.
+  const sent = M.acceptMateHouse(
+    hurt,
+    {
+      house: { ...M.houseOf(M.mateRun(hurt, 1)), health: 1 },
+      coins: hurt.coins,
+      scrap: hurt.scrap,
+    },
+    1,
+  );
+  assert.ok(sent);
+  assert.equal(sent.mates[0].health, hurt.mates[0].health);
+});

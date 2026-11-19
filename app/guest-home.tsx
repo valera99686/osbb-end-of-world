@@ -386,11 +386,25 @@ export function GuestAside({
         title="ТВІЙ БУДИНОК"
         onOpen={() => setHousing(true)}
         partner={
-          <PartnerHouse
-            house={{ ...view, ...houseOf(view) }}
-            name="Господар"
-            meta={open}
-          />
+          <>
+            <PartnerHouse
+              house={{ ...view, ...houseOf(view) }}
+              name="Господар"
+              meta={open}
+            />
+            {(view.mates ?? [])
+              .map((_, i) => i + 1)
+              .filter((seat) => seat !== session.seat)
+              .map((seat) => (
+                <PartnerHouse
+                  key={seat}
+                  house={mateRun(view, seat)}
+                  name={session.nameOf(seat)}
+                  meta={open}
+                  health={view.mates?.[seat - 1]?.health}
+                />
+              ))}
+          </>
         }
       />
       <Dialog open={housing} onOpenChange={setHousing}>

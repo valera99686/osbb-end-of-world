@@ -494,15 +494,18 @@ function draw(this: Battle) {
   c.fillStyle = '#0b171e';
   c.fillRect(0, 0, w, h);
   const zoom = Math.max(0.55, Math.min(1.08, Math.min(w / 850, h / 570)));
-  // The camera is on the house this device plays, and leans toward the others
-  // (halfway to the middle of those on their feet: between two, between the
-  // two of them).
+  // The camera is on the house this device plays. On one screen it leans
+  // toward the others (halfway to the middle of those on their feet: between
+  // two, between the two of them); online each player has a field of view of
+  // their own, and arrows on the edge show where the others are.
+  const online = !!(this.sync || this.client || this.hostRemote);
   const me: { x: number; y: number } =
     (this.seat && this.allyOf(this.seat)) || this;
   const others = [this as { x: number; y: number }, ...this.allies].filter(
     (o) => o !== me && !(o as Ally).down && !(o as Ally).away,
   );
-  const lean = this.allies.length && others.length ? this.allyFocus * 0.5 : 0,
+  const lean =
+      this.allies.length && others.length && !online ? this.allyFocus * 0.5 : 0,
     focusX =
       me.x +
       ((others.reduce((sum, o) => sum + o.x, 0) / (others.length || 1)) -
@@ -1373,6 +1376,7 @@ function drawOverlay(
     this.drawIncoming(c, w, h);
     this.drawCourierMarker(c, w, h);
   }
+  this.drawPartyMarkers(c, w, h);
   const squad = this.client ? 0 : this.drawSquadTracker(c, w, h);
   if (!this.client) this.drawEventTracker(c, w, squad);
   this.drawCombo(c, w, squad);
@@ -1455,6 +1459,24 @@ function drawCourierMarker(
   const e = this.event?.courier;
   if (!e || e.hp <= 0 || this.ended) return;
   this.drawEdgeArrow(c, w, h, e.x, e.y - 20, EVENT_COLOR.courier);
+}
+
+// Online every player has a camera of their own: arrows on the edge point to
+// the other houses out of view (beating when one is down and waits to be got
+// up) and to the leader.
+function drawPartyMarkers(
+  this: Battle,
+  c: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+) {
+  if (this.ended || !(this.sync || this.client || this.hostRemote)) return;
+  const houses = [{ seat: 0, x: this.x, y: this.y, down: false }, ...this.allies]
+    .filter((o) => o.seat !== this.seat && !(o as { away?: boolean }).away);
+  for (const o of houses)
+    this.drawEdgeArrow(c, w, h, o.x, o.y - 20, SEAT_COLORS[o.seat], o.down ? 1 : 0.7);
+  const leader = this.enemies.find((e) => isLeader(e.type) && e.hp > 0);
+  if (leader) this.drawEdgeArrow(c, w, h, leader.x, leader.y, '#ef6f5e', 0.85);
 }
 
 // Where a fresh pack comes from, for a moment after it appears.
@@ -2116,6 +2138,7 @@ export const view = {
   edgeLayers,
   drawEdgeArrow,
   drawCourierMarker,
+  drawPartyMarkers,
   drawIncoming,
   drawSquadTracker,
   drawTelegraphs,

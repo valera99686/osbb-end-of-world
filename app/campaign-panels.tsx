@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { FurnitureIcon } from './furniture';
-import { FURNITURE_BY_ID, furnitureEffect } from '@/lib/game/furniture';
+import { FURNITURE_BY_ID, furnitureText } from '@/lib/game/furniture';
 import {
   statsFor,
   eventFor,
@@ -49,7 +49,7 @@ export function FurnitureCard({
       <h3>{item.name}</h3>
       <span className="family-label">Один слот усередині квартири</span>
       <p>
-        {furnitureEffect(id, null).label}. {item.bonus}.
+        {furnitureText(id)}.
       </p>
       <div className="item-footer">{footer}</div>
     </button>

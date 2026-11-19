@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 const modules = [
   'assets',
   'data',
+  'gear',
+  'stat-text',
   'backpack',
   'bosses',
   'minibosses',
@@ -64,6 +66,7 @@ const tests = [
   'tests/combat-variety.test.cjs',
   'tests/ui-flow.test.cjs',
   'tests/rewards.test.cjs',
+  'tests/gear.test.cjs',
   'tests/combat-feel.test.cjs',
   'tests/perks.test.cjs',
   'tests/weapons.test.cjs',

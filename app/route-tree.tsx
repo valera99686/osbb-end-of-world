@@ -1,5 +1,6 @@
 import { HelpCircle, Gift } from 'lucide-react';
 import { allAgree, pickedNames, waitingNames, type VoteMate } from './vote';
+import { scrollParent } from './scroll-parent';
 import { campaignBoss } from '@/lib/game/encounters';
 import { minibossFor } from '@/lib/game/minibosses';
 import {
@@ -190,6 +191,8 @@ export function RouteTree({
     left: number;
     top: number;
     moved: boolean;
+    // How far the drag went past the tree's end: the page took that part.
+    spill: number;
   } | null>(null);
   const [panning, setPanning] = useState(false);
   const [selectedRow, selectedCol] = selection.split(':').map(Number);
@@ -286,6 +289,7 @@ export function RouteTree({
             left: v.scrollLeft,
             top: v.scrollTop,
             moved: false,
+            spill: 0,
           };
         }}
         onPointerMove={(e) => {
@@ -299,8 +303,15 @@ export function RouteTree({
             setPanning(true);
             viewport.current!.setPointerCapture(e.pointerId);
           }
-          viewport.current!.scrollLeft = p.left - dx;
-          viewport.current!.scrollTop = p.top - dy;
+          const v = viewport.current!;
+          v.scrollLeft = p.left - dx;
+          v.scrollTop = p.top - dy;
+          // At the top or the foot of the tree the page goes on scrolling.
+          const spill = p.top - dy - v.scrollTop;
+          if (spill !== p.spill) {
+            scrollParent(v).scrollBy(0, spill - p.spill);
+            p.spill = spill;
+          }
         }}
         onPointerUp={(e) => {
           if (pan.current?.id !== e.pointerId) return;

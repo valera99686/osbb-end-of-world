@@ -20,12 +20,17 @@ import {
   type GuestRoom as SavedGuestRoom,
   type HostRoom as SavedHostRoom,
 } from './rooms';
-import { FURNITURE_BY_ID } from '@/lib/game/furniture';
+import {
+  FURNITURE_BY_ID,
+  canFurnish,
+  furnitureEffect,
+} from '@/lib/game/furniture';
 import {
   battleRewards,
   advanceLocation,
   claimFurniture,
   buyFurniture,
+  installFurniture,
   furniturePrice,
   rerollShop,
   repairShop,
@@ -144,8 +149,12 @@ import {
 import { DemoOffer, DemoShop, type OfferId } from './demo-offers';
 import { preloadEnemyArt } from '@/lib/game/enemy-art';
 import { Glyph } from './glyph';
-import { APARTMENT_SLOTS } from '@/lib/game/equipment';
-import { Residents, EquipmentPlacement } from './residents';
+import { APARTMENT_SLOTS, equipmentTargets } from '@/lib/game/equipment';
+import {
+  Residents,
+  EquipmentPlacement,
+  FurniturePlacement,
+} from './residents';
 import { DialoguePlayer, ProtocolCard } from './dialogue';
 import { onSpeaking, setVoice } from './voice';
 import { CasePage } from './case-file';
@@ -199,6 +208,7 @@ import {
   mateSeats,
   partySize,
   mateRun,
+  withMateHouse,
   giveMate,
   giveMateFurniture,
   buyFurnitureMate,
@@ -357,7 +367,11 @@ export default function Game() {
     ),
     [hasProfileBackup, setHasProfileBackup] = useState(false),
     [housingOpen, setHousingOpen] = useState(false),
+    // On one screen: the partner's house being arranged (its seat).
+    [mateHousing, setMateHousing] = useState<number | null>(null),
     [notice, setNotice] = useState(''),
+    // A piece of furniture just taken (its uid): offered a place at once.
+    [placing, setPlacing] = useState<number | null>(null),
     [pending, setPending] = useState<{
       id: string;
       source: 'shop' | 'reward' | 'draft';
@@ -1605,10 +1619,36 @@ export default function Game() {
       ...next,
       boughtBy: { ...next.boughtBy, [index]: who },
     });
+    if (who > 0) ping(`Меблі для дому ${houseName(who)}.`);
+    else offerPlace(next, run.nextFurnitureId);
+  }
+  // A piece just taken goes into a flat now, if there is a free cell for it.
+  function offerPlace(next: Run, uid: number) {
+    const piece = next.furniture.find((f) => f.uid === uid);
+    if (!piece) return;
+    const free = equipmentTargets(next).some(
+      (t) =>
+        !next.items[t.slot] &&
+        canFurnish(next.furniture, next.residents, uid, t.resident, t.cell),
+    );
+    if (free) setPlacing(uid);
+    else
+      ping(
+        `${FURNITURE_BY_ID[piece.id].name} на борту. Вільних місць у квартирах немає: встанови пізніше.`,
+      );
+  }
+  function placeFurniture(resident: string, cell: number) {
+    if (!run || placing === null) return;
+    const piece = run.furniture.find((f) => f.uid === placing);
+    const next = installFurniture(run, meta, placing, resident, cell);
+    if (!piece || next === run) {
+      ping('Це місце зайняте. Обери вільну клітинку квартири.');
+      return;
+    }
+    setRun(next);
+    setPlacing(null);
     ping(
-      who > 0
-        ? `Меблі для дому ${houseName(who)}.`
-        : 'Меблі на борту. Встанови їх у квартирі.',
+      `${RESIDENT_BY_ID[resident].name}: ${FURNITURE_BY_ID[piece.id].name}, ${furnitureEffect(piece.id, resident).label}.`,
     );
   }
   // A partner house gets a module, from the shop or from its row of a reward:
@@ -1658,7 +1698,10 @@ export default function Game() {
       return;
     }
     setRun(next);
-    ping(`${FURNITURE_BY_ID[loot.id]?.name ?? loot.id} — ${houseName(seat)}.`);
+    ping(
+      `${FURNITURE_BY_ID[loot.id]?.name ?? loot.id} — ${houseName(seat)}.` +
+        (onlineRun ? '' : ' Постав через «Облаштувати» на картці будинку.'),
+    );
   }
   function acquireToBag() {
     if (!run || !pending) return;
@@ -1738,12 +1781,22 @@ export default function Game() {
       run={run}
       meta={meta}
       title="БУДИНОК № 17"
-      hp={run.hp}
+      // A module with a minus lowers the most: the fight starts at that.
+      hp={Math.min(run.hp, stats.health)}
       onOpen={() => setHousingOpen(true)}
       partner={
-        run.coop && (
-          <PartnerHouse house={mateRun(run)} name={mateName} meta={meta} />
-        )
+        run.coop &&
+        mateSeats(run).map((seat) => (
+          <PartnerHouse
+            key={seat}
+            house={mateRun(run, seat)}
+            name={houseName(seat)}
+            meta={meta}
+            health={run.mates?.[seat - 1]?.health}
+            // Online each player arranges their own house on their device.
+            onEdit={onlineRun ? undefined : () => setMateHousing(seat)}
+          />
+        ))
       }
     >
       <div className="craft-box">
@@ -2458,10 +2511,7 @@ export default function Game() {
                                 return;
                               }
                               setRun(next);
-                              ping(
-                                FURNITURE_BY_ID[loot.id].name +
-                                  ' на борту. Встанови у квартирі.',
-                              );
+                              offerPlace(next, run.nextFurnitureId);
                             }}
                           />
                         ),
@@ -2953,6 +3003,61 @@ export default function Game() {
               onMetaChange={setMeta}
             />
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={mateHousing !== null && !!run?.coop}
+        onOpenChange={(open) => {
+          if (!open) setMateHousing(null);
+        }}
+      >
+        <DialogContent className="game-modal housing-modal">
+          <DialogTitle>
+            Дім: {mateHousing !== null ? houseName(mateHousing) : ''} / Квартири
+            й обладнання
+          </DialogTitle>
+          <DialogDescription>
+            Будинок другого гравця. Монети спільні: добудова й ремонт беруться з
+            одної каси.
+          </DialogDescription>
+          {run && mateHousing !== null && (
+            <Residents
+              key={mateHousing}
+              run={mateRun(run, mateHousing)}
+              meta={meta}
+              onChange={(next) => setRun(withMateHouse(run, next, mateHousing))}
+              onMetaChange={setMeta}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={placing !== null && !!run}
+        onOpenChange={(open) => {
+          if (!open) setPlacing(null);
+        }}
+      >
+        <DialogContent className="game-modal">
+          <DialogTitle>
+            {run &&
+              FURNITURE_BY_ID[
+                run.furniture.find((f) => f.uid === placing)?.id ?? ''
+              ]?.name}
+          </DialogTitle>
+          <DialogDescription>
+            Обери місце всередині квартири мешканця. Меблі можна переставити
+            потім у вікні «Квартири й обладнання».
+          </DialogDescription>
+          {run && placing !== null && (
+            <FurniturePlacement
+              run={run}
+              uid={placing}
+              onPlace={placeFurniture}
+            />
+          )}
+          <button className="secondary" onClick={() => setPlacing(null)}>
+            <Package size={18} /> Поставити пізніше
+          </button>
         </DialogContent>
       </Dialog>
       <Dialog

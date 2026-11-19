@@ -79,12 +79,14 @@ test('Each of the first losing runs opens something, and behaviour items need no
 test('New items are revealed first, tagged, in the next run and survive an early exit', () => {
   let meta = M.initialMeta();
   const first = M.finishRun(meta, lostRun(meta, 7), false);
-  assert.deepEqual(first.unlocks.sort(), ['chain', 'core_coins', 'drone']);
-  assert.deepEqual([...first.meta.fresh].sort(), ['chain', 'core_coins', 'drone']);
+  // The first run (a loss with 50+ kills): runs1 and kills50 open.
+  const opened = ['arc_welder', 'boiler', 'chain', 'core_coins', 'crane_arm', 'drone', 'vine_armor'];
+  assert.deepEqual(first.unlocks.sort(), opened);
+  assert.deepEqual([...first.meta.fresh].sort(), opened);
   meta = first.meta;
   // The run takes the reveals along; the launch clears them from the profile.
   const run = M.makeRun(meta, 'mechanic', 0, 8);
-  assert.deepEqual([...run.fresh].sort(), ['chain', 'core_coins', 'drone']);
+  assert.deepEqual([...run.fresh].sort(), opened);
   // An abandoned run hands undelivered reveals back.
   const back = M.finishRun({ ...meta, fresh: [] }, run, false);
   assert.ok(back.meta.fresh.includes('chain'));
@@ -92,18 +94,18 @@ test('New items are revealed first, tagged, in the next run and survive an early
   // The first reward: the new items, tagged, in the last slots.
   const reward = M.battleRewards({ ...run, page: 'combat' }, meta);
   assert.equal(reward.loot.length, 3);
-  // (Three reveals since the coins weapon core joined runs1: all cards new.)
-  const n = run.fresh.length;
+  // Seven reveals since 0.43.0: all three cards are new, four wait.
+  const shown = Math.min(3, run.fresh.length);
   assert.deepEqual(
-    reward.loot.slice(3 - n).map((l) => [l.id, l.fresh]),
-    run.fresh.map((id) => [id, true]),
+    reward.loot.slice(3 - shown).map((l) => [l.id, l.fresh]),
+    run.fresh.slice(0, shown).map((id) => [id, true]),
   );
-  if (n < 3) assert.ok(!reward.loot[0].fresh);
-  assert.deepEqual(reward.fresh, []);
+  if (shown < 3) assert.ok(!reward.loot[0].fresh);
+  assert.deepEqual(reward.fresh, run.fresh.slice(shown));
   // Tags and pending reveals survive a reload.
   const saved = M.readSave(M.saveData({ ...meta, fresh: [] }, reward)).run;
   assert.deepEqual(saved.loot, reward.loot);
-  assert.deepEqual(saved.fresh, []);
+  assert.deepEqual(saved.fresh, reward.fresh);
   // More new items than cards: the rest wait for the next reward.
   const many = {
     ...run,

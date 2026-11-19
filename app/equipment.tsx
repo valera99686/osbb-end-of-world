@@ -1,6 +1,6 @@
 import { Package, Move, Recycle, X } from 'lucide-react';
 import { Glyph } from './glyph';
-import { ITEM_BY_ID, FAMILY } from '@/lib/game/data';
+import { ITEM_BY_ID } from '@/lib/game/data';
 import { APARTMENT_SLOTS } from '@/lib/game/equipment';
 import { RESIDENT_BY_ID } from '@/lib/game/residents';
 import {
@@ -153,35 +153,6 @@ export function ApartmentEquipment({
             </button>
           </div>
         </div>
-      )}
-      <div className="apartment-module-stock">
-        {run.backpack.map((item) => (
-          <button
-            key={item.uid}
-            data-drag="module"
-            data-drag-id={item.uid}
-            data-drag-label={ITEM_BY_ID[item.id].name}
-            className={picked === item.uid ? 'selected' : ''}
-            aria-pressed={picked === item.uid}
-            onClick={() => {
-              onPick(picked === item.uid ? null : item.uid);
-              onMessage(
-                'Обери місце всередині квартири. Попередній предмет буде знято та збережено.',
-              );
-            }}
-          >
-            <span style={{ color: FAMILY[ITEM_BY_ID[item.id].family].color }}>
-              <Glyph name={ITEM_BY_ID[item.id].icon} size={25} />
-            </span>
-            <b>{ITEM_BY_ID[item.id].name}</b>
-          </button>
-        ))}
-      </div>
-      {!run.backpack.length && (
-        <p className="equipment-empty">
-          Запасних модулів немає. Натисни обладнання у квартирі, щоб перемістити
-          його або зняти. Нові предмети знаходь під час рейду.
-        </p>
       )}
     </section>
   );

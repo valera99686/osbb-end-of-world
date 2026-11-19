@@ -516,6 +516,9 @@ export class Battle {
       this.heat = coopHeat(this.heat, players);
       this.allies = mateSeats(run).map((seat) => this.makeAlly(seat));
       for (const a of this.allies) if (gone.includes(a.seat)) a.away = true;
+      // What an event did to the partners' houses lasts till this fight.
+      if (run.mates?.some((m) => m.health !== undefined))
+        this.run.mates = run.mates.map(({ health: _, ...m }) => m);
     }
     if (run.kind !== 'boss' && run.kind !== 'miniboss') {
       const column = run.path?.[run.step] ?? 0;
@@ -1221,7 +1224,7 @@ export class Battle {
       y: this.y + dy,
       vx: 0,
       vy: 0,
-      hp: max,
+      hp: Math.max(1, Math.round(max * (this.run.mates?.[seat - 1]?.health ?? 1))),
       max,
       down: false,
       downTime: 0,
@@ -2192,25 +2195,29 @@ export class Battle {
       a.x = Math.max(55, Math.min(1545, a.x));
       a.y = Math.max(55, Math.min(945, a.y));
     }
-    // Both stay inside one picture: whoever walks away is pulled back, and
-    // the house gives a little too.
-    // The size of the screen is not a part of the simulation online.
-    const small = this.view.w > 100 && !this.sync;
-    const fix = spreadFix(
-      this,
-      a,
-      small
-        ? Math.max(260, Math.min(COOP.spreadX, this.view.w - 120))
-        : COOP.spreadX,
-      small
-        ? Math.max(200, Math.min(COOP.spreadY, this.view.h - 140))
-        : COOP.spreadY,
-    );
-    if (fix.ax || fix.ay) {
-      this.x = Math.max(55, Math.min(1545, this.x + fix.ax));
-      this.y = Math.max(55, Math.min(945, this.y + fix.ay));
-      a.x = Math.max(55, Math.min(1545, a.x + fix.bx));
-      a.y = Math.max(55, Math.min(945, a.y + fix.by));
+    // On one screen both stay inside one picture: whoever walks away is
+    // pulled back, and the house gives a little too. Online every player has
+    // a screen and a camera of their own, so nobody is held (the same on every
+    // end that counts the fight: all of them in lockstep, the host alone when
+    // it counts for everyone).
+    if (!this.sync && !this.hostRemote) {
+      const small = this.view.w > 100;
+      const fix = spreadFix(
+        this,
+        a,
+        small
+          ? Math.max(260, Math.min(COOP.spreadX, this.view.w - 120))
+          : COOP.spreadX,
+        small
+          ? Math.max(200, Math.min(COOP.spreadY, this.view.h - 140))
+          : COOP.spreadY,
+      );
+      if (fix.ax || fix.ay) {
+        this.x = Math.max(55, Math.min(1545, this.x + fix.ax));
+        this.y = Math.max(55, Math.min(945, this.y + fix.ay));
+        a.x = Math.max(55, Math.min(1545, a.x + fix.bx));
+        a.y = Math.max(55, Math.min(945, a.y + fix.by));
+      }
     }
     const k = Math.min(1, dt * 10);
     a.vx += ((a.x - fromX) / Math.max(dt, 1e-3) - a.vx) * k;

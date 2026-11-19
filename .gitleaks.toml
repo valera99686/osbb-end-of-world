@@ -1,0 +1,9 @@
+# The balance audits (docs/balance/audit-*.json, written by
+# scripts/balance-audit.cjs) name their scenarios in "key" fields such as
+# "fresh/1/0/battle/circle". gitleaks takes those for API keys; they are not.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Scenario keys of the balance audits"
+paths = ['''docs/balance/audit-.*\.json''']

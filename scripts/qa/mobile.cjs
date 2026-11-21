@@ -81,6 +81,21 @@ const onScreen = (sel) =>
 
 async function run(view, port) {
   const p = await phone(view, port);
+  // 0.44.0: the gallery (items, furniture, enemies, leaders) on a phone.
+  await step(`${view} gallery`, async () => {
+    await p.click('Галерея');
+    await p.until('the gallery', `!!document.querySelector('.gallery-tabs')`, 8000);
+    const tabs = await p.eval(`[...document.querySelectorAll('.gallery-tabs button')].length`);
+    await p.click('Вороги', '.gallery-tabs button');
+    await sleep(1500);
+    const o = JSON.parse(await p.eval(`JSON.stringify({ cards: document.querySelectorAll('.gallery-card').length, vw: innerWidth, sw: document.documentElement.scrollWidth })`));
+    log('     ', tabs, 'tabs', JSON.stringify(o));
+    await shot(p, view, 'gallery');
+    if (tabs !== 4 || o.cards !== 18) throw new Error('the gallery is not whole');
+    if (o.sw > o.vw + 1) throw new Error('the page scrolls sideways');
+    await p.click('Головне меню');
+    await sleep(600);
+  });
   await step(`${view} cutscene`, async () => {
     await p.eval(`document.querySelector('.start-button').click()`);
     await p.until('a scene', `!!document.querySelector('.dlg-card')`, 10000);

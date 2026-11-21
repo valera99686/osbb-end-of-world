@@ -294,9 +294,11 @@ export const BLUEPRINTS: {
     requirement: 'Завершити 2 повні рейди перемогою',
   },
 ];
-export const BLUEPRINT_BY_ID = Object.fromEntries(
-  BLUEPRINTS.map((b) => [b.id, b]),
-);
+export const BLUEPRINT_BY_ID: Record<string, (typeof BLUEPRINTS)[number]> =
+  Object.assign(
+    Object.create(null),
+    Object.fromEntries(BLUEPRINTS.map((b) => [b.id, b])),
+  );
 export function blueprintReady(meta: Meta, id: string) {
   const b = BLUEPRINT_BY_ID[id];
   return !!b && milestoneValue(meta, b.gate) >= b.target;

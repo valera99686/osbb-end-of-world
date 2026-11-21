@@ -660,7 +660,11 @@ const BASE_ITEMS: Item[] = [
   },
 ];
 export const ITEMS: Item[] = [...BASE_ITEMS, ...GEAR];
-export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
+// No prototype: "constructor" or "__proto__" in a save is not an item.
+export const ITEM_BY_ID: Record<string, (typeof ITEMS)[number]> = Object.assign(
+  Object.create(null),
+  Object.fromEntries(ITEMS.map((i) => [i.id, i])),
+);
 export const FAMILY: Record<Family, { name: string; color: string }> = {
   machine: { name: 'Механіка', color: '#e9b666' },
   electric: { name: 'Електрика', color: '#7cbef4' },

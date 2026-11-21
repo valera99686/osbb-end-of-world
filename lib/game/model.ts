@@ -1,3 +1,4 @@
+import { cleanNick } from './chat';
 import { specialEffects } from './specials';
 import { readCvd, type Cvd } from './cvd';
 import {
@@ -94,6 +95,8 @@ export interface Meta {
   best: number;
   unlocked: string[];
   seen: string[];
+  // Enemies and leaders met in fights (gallery.ts keys).
+  met?: string[];
   research: Record<string, number>;
   sound: boolean;
   lore: string[];
@@ -154,6 +157,8 @@ export interface Settings {
   reducedFlashes: boolean;
   // A frame counter in the corner of a fight (to check a phone's speed).
   fps: boolean;
+  // The name this player goes by online ('' for the hero's name).
+  nick: string;
 }
 export const DEFAULT_SETTINGS: Settings = {
   music: 0.4,
@@ -167,6 +172,7 @@ export const DEFAULT_SETTINGS: Settings = {
   damageNumbers: true,
   reducedFlashes: false,
   fps: false,
+  nick: '',
 };
 const SHAKE_STEPS = [0, 0.5, 1],
   TEXT_STEPS = [1, 1.15, 1.3];
@@ -200,6 +206,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     damageNumbers: flag(s.damageNumbers, d.damageNumbers),
     reducedFlashes: flag(s.reducedFlashes, d.reducedFlashes),
     fps: flag(s.fps, d.fps),
+    nick: cleanNick(s.nick),
   };
 }
 export type NodeKind =
@@ -1308,6 +1315,7 @@ export function initialMeta(): Meta {
     best: 0,
     unlocked: ITEMS.filter((i) => i.unlock === 'start').map((i) => i.id),
     seen: [],
+    met: [],
     research: Object.fromEntries(RESEARCH.map((r) => [r.id, 0])),
     sound: true,
     lore: loreForProgress([], 0),
@@ -2055,7 +2063,8 @@ export function readView(x: unknown): Run | null {
 // module in a slot, expanded...): the host takes it only if nothing came from
 // nowhere. The neighbours, the modules and the furniture are the same ones as
 // before (fewer if some were scrapped), the house grew by one step at most,
-// and the shared coins were only spent. Null when it is refused.
+// and the shared coins were only spent, on that step at its price. Null when
+// it is refused.
 export function acceptMateHouse(run: Run, raw: unknown, seat = 1): Run | null {
   const prev = run.mates?.[seat - 1];
   if (!run.coop || !prev || run.page === 'combat') return null;
@@ -2087,12 +2096,19 @@ export function acceptMateHouse(run: Run, raw: unknown, seat = 1): Run | null {
   let lostStuff = 0;
   for (const [id, n] of stuffNow) if (n > (stuff.get(id) ?? 0)) return null;
   for (const [id, n] of stuff) lostStuff += n - (stuffNow.get(id) ?? 0);
+  // The only thing a guest pays for in its house is a step of growth, and the
+  // price is the host's to say: the coins the guest reports are what is left.
+  const price =
+    next.houseLevel > prev.houseLevel
+      ? HOUSE_EXPANSION_COSTS[prev.houseLevel]
+      : 0;
   if (
     prev.rescued.length !== next.rescued.length ||
     !prev.rescued.every((id) => next.rescued.includes(id)) ||
     next.houseLevel < prev.houseLevel ||
     next.houseLevel > prev.houseLevel + 1 ||
-    o.coins > run.coins ||
+    price === undefined ||
+    o.coins !== run.coins - price ||
     o.coins < 0 ||
     o.scrap < 0 ||
     o.scrap > run.scrap + 3 * (lost + lostStuff)
@@ -2814,6 +2830,7 @@ export function finishRun(
         ...meta.seen,
         ...run.items.filter((x): x is string => !!x),
         ...run.backpack.map((i) => i.id),
+        ...run.furniture.map((f) => f.id),
       ]),
     ],
     dailyBest: { ...meta.dailyBest },

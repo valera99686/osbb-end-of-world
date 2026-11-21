@@ -2,6 +2,7 @@
 // closed tab, a dropped link, a phone that slept) can come back to the very
 // same raid: a guest keeps its seat and its token, the host keeps the code of
 // the room and the tokens of its guests.
+import { normalizeCode } from '@/lib/game/net';
 import type { SavedSeat } from '@/lib/game/session';
 
 export const GUEST_ROOM_KEY = 'osbb.room';
@@ -43,7 +44,7 @@ const write = (key: string, value: unknown) => {
 const fresh = (at: unknown) =>
   typeof at === 'number' && Date.now() - at < KEEP && Date.now() >= at - 60000;
 const code = (x: unknown) =>
-  typeof x === 'string' && /^[A-Z0-9]{5}$/.test(x) ? x : '';
+  typeof x === 'string' && normalizeCode(x) === x ? x : '';
 
 export function loadGuestRoom(build: string): GuestRoom | null {
   const v = read(GUEST_ROOM_KEY);

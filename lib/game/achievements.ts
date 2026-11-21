@@ -1,5 +1,9 @@
 import { RESIDENTS } from './residents';
-import { RESEARCH } from './data';
+import { ITEM_BY_ID, RESEARCH } from './data';
+import { FURNITURE_BY_ID } from './furniture';
+import { ENEMY_KEYS, LEADERS } from './gallery';
+import { activeEquipment } from './equipment';
+import { PERK_BY_ID, type PerkId } from './upgrades';
 import type { Meta, Run } from './model';
 import { CLUES } from './story';
 
@@ -61,6 +65,23 @@ const ending =
   (id: 'a' | 'b' | 'c' | 'd'): Check =>
   (meta) =>
     (meta.endings ?? []).includes(id);
+// 0.44.0: what has been in hand, who has been met, what a raid was built of.
+const held = (meta: Meta, kind: 'module' | 'furniture') =>
+  meta.seen.filter((id) =>
+    kind === 'module' ? !!ITEM_BY_ID[id] : !!FURNITURE_BY_ID[id],
+  ).length;
+const metAll = (meta: Meta, keys: readonly string[]) =>
+  keys.every((k) => (meta.met ?? []).includes(k));
+const LEADER_KEYS = LEADERS.flatMap((l) => [l.boss.key, l.mini.key]);
+// A perk taken as many times as it can be (those that can be taken twice or more).
+const perkMaxed = (run: Run | null) => {
+  const n = new Map<string, number>();
+  for (const id of run?.perks ?? []) n.set(id, (n.get(id) ?? 0) + 1);
+  return [...n].some(([id, k]) => {
+    const perk = PERK_BY_ID[id as PerkId];
+    return !!perk && perk.max >= 2 && k >= perk.max;
+  });
+};
 const DEFINITIONS: (Achievement & { check: Check })[] = [
   {
     id: 'first_run',
@@ -388,6 +409,83 @@ const DEFINITIONS: (Achievement & { check: Check })[] = [
     icon: 'HeartHandshake',
     check: lifetime('coopRevives', 5),
   },
+  {
+    id: 'collector_25',
+    title: 'Колекціонер',
+    text: 'Потримай у руках 25 різних модулів.',
+    icon: 'Search',
+    check: (meta) => held(meta, 'module') >= 25,
+  },
+  {
+    id: 'collector_60',
+    title: 'Склад ОСББ',
+    text: 'Потримай у руках 60 різних модулів.',
+    icon: 'FolderOpen',
+    check: (meta) => held(meta, 'module') >= 60,
+  },
+  {
+    id: 'furniture_15',
+    title: 'Затишок',
+    text: 'Потримай у руках 15 різних меблів.',
+    icon: 'Star',
+    check: (meta) => held(meta, 'furniture') >= 15,
+  },
+  {
+    id: 'bestiary',
+    title: 'Бестіарій',
+    text: 'Зустрінь у боях усіх 18 ворогів.',
+    icon: 'Skull',
+    check: (meta) => metAll(meta, ENEMY_KEYS),
+  },
+  {
+    id: 'leaders_all',
+    title: 'Усі в обличчя',
+    text: 'Зустрінь усіх 9 босів і 9 мінібосів.',
+    icon: 'Crown',
+    check: (meta) => metAll(meta, LEADER_KEYS),
+  },
+  {
+    id: 'price_of_power',
+    title: 'Ціна сили',
+    text: 'Виграй експедицію з трьома модулями з мінусом у квартирах.',
+    icon: 'Flame',
+    check: (_, run, won) =>
+      finalWin(run, won) &&
+      activeEquipment(run).filter(({ id }) =>
+        Object.values(ITEM_BY_ID[id]?.stats ?? {}).some((v) => v < 0),
+      ).length >= 3,
+  },
+  {
+    id: 'perks_10',
+    title: 'Сусідська підтримка',
+    text: 'Візьми 10 перків за одну експедицію.',
+    icon: 'HeartHandshake',
+    check: (_, run) => (run?.perks?.length ?? 0) >= 10,
+  },
+  {
+    id: 'perk_max',
+    title: 'До упору',
+    text: 'Візьми перк стільки разів, скільки можна (якщо його можна взяти двічі чи більше).',
+    icon: 'Medal',
+    check: (_, run) => perkMaxed(run),
+  },
+  {
+    id: 'housewarming',
+    title: 'Новосілля',
+    text: 'Постав 6 меблів у квартири за одну експедицію.',
+    icon: 'Sparkles',
+    check: (_, run) =>
+      (run?.furniture ?? []).filter((f) => f.resident && f.cell !== null)
+        .length >= 6,
+  },
+  {
+    id: 'full_entrance',
+    title: 'Повний під’їзд',
+    text: 'Переможіть боса локації вчотирьох.',
+    icon: 'Users',
+    check: (_, run) =>
+      (run?.mates?.length ?? 0) >= 3 && (run?.bossesDefeated ?? 0) >= 1,
+  },
   // Hidden ones: found by a code or by a habit, not by a goal.
   {
     id: 'konami',
@@ -414,8 +512,10 @@ export const ACHIEVEMENTS: Achievement[] = DEFINITIONS.map(
       ? { id, title, text, icon, secret, hint }
       : { id, title, text, icon },
 );
-export const ACHIEVEMENT_BY_ID: Record<string, Achievement> =
-  Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a]));
+export const ACHIEVEMENT_BY_ID: Record<string, Achievement> = Object.assign(
+  Object.create(null),
+  Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a])),
+);
 export function newAchievements(
   meta: Meta,
   run: Run | null,

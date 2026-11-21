@@ -18,6 +18,7 @@ import { Currency } from './hud-parts';
 import { CHARACTERS } from '@/lib/game/data';
 import { readMapRun, readView } from '@/lib/game/model';
 import {
+  formatCode,
   normalizeCode,
   parseRelay,
   ROOM_LENGTH,
@@ -29,6 +30,7 @@ import type { NetSession } from '@/lib/game/session';
 import type { BattleResult } from '@/lib/game/engine';
 import type { Meta } from '@/lib/game/model';
 import { GuestAside, GuestPages, useGuestHouse } from './guest-home';
+import { NickField } from './settings';
 import { matesOf } from './vote';
 
 const RouteTree = lazy(() =>
@@ -150,9 +152,16 @@ export function OnlinePanel({
   savedHost,
   onResume,
   onForget,
+  nick,
+  myHero,
+  onNick,
 }: {
   session: NetSession | null;
   build: string;
+  // The name typed for the room, the hero's name in its place, and its change.
+  nick: string;
+  myHero: string;
+  onNick: (nick: string) => void;
   // A room this device was thrown out of (as a guest), and the room of the raid
   // this device hosted before the page closed: ways back into the same game.
   savedRoom?: { code: string } | null;
@@ -230,6 +239,7 @@ export function OnlinePanel({
       )}
       {!session && (
         <>
+          <NickField value={nick} hero={myHero} onChange={onNick} />
           <div className="online-actions">
             <button type="button" className="secondary" onClick={onHost}>
               <Users size={18} />
@@ -325,7 +335,7 @@ export function OnlinePanel({
                   <b
                     aria-label={`Код кімнати ${session.code.split('').join(' ')}`}
                   >
-                    {session.code}
+                    {formatCode(session.code)}
                   </b>
                   <button
                     type="button"
@@ -367,7 +377,7 @@ export function OnlinePanel({
             </b>{' '}
             Тисни «Вирушити в рейд»: усі будуть поруч у кожному бою.
             {free > 0 &&
-              ` Можна запросити ще ${free}: скажи їм код ${session.code}.`}
+              ` Можна запросити ще ${free}: скажи їм код ${formatCode(session.code)}.`}
             {session.via === 'relay' &&
               ' З’єднання когось іде через резервний канал: затримка більша, а бій рахуєш лише ти.'}
           </p>
@@ -434,6 +444,20 @@ export function GuestRoom({
       <p className="guest-status">
         {session.status || 'Чекаємо, поки господар дійде до бою.'}
       </p>
+      {!view && session.roster.length > 0 && (
+        <ul className="room-guests" aria-label="Гравці в кімнаті">
+          {session.roster.map((r) => (
+            <li key={r.seat} className={r.here ? '' : 'away'}>
+              <b>{session.nameOf(r.seat)}</b>
+              <small>
+                {heroName(r.hero)}
+                {r.seat === 0 && ' · господар'}
+                {r.seat === session.seat && ' · це ти'}
+              </small>
+            </li>
+          ))}
+        </ul>
+      )}
       {voting && map && ballot && (
         <Suspense fallback={null}>
           <RouteTree

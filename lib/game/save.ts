@@ -28,6 +28,7 @@ import {
   STORY_REVISION,
 } from './cutscenes';
 import { ACHIEVEMENT_BY_ID } from './achievements';
+import { knownMet, metBefore } from './gallery';
 import { DATE_KEY, heatCap, pactOf } from './modes';
 import { MAX_PLAYERS } from './coop';
 import { isSecret } from './secrets';
@@ -308,9 +309,16 @@ export function readSave(raw: string | null): {
       : [];
     base.sound = m.sound !== false;
     base.houseLevel = Math.floor(finite(m.houseLevel, 0, 3, 0));
+    // Modules and furniture once in hand (their ids never clash).
     base.seen = Array.isArray(m.seen)
-      ? m.seen.filter((id: unknown) => typeof id === 'string' && ITEM_BY_ID[id])
+      ? m.seen.filter(
+          (id: unknown) =>
+            typeof id === 'string' && (ITEM_BY_ID[id] || FURNITURE_BY_ID[id]),
+        )
       : [];
+    base.met = Array.isArray(m.met)
+      ? [...new Set<string>(m.met.filter(knownMet))]
+      : metBefore(base.runs, base.bestDepth);
     for (const k of RESEARCH.map((r) => r.id))
       base.research[k] = Math.floor(finite(m.research?.[k], 0, 1, 0));
     // Levelled research became one-off run modifiers in 0.11: every core
@@ -326,7 +334,7 @@ export function readSave(raw: string | null): {
         ...(Array.isArray(m.unlocked)
           ? m.unlocked.filter((id: string) => !!ITEM_BY_ID[id])
           : []),
-        ...base.seen,
+        ...base.seen.filter((id) => !!ITEM_BY_ID[id]),
       ]),
     ];
     const opened = unlock(base);

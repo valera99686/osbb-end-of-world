@@ -146,6 +146,7 @@ test('Settings are merged over defaults and clamped to the allowed steps', () =>
     damageNumbers: false,
     reducedFlashes: false,
     fps: false, // not in the stored settings: off
+    nick: '', // not in the stored settings: the hero's name
   });
   meta.settings = 'broken';
   assert.deepEqual(

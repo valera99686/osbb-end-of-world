@@ -6,9 +6,12 @@
 // used only when the direct connection did not come up, and the host then
 // counts the fights alone (net.ts ShareMode 'host'), which a late link suits.
 //
-// A room is the topics `osbb17/CODE/up` (guest to host) and
-// `osbb17/CODE/to/GUEST` (host to one guest). The host listens on every broker
-// it can reach; a guest tries them one after the other until the host answers.
+// A room is the topics `osbb18/TAG/up` (guest to host) and
+// `osbb18/TAG/to/GUEST` (host to one guest). The TAG and the key that seals
+// every message come from the room code (lib/game/relay-crypto.ts): the broker
+// is somebody else's, and sees neither the code nor a word of the game. The
+// host listens on every broker it can reach; a guest tries them one after the
+// other until the host answers.
 //
 // The voice reads the microphone with a ScriptProcessorNode: it is deprecated,
 // but the replacement (an AudioWorklet) needs a module file of its own, and the
@@ -23,6 +26,7 @@ import {
   subscribePacket,
 } from '@/lib/game/mqtt';
 import type { Link, Msg, VoiceLink } from '@/lib/game/net';
+import { deriveRoom, type Room } from '@/lib/game/relay-crypto';
 import {
   decodeLaw,
   Framer,
@@ -32,12 +36,21 @@ import {
   VOX,
 } from '@/lib/game/vox';
 
-export const BROKERS = [
-  'wss://broker.emqx.io:8084/mqtt',
-  'wss://broker.hivemq.com:8884/mqtt',
-  'wss://test.mosquitto.org:8081/',
-  'wss://mqtt.eclipseprojects.io:443/mqtt',
-];
+// A dev server can use a broker on this computer instead of the public ones:
+// ?broker=18830 in the address is the port, the host is always this machine, so
+// a link cannot send the page's traffic anywhere else.
+const DEV_PORT = import.meta.env.DEV
+  ? Number(new URLSearchParams(location.search).get('broker'))
+  : 0;
+export const BROKERS =
+  Number.isInteger(DEV_PORT) && DEV_PORT >= 1024 && DEV_PORT <= 65535
+    ? [`ws://127.0.0.1:${DEV_PORT}`]
+    : [
+        'wss://broker.emqx.io:8084/mqtt',
+        'wss://broker.hivemq.com:8884/mqtt',
+        'wss://test.mosquitto.org:8081/',
+        'wss://mqtt.eclipseprojects.io:443/mqtt',
+      ];
 const CONNECT_TIMEOUT = 6000;
 const KNOCK_EVERY = 1200;
 const KNOCK_TIMEOUT = 4500;
@@ -45,8 +58,12 @@ const KNOCK_TIMEOUT = 4500;
 const SILENCE = 20000;
 const BEAT = 5000;
 
-const root = (code: string) => `osbb17/${code}`;
-const rand = () => Math.random().toString(36).slice(2, 10);
+const root = (room: Room) => `osbb18/${room.tag}`;
+// Unguessable: whoever knows a guest's id could speak for it on the link.
+const randomId = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) =>
+    b.toString(36).padStart(2, '0'),
+  ).join('');
 
 // One connection to one broker.
 class Broker {
@@ -56,7 +73,14 @@ class Broker {
   private nextId = 1;
   onPublish: ((topic: string, body: unknown) => void) | null = null;
   onClose: (() => void) | null = null;
-  constructor(readonly url: string) {}
+  // Sealing and opening are asynchronous; they are chained so that messages go
+  // out and come in in the order they were given, as the layers above expect.
+  private inbox: Promise<void> = Promise.resolve();
+  private outbox: Promise<void> = Promise.resolve();
+  constructor(
+    readonly url: string,
+    private room: Room,
+  ) {}
   connect(): Promise<boolean> {
     return new Promise((resolve) => {
       let settled = false;
@@ -72,7 +96,7 @@ class Broker {
         const ws = new WebSocket(this.url, 'mqtt');
         ws.binaryType = 'arraybuffer';
         this.ws = ws;
-        ws.onopen = () => ws.send(connectPacket('osbb-' + rand()));
+        ws.onopen = () => ws.send(connectPacket('osbb-' + randomId()));
         ws.onerror = () => done(false);
         ws.onclose = () => {
           if (!settled) done(false);
@@ -93,14 +117,10 @@ class Broker {
                   done(true);
                 } else done(false);
               } else if (p.type === 'publish') {
-                let body: unknown = null;
-                try {
-                  body = JSON.parse(p.payload);
-                } catch {
-                  // Not ours: ignored.
-                }
-                if (body && typeof body === 'object')
-                  this.onPublish?.(p.topic, body);
+                const { topic, payload } = p;
+                this.inbox = this.inbox
+                  .then(() => this.hear(topic, payload))
+                  .catch((e) => console.error(e));
               }
             }
           } catch {
@@ -112,14 +132,32 @@ class Broker {
       }
     });
   }
-  private raw(data: Uint8Array) {
+  private raw(data: Uint8Array<ArrayBuffer>) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(data);
   }
   subscribe(topic: string) {
     this.raw(subscribePacket(this.nextId++, topic));
   }
   publish(topic: string, body: unknown) {
-    this.raw(publishPacket(topic, JSON.stringify(body)));
+    const text = JSON.stringify(body);
+    this.outbox = this.outbox
+      .then(async () =>
+        this.raw(publishPacket(topic, await this.room.seal(topic, text))),
+      )
+      .catch((e) => console.error(e));
+  }
+  // Opens what a broker passed on; anything that is not sealed for this room
+  // (another room's, a stranger's, a changed one) is dropped without a word.
+  private async hear(topic: string, sealed: string) {
+    const text = await this.room.open(topic, sealed);
+    if (text === null) return;
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (body && typeof body === 'object') this.onPublish?.(topic, body);
   }
   close() {
     window.clearInterval(this.timer);
@@ -296,17 +334,17 @@ class RelayVoice implements VoiceLink {
   ) {}
   static async open(
     url: string,
-    code: string,
+    room: Room,
     role: 'host' | 'guest',
     gid: string,
   ): Promise<RelayVoice | null> {
     if (typeof AudioContext === 'undefined') return null;
-    const b = new Broker(url);
+    const b = new Broker(url, room);
     if (!(await b.connect())) return null;
     const mine = role === 'host' ? 'vh' : 'vg',
       theirs = role === 'host' ? 'vg' : 'vh';
-    const voice = new RelayVoice(b, `${root(code)}/${mine}`, gid);
-    b.subscribe(`${root(code)}/${theirs}`);
+    const voice = new RelayVoice(b, `${root(room)}/${mine}`, gid);
+    b.subscribe(`${root(room)}/${theirs}`);
     b.onPublish = (_t, body) => voice.hear(body);
     b.onClose = () => voice.dispose();
     return voice;
@@ -402,19 +440,20 @@ export async function listenRelay(
   code: string,
   on: { guest: (link: Link) => void; taken?: () => boolean },
 ): Promise<RelayHandle> {
-  const up = `${root(code)}/up`;
+  const room = await deriveRoom(code);
+  const up = `${root(room)}/up`;
   const brokers: Broker[] = [];
   const guests = new Map<string, RelayLink>();
   let closed = false;
   const listen = async (url: string) => {
-    const b = new Broker(url);
+    const b = new Broker(url, room);
     if (!(await b.connect()) || closed) {
       b.close();
       return;
     }
     brokers.push(b);
     b.subscribe(up);
-    const to = (id: string) => `${root(code)}/to/${id}`;
+    const to = (id: string) => `${root(room)}/to/${id}`;
     b.onPublish = (_topic, body) => {
       const m = body as Record<string, unknown>;
       const id = typeof m.g === 'string' && /^[a-z0-9]{4,16}$/.test(m.g) ? m.g : '';
@@ -439,7 +478,7 @@ export async function listenRelay(
       guests.set(id, link);
       b.publish(to(id), { k: 'ack' });
       on.guest(link);
-      void RelayVoice.open(b.url, code, 'host', id).then((v) => link.giveVoice(v));
+      void RelayVoice.open(b.url, room, 'host', id).then((v) => link.giveVoice(v));
     };
   };
   await Promise.all(BROKERS.map(listen));
@@ -457,14 +496,15 @@ export function joinRelay(
   code: string,
   on: { link: (link: Link) => void; busy: () => void; fail: () => void },
 ): RelayHandle {
-  const id = rand();
+  const id = randomId();
   let stopped = false;
   let current: Broker | null = null;
   let link: RelayLink | null = null;
   const run = async () => {
+    const room = await deriveRoom(code);
     for (const url of BROKERS) {
       if (stopped) return;
-      const b = new Broker(url);
+      const b = new Broker(url, room);
       current = b;
       if (!(await b.connect())) continue;
       const answer = await new Promise<'ack' | 'busy' | ''>((resolve) => {
@@ -475,23 +515,23 @@ export function joinRelay(
           resolve(v);
         };
         const limit = setTimeout(() => stop(''), KNOCK_TIMEOUT);
-        b.subscribe(`${root(code)}/to/${id}`);
+        b.subscribe(`${root(room)}/to/${id}`);
         b.onPublish = (_t, body) => {
           const m = body as Record<string, unknown>;
           if (m.k === 'ack') {
             // From here on, what the host says is for the link.
             link = new RelayLink(
-              (out) => b.publish(`${root(code)}/up`, { g: id, ...(out as object) }),
+              (out) => b.publish(`${root(room)}/up`, { g: id, ...(out as object) }),
               () => b.close(),
             );
             const made = link;
-            void RelayVoice.open(b.url, code, 'guest', id).then((v) => made.giveVoice(v));
+            void RelayVoice.open(b.url, room, 'guest', id).then((v) => made.giveVoice(v));
             b.onPublish = (_x, more) => link?.take(more as Record<string, unknown>);
             b.onClose = () => link?.shut();
             stop('ack');
           } else if (m.k === 'busy') stop('busy');
         };
-        const send = () => b.publish(`${root(code)}/up`, { g: id, k: 'knock' });
+        const send = () => b.publish(`${root(room)}/up`, { g: id, k: 'knock' });
         // Subscribed first, so that the answer is not missed.
         setTimeout(send, 250);
         knock = window.setInterval(send, KNOCK_EVERY);

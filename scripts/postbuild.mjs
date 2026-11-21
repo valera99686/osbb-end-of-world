@@ -4,6 +4,46 @@ import { createHash } from 'node:crypto';
 // Same folder and base path as vite.game.config.ts (OSBB_OUT, OSBB_BASE).
 const out = process.env.OSBB_OUT ?? 'build';
 const base = `/${(process.env.OSBB_BASE ?? '/').replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/');
+// The page may talk to itself and to the servers of online rooms, and run only
+// its own scripts: a hole in the page cannot send anything anywhere else.
+// Static hosting cannot set headers, so the policy is a <meta> in index.html.
+// The brokers are those of app/relay-link.ts (tests/hardening.test.cjs checks).
+const connect = [
+  "'self'",
+  'data:',
+  'blob:',
+  'https://0.peerjs.com',
+  'wss://0.peerjs.com',
+  'wss://broker.emqx.io:8084',
+  'wss://broker.hivemq.com:8884',
+  'wss://test.mosquitto.org:8081',
+  'wss://mqtt.eclipseprojects.io:443',
+];
+const policy = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "font-src 'self' data:",
+  `connect-src ${connect.join(' ')}`,
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join('; ');
+const page = join(out, 'index.html');
+const html = await readFile(page, 'utf8');
+if (!html.includes('Content-Security-Policy')) {
+  const sealed = html.replace(
+    '<meta charset="UTF-8"/>',
+    `<meta charset="UTF-8"/><meta http-equiv="Content-Security-Policy" content="${policy}"/>`,
+  );
+  if (sealed === html) throw new Error('index.html has no <meta charset> to put the policy after');
+  await writeFile(page, sealed);
+}
 async function walk(dir) {
   const res = [];
   for (const e of await readdir(dir, { withFileTypes: true })) {

@@ -144,3 +144,28 @@ test('A house of nothing but minuses still fights', () => {
     item.stats = saved;
   }
 });
+
+test('The gallery remembers who was met, keeps it in the save and fills old profiles', () => {
+  const G = require('../.test-build/gallery.js');
+  const MB = require('../.test-build/minibosses.js');
+  assert.equal(G.ENEMY_KEYS.length, 18);
+  assert.equal(G.LEADERS.length, 9);
+  assert.equal(G.metKey(99, 0, 1, 0), 'boss:scrap-press');
+  assert.equal(G.metKey(MB.MINIBOSS_TYPE, 2, 0, 2), 'mini:2-2');
+  assert.equal(G.metKey(4, 0, 0, 0), 'enemy:4');
+  assert.equal(G.metKey(97, 0, 0, 0), null, 'a helper of a leader is not an entry');
+  // Saved and read back: unknown keys drop, known ones stay.
+  const meta = { ...M.initialMeta(), runs: 1, met: ['enemy:4', 'boss:queen', 'enemy:999', 7] };
+  const back = M.readSave(M.saveData(meta, null)).meta;
+  assert.deepEqual(back.met, ['enemy:4', 'boss:queen']);
+  // A profile from before the gallery: the enemies of the locations it reached.
+  const old = { ...M.initialMeta(), runs: 3, bestDepth: 12 };
+  delete old.met;
+  const filled = M.readSave(M.saveData(old, null)).meta.met;
+  assert.equal(filled.length, 12, 'locations one and two');
+  assert.ok(G.withMet(back, ['enemy:4']) === back, 'nothing new, the same profile');
+  // Furniture held stays held after a reload, and does not open as a module.
+  const held = M.readSave(M.saveData({ ...M.initialMeta(), seen: ['lathe', 'cannon'] }, null)).meta;
+  assert.deepEqual(held.seen, ['lathe', 'cannon']);
+  assert.ok(!held.unlocked.includes('lathe'));
+});

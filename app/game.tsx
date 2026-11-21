@@ -21,10 +21,13 @@ import {
   type HostRoom as SavedHostRoom,
 } from './rooms';
 import {
+  FURNITURE,
   FURNITURE_BY_ID,
   canFurnish,
   furnitureEffect,
 } from '@/lib/game/furniture';
+import { withMet } from '@/lib/game/gallery';
+import { Gallery } from './gallery';
 import {
   battleRewards,
   advanceLocation,
@@ -137,6 +140,7 @@ import './features.css';
 import './mobile.css';
 import { HouseAside, PartnerHouse } from './house-aside';
 import { ChatDock } from './chat-dock';
+import { cleanNick } from '@/lib/game/chat';
 import { CvdFilters } from './cvd-filters';
 import { endVoice } from './voice-chat';
 import { ItemCard, rewardNote, shopNote, takenText } from './item-card';
@@ -184,7 +188,6 @@ import {
   ITEM_BY_ID,
   CHAPTERS,
   CHARACTERS,
-  UNLOCK_TEXT,
 } from '@/lib/game/data';
 import {
   initialMeta,
@@ -380,8 +383,6 @@ export default function Game() {
     // Co-op shop: whose house the next purchase is for.
     [buyFor, setBuyFor] = useState<'host' | 'mate'>('host'),
     [result, setResult] = useState<Result | null>(null),
-    [search, setSearch] = useState(''),
-    [filter, setFilter] = useState('all'),
     [abandon, setAbandon] = useState(false),
     [native, setNative] = useState(false),
     [sceneQueue, setSceneQueue] = useState<string[]>([]);
@@ -789,6 +790,8 @@ export default function Game() {
   const livePartner = net?.role === 'host' && net.phase === 'connected';
   const nameOf = (id: string) =>
     CHARACTERS.find((c) => c.id === id)?.name ?? id;
+  // What the others in a room see this player as: the typed nick, else the hero.
+  const onlineName = cleanNick(meta.settings.nick) || nameOf(character);
   // A partner's house in the texts: the player's name online, else their hero.
   const houseName = (seat: number) =>
     run?.coop
@@ -944,7 +947,7 @@ export default function Game() {
       roomHandle.current = null;
       const room = new NetSession('guest', APP_VERSION, {
         hero: character,
-        name: nameOf(character),
+        name: onlineName,
       });
       room.code = rejoin.room.code;
       room.seat = rejoin.room.seat;
@@ -1297,7 +1300,7 @@ export default function Game() {
     closeOnline();
     const room = new NetSession('host', APP_VERSION, {
       hero: character,
-      name: nameOf(character),
+      name: onlineName,
     });
     room.mode = shareMode;
     setNet(room);
@@ -1323,7 +1326,7 @@ export default function Game() {
     closeOnline(true);
     const room = new NetSession('host', APP_VERSION, {
       hero: character,
-      name: nameOf(character),
+      name: onlineName,
     });
     room.mode = saved.mode;
     room.restore(saved.seats);
@@ -1351,7 +1354,7 @@ export default function Game() {
     closeOnline();
     const room = new NetSession('guest', APP_VERSION, {
       hero: character,
-      name: nameOf(character),
+      name: onlineName,
     });
     room.code = code;
     setNet(room);
@@ -1473,6 +1476,9 @@ export default function Game() {
     // A partner who left in the middle of the fight keeps their seat: they may
     // come back before the next one.
     const b = result;
+    // Who was met in this fight goes into the gallery.
+    const met = b.met ?? [];
+    if (met.length) setMeta((m) => withMet(m, met));
     const gate = b.boss && b.run.step === b.run.nodes.length - 1;
     // The boss met at the end of this location: it has last words of its own.
     const bossId = b.run.bossVariants
@@ -1512,7 +1518,7 @@ export default function Game() {
         daily = b.run.mode === 'daily',
         dayBest = daily ? (meta.dailyBest?.[b.run.daily] ?? 0) : 0,
         score = runScore(b.run, final);
-      const f = finishRun(meta, b.run, b.won);
+      const f = finishRun(withMet(meta, met), b.run, b.won);
       // The partners in the room get a share of the cores of this raid.
       if (livePartner && b.run.coop)
         net?.sendGift(
@@ -1619,6 +1625,7 @@ export default function Game() {
       ...next,
       boughtBy: { ...next.boughtBy, [index]: who },
     });
+    setMeta((m) => ({ ...m, seen: [...new Set([...m.seen, id])] }));
     if (who > 0) ping(`Меблі для дому ${houseName(who)}.`);
     else offerPlace(next, run.nextFurnitureId);
   }
@@ -1851,7 +1858,7 @@ export default function Game() {
               : screen === 'workshop'
                 ? 'МАЙСТЕРНЯ'
                 : screen === 'codex'
-                  ? 'КОДЕКС ЗНАХІДОК'
+                  ? 'ГАЛЕРЕЯ'
                   : screen === 'lore'
                     ? 'АРХІВ БУДИНКУ'
                     : screen === 'case'
@@ -1965,6 +1972,11 @@ export default function Game() {
                 <OnlinePanel
                   session={net}
                   build={APP_VERSION}
+                  nick={meta.settings.nick}
+                  myHero={nameOf(character)}
+                  onNick={(nick) =>
+                    setMeta((m) => ({ ...m, settings: { ...m.settings, nick } }))
+                  }
                   mode={shareMode}
                   hasRun={!!run}
                   onMode={(m) => {
@@ -2128,9 +2140,9 @@ export default function Game() {
                   className="text-button"
                   onClick={() => setScreen('codex')}
                 >
-                  <BookOpen size={18} /> Кодекс{' '}
+                  <BookOpen size={18} /> Галерея{' '}
                   <span className="tiny-count">
-                    {meta.unlocked.length}/{ITEMS.length}
+                    {meta.seen.length}/{ITEMS.length + FURNITURE.length}
                   </span>
                 </button>
                 <button
@@ -2511,6 +2523,10 @@ export default function Game() {
                                 return;
                               }
                               setRun(next);
+                              setMeta((m) => ({
+                                ...m,
+                                seen: [...new Set([...m.seen, loot.id])],
+                              }));
                               offerPlace(next, run.nextFurnitureId);
                             }}
                           />
@@ -2844,7 +2860,9 @@ export default function Game() {
                 );
                 setGuestEarned({ fight: pay, raid: 0 });
                 guestAdvance.current += pay;
-                if (pay) setMeta((m) => ({ ...m, cores: m.cores + pay }));
+                setMeta((m) =>
+                  withMet({ ...m, cores: m.cores + pay }, r.met ?? []),
+                );
                 setGuestResult(r);
                 setGuestFight(null);
               }}
@@ -2875,82 +2893,7 @@ export default function Game() {
           />
         </Suspense>
       )}
-      {screen === 'codex' && (
-        <section className="collection-page">
-          <button className="text-button" onClick={back}>
-            <ArrowLeft size={16} /> Головне меню
-          </button>
-          <p className="eyebrow">ЗНАЙОМСЯ. КОМБІНУЙ. ЕКСПЕРИМЕНТУЙ.</p>
-          <div className="collection-title">
-            <div>
-              <h2>Кодекс знахідок</h2>
-              <p className="lead">
-                {meta.unlocked.length} із {ITEMS.length} креслень відкрито.
-                Умови відомі — обирай власну ціль.
-              </p>
-            </div>
-            <BookOpen size={42} className="muted" />
-          </div>
-          <div className="codex-controls">
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Назва або ефект предмета…"
-              aria-label="Пошук предметів"
-            />
-            <div className="filter-buttons">
-              {[
-                ['all', 'Усі'],
-                ['open', 'Відкриті'],
-                ['locked', 'Закриті'],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  className={filter === id ? 'active' : ''}
-                  onClick={() => setFilter(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="codex-grid">
-            {ITEMS.filter(
-              (i) =>
-                (filter === 'all' ||
-                  (filter === 'open' && meta.unlocked.includes(i.id)) ||
-                  (filter === 'locked' && !meta.unlocked.includes(i.id))) &&
-                (i.name + ' ' + i.desc)
-                  .toLocaleLowerCase('uk')
-                  .includes(search.toLocaleLowerCase('uk')),
-            ).map((i) => (
-              <div
-                key={i.id}
-                className={meta.unlocked.includes(i.id) ? '' : 'locked-item'}
-              >
-                <ItemCard
-                  item={i}
-                  compact
-                  fresh={meta.fresh?.includes(i.id)}
-                  footer={
-                    <span className="unlock-rule">
-                      {meta.unlocked.includes(i.id) ? (
-                        <Check size={14} />
-                      ) : (
-                        <Lock size={14} />
-                      )}{' '}
-                      {meta.unlocked.includes(i.id)
-                        ? 'Є в нагородах і магазинах'
-                        : UNLOCK_TEXT[i.unlock]}
-                    </span>
-                  }
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {screen === 'codex' && <Gallery meta={meta} onBack={back} />}
       {screen === 'lore' && (
         <Suspense fallback={null}>
           <StoryLibrary meta={meta} onBack={back} onPlay={playScene} />
@@ -2980,6 +2923,7 @@ export default function Game() {
         native={native}
         locked={inCombat}
         hasProfileBackup={hasProfileBackup}
+        heroName={nameOf(character)}
         onChange={(settings: Settings) => setMeta((m) => ({ ...m, settings }))}
         onImport={importCode}
         onProfileAction={(action) => {
@@ -3306,7 +3250,7 @@ export default function Game() {
             </p>
             <p>
               <b>По мережі.</b> У Притулку «Хто грає?» → «По мережі»:
-              господар створює кімнату й каже другові код із п’яти символів, той
+              господар створює кімнату й каже другові код із восьми символів, той
               вводить його в «Приєднатися». Господар веде рейд, гість у боях
               веде другий будинок і отримує ядра у свій профіль. Працює між ПК і
               телефонами; потрібні інтернет і однакова версія гри.

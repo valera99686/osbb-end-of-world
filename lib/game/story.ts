@@ -255,8 +255,9 @@ export const CLUES: readonly Clue[] = [
     text: '«Керівник евакуації: не знайдено з 04:17. Команди надходять із пристрою ДМ-17».',
   },
 ];
-export const CLUE_BY_ID = Object.fromEntries(
-  CLUES.map((c) => [c.id, c]),
+export const CLUE_BY_ID = Object.assign(
+  Object.create(null),
+  Object.fromEntries(CLUES.map((c) => [c.id, c])),
 ) as Record<string, Clue>;
 
 export interface Ending {

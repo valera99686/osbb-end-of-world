@@ -209,3 +209,46 @@ test('Perks survive a save and unknown ids are dropped', () => {
   delete old.run.perks;
   assert.deepEqual(M.readSave(JSON.stringify(old)).run.perks, []);
 });
+
+// 0.44.0: twelve more perks.
+test('The 0.44.0 perks: forty in all, the stat ones read their own numbers', () => {
+  const T = require('../.test-build/stat-text.js');
+  assert.equal(U.PERKS.length, 40);
+  for (const id of ['girders', 'boost', 'thorn_fence', 'hoarder', 'borscht', 'night_scope', 'bandages', 'shortcut', 'call_sign']) {
+    const p = U.PERK_BY_ID[id];
+    const numbers = T.describeStats(p.rate ? { ...p.stats, rate: p.rate } : p.stats);
+    assert.ok(p.text.startsWith(numbers), `${id}: ${p.text}`);
+  }
+  // A minus is part of the deal: the girders slow the house down.
+  const meta = M.initialMeta(),
+    run = M.makeRun(meta, 'mechanic', 0, 7);
+  const before = M.statsFor(run, meta),
+    after = M.statsFor({ ...run, perks: ['girders'] }, meta);
+  assert.equal(after.health - before.health, 40);
+  assert.equal(after.speed - before.speed, -8);
+});
+
+test('Кур’єрський ривок shortens the dash, Польова медицина heals on it, Остання лінія hits harder when low', () => {
+  const plain = battle(),
+    quick = battle({ perks: ['courier_dash', 'courier_dash'] });
+  plain.dash();
+  quick.dash();
+  assert.ok(Math.abs(plain.dashCd - quick.dashCd - 1.2) < 1e-9);
+  const medic = battle({ perks: ['field_medic'] });
+  medic.run.hp = 50;
+  medic.dash();
+  assert.ok(Math.abs(medic.run.hp - (50 + medic.stats.health * 0.04)) < 1e-9);
+  // The same volley at a dummy: low on health, the last line adds 30%.
+  const hit = (perks, hp) => {
+    const b = battle({ perks });
+    b.stats.crit = 0;
+    b.run.hp = hp;
+    const e = dummy(b, b.x + 100, b.y);
+    b.shoot(b.x, b.y, e);
+    for (let i = 0; i < 20; i++) b.update(1 / 60);
+    return 500 - e.hp;
+  };
+  const low = 10;
+  assert.ok(Math.abs(hit(['last_line'], low) / hit([], low) - 1.3) < 0.02);
+  assert.equal(hit(['last_line'], 200), hit([], 200));
+});

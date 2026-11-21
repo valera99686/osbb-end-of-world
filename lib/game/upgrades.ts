@@ -1,4 +1,5 @@
 import type { Stat } from './data';
+import { describeStats } from './stat-text';
 import type { Run } from './model';
 
 // Level-up perks: a 1-of-3 draft inside the battle. Each perk belongs to a
@@ -32,7 +33,19 @@ export type PerkId =
   | 'homing'
   | 'shrapnel'
   | 'cold_shower'
-  | 'rhythm';
+  | 'rhythm'
+  | 'girders'
+  | 'boost'
+  | 'thorn_fence'
+  | 'hoarder'
+  | 'borscht'
+  | 'night_scope'
+  | 'bandages'
+  | 'shortcut'
+  | 'call_sign'
+  | 'courier_dash'
+  | 'field_medic'
+  | 'last_line';
 
 export interface Perk {
   id: PerkId;
@@ -46,6 +59,62 @@ export interface Perk {
   // Added to the fire-rate multiplier like item 'rate' stats.
   rate?: number;
 }
+
+// 0.44.0: a stat perk's text is its numbers and the neighbour's line.
+const statPerk = (
+  id: PerkId,
+  name: string,
+  owner: string,
+  rarity: Perk['rarity'],
+  max: number,
+  stats: NonNullable<Perk['stats']>,
+  line: string,
+  rate = 0,
+): Perk => ({
+  id,
+  name,
+  owner,
+  rarity,
+  max,
+  stats,
+  ...(rate ? { rate } : {}),
+  text: `${describeStats(rate ? { ...stats, rate } : stats)} ${line}`,
+});
+const PERKS_0_44: Perk[] = [
+  statPerk('girders', 'Посилені балки', 'mechanic', 1, 2, { health: 40, speed: -8 }, 'Петрович варить балки поверх стін.'),
+  statPerk('boost', 'Форсаж конденсаторів', 'spark', 2, 2, { health: -15 }, 'Іскра знімає запобіжники.', 0.25),
+  statPerk('thorn_fence', 'Колюча огорожа', 'flora', 1, 3, { thorns: 10, regen: 0.2 }, 'Флора садить терен під вікнами.'),
+  statPerk('hoarder', 'Запасливий', 'boris', 1, 2, { magnet: 60 }, 'Борис підбирає все, що блищить.'),
+  statPerk('borscht', 'Борщ на всіх', 'nina', 1, 3, { regen: 0.4, health: 10 }, 'Ніна варить на весь під’їзд.'),
+  statPerk('night_scope', 'Нічний приціл', 'lev', 1, 2, { crit: 0.08, range: 40 }, 'Микола бачить і в темряві.'),
+  statPerk('bandages', 'Бинти', 'marta', 1, 2, { armor: 1, regen: 0.3 }, 'Марта латає стіни, як людей.'),
+  statPerk('shortcut', 'Короткий шлях', 'danilo', 1, 3, { speed: 14, magnet: 30 }, 'Данило знає кожен прохід.'),
+  statPerk('call_sign', 'Позивний', 'solomia', 2, 1, { drones: 1 }, 'Соломія кличе ще один дрон.'),
+  {
+    id: 'courier_dash',
+    name: 'Кур’єрський ривок',
+    text: 'Ривок перезаряджається на 0,6 с швидше. Данило не чекає на зелене.',
+    owner: 'danilo',
+    rarity: 2,
+    max: 2,
+  },
+  {
+    id: 'field_medic',
+    name: 'Польова медицина',
+    text: 'Кожен ривок лікує 4% максимальної міцності. Марта бігає з аптечкою.',
+    owner: 'marta',
+    rarity: 2,
+    max: 2,
+  },
+  {
+    id: 'last_line',
+    name: 'Остання лінія',
+    text: 'Нижче 30% міцності залпи завдають +30% шкоди. Микола не відступає.',
+    owner: 'lev',
+    rarity: 2,
+    max: 1,
+  },
+];
 
 export const PERKS: readonly Perk[] = [
   {
@@ -284,10 +353,12 @@ export const PERKS: readonly Perk[] = [
     rarity: 3,
     max: 1,
   },
+  ...PERKS_0_44,
 ];
 
-export const PERK_BY_ID = Object.fromEntries(
-  PERKS.map((p) => [p.id, p]),
+export const PERK_BY_ID = Object.assign(
+  Object.create(null),
+  Object.fromEntries(PERKS.map((p) => [p.id, p])),
 ) as Record<PerkId, Perk>;
 
 export function perkLevel(run: Pick<Run, 'perks'>, id: PerkId) {

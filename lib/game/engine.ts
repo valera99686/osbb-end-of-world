@@ -372,6 +372,9 @@ export class Battle {
   } | null = null;
   outro = 0;
   pendingEnd: BattleResult | null = null;
+  // What this player has seen on the screen in this fight, for the gallery
+  // (filled by the drawing, so it is the same for a mirror).
+  met = new Set<string>();
   buzzFree = 0;
   edges: {
     w: number;
@@ -1112,7 +1115,12 @@ export class Battle {
       this.presenting
     )
       return;
-    this.dashCd = this.specials.dashCooldown;
+    this.dashCd = this.specials.dashCooldown - 0.6 * this.pk('courier_dash');
+    if (this.pk('field_medic'))
+      this.run.hp = Math.min(
+        this.stats.health,
+        this.run.hp + this.stats.health * 0.04 * this.pk('field_medic'),
+      );
     if (this.specials.dashShot) {
       this.dashCharged = true;
       this.label(this.x, this.y - 60, 'МАХОВИК ГОТОВИЙ', '#efbd68');
@@ -1278,7 +1286,9 @@ export class Battle {
       this.presenting
     )
       return;
-    a.dashCd = this.specials.dashCooldown;
+    a.dashCd = this.specials.dashCooldown - 0.6 * this.pkm('courier_dash', a.seat);
+    if (this.pkm('field_medic', a.seat))
+      this.healAlly(a.max * 0.04 * this.pkm('field_medic', a.seat), a);
     a.dashing = 0.22;
     a.invincible = Math.max(a.invincible, 0.55);
     a.dashKill = 0.8;
@@ -3405,7 +3415,19 @@ export class Battle {
       }
       if (this.specials.lastStand && this.run.hp < this.stats.health * 0.35)
         damage *= 1.3;
+      if (this.pk('last_line') && this.run.hp < this.stats.health * 0.3)
+        damage *= 1.3;
     }
+    // A partner's last line: its own health, its own volleys.
+    const partner = mate ? this.allyOf(seat) : null;
+    if (
+      partner &&
+      !drone &&
+      !replay &&
+      this.pkm('last_line', seat) &&
+      partner.hp < partner.max * 0.3
+    )
+      damage *= 1.3;
     // Відсотки: +1 damage per 10 coins in the till, up to +10.
     if (!replay && this.own('interest', seat))
       damage += Math.min(10, Math.floor(this.run.coins / 10));
@@ -3462,6 +3484,7 @@ export class Battle {
       run: { ...this.run },
       won,
       boss: this.run.kind === 'boss',
+      met: [...this.met],
     };
     // Headless runs (tests) report at once; a live battle plays an outro.
     if (!this.running) {

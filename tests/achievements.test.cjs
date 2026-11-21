@@ -4,7 +4,10 @@ const { readFileSync } = require('node:fs');
 const M = require('../.test-build/model.js');
 const A = require('../.test-build/achievements.js');
 const { BLUEPRINTS } = require('../.test-build/progression.js');
-const { CHARACTERS, RESEARCH } = require('../.test-build/data.js');
+const { CHARACTERS, RESEARCH, ITEMS } = require('../.test-build/data.js');
+const { FURNITURE } = require('../.test-build/furniture.js');
+const G = require('../.test-build/gallery.js');
+const E = require('../.test-build/equipment.js');
 const { RESIDENTS } = require('../.test-build/residents.js');
 const { CLUES } = require('../.test-build/story.js');
 
@@ -16,9 +19,14 @@ const RUN_ONLY = [
   'battle_100',
   'boss_no_hit',
   'events_3',
+  'full_entrance',
   'full_house',
+  'housewarming',
   'no_repair_win',
-];
+  'perk_max',
+  'perks_10',
+  'price_of_power',
+].sort(byText);
 // Every lifetime goal met at once, passed through a save so its clamps apply.
 function veteran() {
   const base = M.initialMeta();
@@ -50,13 +58,36 @@ function veteran() {
     winsByCharacter: Object.fromEntries(
       CHARACTERS.map((c) => [c.id, 1]),
     ),
+    // Everything held and everyone met (0.44.0).
+    seen: [...ITEMS.map((i) => i.id), ...FURNITURE.map((f) => f.id)],
+    met: [
+      ...G.ENEMY_KEYS,
+      ...G.LEADERS.flatMap((l) => [l.boss.key, l.mini.key]),
+    ],
   };
   return M.readSave(M.saveData(meta, null)).meta;
 }
 // A flawless final-location raid that meets every per-run goal.
 function heroicRun(meta, opts) {
+  const run = M.withCrew(M.makeRun(meta, 'mechanic', 2, 17, opts), [
+    'flora',
+    'spark',
+    'nina',
+  ]);
+  // Three modules with a minus in the mechanic's flat, six pieces of furniture
+  // in the others' flats, ten perks with one taken to its maximum.
+  const items = [...run.items];
+  ['overclock', 'glass_cannon', 'witch_clock'].forEach(
+    (id, i) => (items[E.apartmentSlot('mechanic', i + 1)] = id),
+  );
   return {
-    ...M.makeRun(meta, 'mechanic', 2, 17, opts),
+    ...run,
+    items,
+    furniture: ['nina', 'flora', 'spark', 'boris', 'lev', 'solomia'].map(
+      (resident, i) => ({ uid: i + 1, id: 'bench', resident, cell: 1 }),
+    ),
+    perks: ['rivets', 'rivets', 'rivets', 'arc', 'ivy', 'tea', 'cashier', 'searchlight', 'loud_voice', 'patrol'],
+    bossesDefeated: 2,
     repairs: 0,
     bossNoHit: 1,
     maxBattleKills: 100,

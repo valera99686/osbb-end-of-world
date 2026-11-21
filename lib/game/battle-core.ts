@@ -424,7 +424,13 @@ export interface Ally {
   volleys?: number;
   trailGap?: number;
 }
-export type BattleResult = { run: Run; won: boolean; boss: boolean };
+export type BattleResult = {
+  run: Run;
+  won: boolean;
+  boss: boolean;
+  // Enemies and leaders this player saw on the screen (gallery.ts keys).
+  met?: string[];
+};
 // How the last battle ended; tests and the balance audit read it.
 export type EndReason = 'cleared' | 'overtime' | 'leader' | 'timeout' | 'lost';
 // A boss or miniboss by its place in the catalogue (campaignBoss /

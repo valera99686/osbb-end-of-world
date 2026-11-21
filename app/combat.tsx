@@ -461,7 +461,11 @@ export function Combat({
         client.onEnd = (result) => {
           // The host's fight is over: the guest shows how it ended.
           window.setTimeout(
-            () => onDoneRef.current(result as BattleResult),
+            () =>
+              onDoneRef.current({
+                ...(result as BattleResult),
+                met: [...b.met],
+              }),
             900,
           );
         };

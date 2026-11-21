@@ -24,7 +24,24 @@ import {
   readBallot,
   type Ballot,
 } from './coop';
-import { CHAT, ChatLimiter, cleanChat, quickText, type ChatLine } from './chat';
+import {
+  CHAT,
+  ChatLimiter,
+  cleanChat,
+  cleanNick,
+  NICK_MAX,
+  quickText,
+  type ChatLine,
+} from './chat';
+
+// What the host is called in a room that has no nick for it.
+const HOST_NAME = 'Господар';
+// A seat as the host names it in a line of chat or a microphone: a whole
+// number inside the room, else the host's own.
+const roomSeat = (x: unknown): number =>
+  typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < MAX_PLAYERS
+    ? x
+    : 0;
 
 // What the host tells the guest while it is in a fight: when it says anything
 // else, the fight is over at the host.
@@ -234,7 +251,7 @@ export class NetSession {
     const row = (this.role === 'host' ? this.roomRoster() : this.roster).find(
       (r) => r.seat === seat,
     );
-    return row?.name?.trim() || (seat === 0 ? 'Господар' : `Гравець ${seat + 1}`);
+    return row?.name?.trim() || (seat === 0 ? HOST_NAME : `Гравець ${seat + 1}`);
   }
   // Whoever else has the microphone on.
   get partnerMic(): boolean {
@@ -309,7 +326,7 @@ export class NetSession {
     this.guests = seats.slice(0, MAX_PLAYERS - 1).map((s, i) => ({
       seat: i + 1,
       token: String(s.token),
-      partner: { hero: String(s.hero), name: String(s.name) },
+      partner: { hero: String(s.hero), name: cleanNick(s.name) },
       link: null,
     }));
     this.crewLocked = true;
@@ -402,13 +419,30 @@ export class NetSession {
   }
   // Host: a knock at the door: a new guest takes a free seat, one coming back
   // takes its own.
+  // The name a guest goes by here: its nick, or the nick and its seat number
+  // when the host, another guest or the word for the host already has it, so
+  // that nobody can pass for somebody else in the chat.
+  private roomName(nick: string, seat: number): string {
+    if (!nick) return '';
+    const key = (s: string) => s.trim().toLowerCase();
+    const taken = new Set(
+      [
+        this.me.name,
+        HOST_NAME,
+        ...this.guests.filter((g) => g.seat !== seat).map((g) => g.partner.name),
+      ].map(key),
+    );
+    if (!taken.has(key(nick))) return nick;
+    const stem = Array.from(nick).slice(0, NICK_MAX - 2).join('').trim();
+    return taken.has(key(`${stem} ${seat + 1}`)) ? '' : `${stem} ${seat + 1}`;
+  }
   private greet(m: Msg & { t: 'hello' }, link: Link) {
     if (m.v !== NET_PROTOCOL || m.build !== this.build) {
       link.send({ t: 'refuse', why: `version:${this.build}` });
       link.close();
       return;
     }
-    const name = typeof m.name === 'string' ? m.name.slice(0, 40) : '';
+    const name = cleanNick(m.name);
     let guest =
       typeof m.token === 'string' && m.token
         ? this.guests.find((g) => g.token === m.token && g.seat === m.seat)
@@ -418,7 +452,10 @@ export class NetSession {
       // Its old link may not have been noticed as dead yet.
       const old = guest.link;
       guest.link = link;
-      guest.partner = { hero: guest.partner.hero, name };
+      guest.partner = {
+        hero: guest.partner.hero,
+        name: this.roomName(name, guest.seat),
+      };
       if (old && old !== link) {
         old.onClose = null;
         old.onMessage = null;
@@ -444,7 +481,10 @@ export class NetSession {
       guest = {
         seat,
         token: makeToken(),
-        partner: { hero: m.hero, name },
+        partner: {
+          hero: typeof m.hero === 'string' ? m.hero.slice(0, 40) : '',
+          name: this.roomName(name, seat),
+        },
         link,
       };
       this.guests.push(guest);
@@ -470,6 +510,8 @@ export class NetSession {
   }
   private handle(m: Msg, from: Link) {
     this.heardAt.set(from, Date.now());
+    // The other end can send anything at all: only an object is a message.
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return;
     if (m.t === 'ping') return;
     const guest = this.role === 'host' ? this.guestOf(from) : undefined;
     // A host hears only the guests it has greeted.
@@ -494,14 +536,18 @@ export class NetSession {
         this.change();
         return;
       case 'refuse':
-        this.error = m.why;
+        // Only the host turns a guest away, and only in words.
+        if (this.role !== 'guest') return;
+        this.error =
+          typeof m.why === 'string' ? m.why.slice(0, 120) : 'net:Вхід відхилено.';
         this.phase = 'refused';
         this.hostLink?.close();
         this.hostLink = null;
         this.change();
         return;
       case 'status':
-        this.status = m.text;
+        if (this.role !== 'guest') return;
+        this.status = typeof m.text === 'string' ? m.text.slice(0, 200) : '';
         this.change();
         return;
       case 'map':
@@ -613,7 +659,7 @@ export class NetSession {
       case 'chat': {
         // Somebody says something: a line of text or a quick phrase, kept
         // short and clean, and only so fast. The host passes a guest's line on.
-        const seat = guest ? guest.seat : Number.isInteger(m.seat) ? (m.seat as number) : 0;
+        const seat = guest ? guest.seat : roomSeat(m.seat);
         if (seat === this.seat && this.role === 'guest') return;
         const text = m.q !== undefined ? quickText(m.q) : cleanChat(m.text);
         let limiter = this.limiters.get(seat);
@@ -637,7 +683,7 @@ export class NetSession {
         return;
       }
       case 'voice': {
-        const seat = guest ? guest.seat : Number.isInteger(m.seat) ? (m.seat as number) : 0;
+        const seat = guest ? guest.seat : roomSeat(m.seat);
         this.mics[seat] = !!m.on;
         if (guest)
           this.sendTo(
@@ -678,7 +724,7 @@ export class NetSession {
         (r): RosterRow => ({
           seat: r.seat,
           hero: r.hero.slice(0, 40),
-          name: r.name.slice(0, 40),
+          name: cleanNick(r.name),
           here: !!r.here,
           mic: !!r.mic,
           via: r.via === 'relay' ? 'relay' : 'p2p',

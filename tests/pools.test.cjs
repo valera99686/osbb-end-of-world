@@ -407,8 +407,15 @@ test('The host takes the guest rearranging its house only when nothing came from
   assert.equal(ask({ ...house, houseLevel: 2 }), null);
   const grown = ask({ ...house, houseLevel: 1 }, run.coins - 200);
   assert.equal(grown, null, 'the coins would go below nothing');
-  const paid = ask({ ...house, houseLevel: 1 }, run.coins - 50);
-  assert.ok(paid && paid.mates[0].houseLevel === 1 && paid.coins === 50);
+  // A step of growth costs what the host knows it costs, not what the guest says.
+  const rich = { ...run, coins: 300 };
+  const grow = (coins) =>
+    M.acceptMateHouse(rich, { house: { ...house, houseLevel: 1 }, coins, scrap: rich.scrap });
+  assert.equal(grow(250), null, 'underpaying is refused');
+  assert.equal(grow(0), null, 'overpaying is refused too');
+  const paid = grow(100);
+  assert.ok(paid && paid.mates[0].houseLevel === 1 && paid.coins === 100);
+  assert.equal(ask(house, run.coins - 50), null, 'coins cannot just be burned');
   assert.equal(ask('nonsense'), null);
   assert.equal(M.acceptMateHouse({ ...run, coop: '' }, { house, coins: 1, scrap: 1 }), null);
   assert.equal(M.acceptMateHouse({ ...run, page: 'combat' }, { house, coins: run.coins, scrap: run.scrap }), null);

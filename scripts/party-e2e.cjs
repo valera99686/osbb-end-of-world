@@ -154,6 +154,13 @@ const read = (page) =>
     await until('online tab', () =>
       page.eval(click('По мережі', 'button.play-mode')),
     );
+  // Everybody comes with a nick of their own, typed in the online panel.
+  const nicks = pages.map((_, i) => (i === 0 ? 'Голова ОСББ' : `Сусід ${i}`));
+  for (const [i, page] of pages.entries())
+    await page.eval(
+      `(()=>{const i=document.querySelector('.nick-field input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i, ${JSON.stringify(nicks[i])}); i.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+    );
+  await sleep(300);
   if (MODE === 'host') {
     await host.eval(
       `document.querySelector('.online-more')?.setAttribute('open', '')`,
@@ -182,6 +189,24 @@ const read = (page) =>
     ),
   );
   check(`the host sees ${PLAYERS - 1} guests`, true);
+  const guestList = await host.eval(
+    `document.querySelector('.room-guests')?.innerText ?? ''`,
+  );
+  check(
+    'the host sees the guests by their nicks',
+    nicks.slice(1).every((n) => guestList.includes(n)),
+  );
+  for (const [i, guest] of guests.entries()) {
+    const list = await until('the room list of ' + guest.name, () =>
+      guest.eval(
+        `(()=>{const t=document.querySelector('.guest-card .room-guests')?.innerText ?? ''; return t.includes(${JSON.stringify(nicks[PLAYERS - 1])}) ? t : ''})()`,
+      ),
+    ).catch(() => '');
+    check(
+      `${guest.name} sees everybody by their nicks`,
+      nicks.every((n) => list.includes(n)) && list.includes(`${nicks[i + 1]}`),
+    );
+  }
   const seats = [];
   for (const guest of guests)
     seats.push(

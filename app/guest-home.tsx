@@ -106,7 +106,7 @@ export function GuestPages({
           </div>
         ))}
         <div className={`reward-owner host${view.picked?.[0] ? ' done' : ''}`}>
-          <b>Господар</b>
+          <b>{session.nameOf(0)}</b>
           {view.picked?.[0] ? (
             <span className="took">
               <Check size={14} /> взяв: {takenText(view.picked[0])}
@@ -389,7 +389,7 @@ export function GuestAside({
           <>
             <PartnerHouse
               house={{ ...view, ...houseOf(view) }}
-              name="Господар"
+              name={session.nameOf(0)}
               meta={open}
             />
             {(view.mates ?? [])

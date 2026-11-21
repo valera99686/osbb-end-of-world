@@ -252,6 +252,15 @@ function look(enemy: Enemy, chapter: number, variant: number, mini: number) {
       ] ?? atlas?.enemies[def.artIndex]);
   return { def, size, sprite };
 }
+// The picture of an enemy kind for the gallery: the keyed sprite of the
+// fights, or null while its atlas still loads.
+export function enemyPicture(
+  type: number,
+  location: number,
+): HTMLCanvasElement | null {
+  preloadEnemyArt(location);
+  return look({ type } as Enemy, location, 0, 0).sprite?.body ?? null;
+}
 // How far drawEnemy can paint from the enemy's centre: the sprite (with
 // recoil and the death pop), health bar, affix badge, rim and plates, and
 // the windup aim line. Off-screen culling uses it as the margin.

@@ -1843,6 +1843,82 @@ button.item-card:hover:not(:disabled) {
 .locked-item {
   opacity: 0.62;
 }
+/* The gallery: tabs over the items, furniture, enemies and leaders met. */
+.gallery-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 16px;
+}
+.gallery-tabs > button {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1px solid #364c50;
+  border-radius: 8px;
+  background: #0f1e24;
+  color: #a8bcc0;
+}
+.gallery-tabs > button.active {
+  border-color: #b6a47d;
+  background: #243537;
+  color: #f0e2c0;
+}
+.gallery-tabs b {
+  margin-left: 4px;
+  color: #e0e5dc;
+}
+.codex-grid > .item-card.unmet,
+.gallery-card.unmet {
+  opacity: 0.62;
+}
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(210px, 40vw), 1fr));
+  gap: 12px;
+}
+.gallery-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #2f4a52;
+  border-radius: 10px;
+  background: #112229;
+}
+.gallery-card h3 {
+  margin: 6px 0 0;
+  color: #e6ebe2;
+  font-size: 16px;
+}
+.gallery-card small {
+  color: #8ca4aa;
+  font-size: 12px;
+}
+.gallery-card p {
+  margin: 6px 0 0;
+  color: #a8bcc0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.gallery-card .gallery-stats {
+  color: #d5c6a7;
+}
+.gallery-picture {
+  width: 100%;
+  max-width: 160px;
+  aspect-ratio: 1;
+  align-self: center;
+}
+.gallery-portrait {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #0b161c;
+}
+.gallery-card.leader.unmet .gallery-portrait {
+  filter: grayscale(1) brightness(0.22) blur(5px);
+}
 .locked-item:hover {
   opacity: 1;
 }

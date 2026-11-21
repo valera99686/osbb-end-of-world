@@ -66,6 +66,15 @@ export function cleanChat(text: unknown): string | null {
   return line || null;
 }
 
+// A nickname a player goes by in a room: a chat line of at most 20 characters
+// (the same hidden characters removed), or '' for none.
+export const NICK_MAX = 20;
+export function cleanNick(text: unknown): string {
+  const line = cleanChat(text);
+  // oxlint-disable-next-line typescript/no-misused-spread
+  return line ? [...line].slice(0, NICK_MAX).join('').trim() : '';
+}
+
 // The words of a quick phrase by its number, or null if there is no such one.
 export function quickText(q: unknown): string | null {
   return typeof q === 'number' && Number.isInteger(q) && q >= 0 && q < QUICK.length

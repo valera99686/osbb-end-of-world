@@ -281,18 +281,22 @@ function rooms(build = 'a', guestBuild = build, latency = 0) {
   return { wire, host, guest };
 }
 
-test('Room codes are five unambiguous characters and forgive spaces, dashes and case', () => {
+test('Room codes are eight unambiguous characters and forgive spaces, dashes and case', () => {
   for (let i = 0; i < 300; i++) {
     const code = N.makeCode();
     assert.equal(code.length, N.ROOM_LENGTH);
     assert.ok(![...code].some((c) => 'O0I1'.includes(c)), code);
     assert.equal(N.normalizeCode(code), code);
   }
-  assert.equal(N.normalizeCode(' ab-c d2 '), 'ABCD2');
-  assert.equal(N.normalizeCode('abcd'), '');
-  assert.equal(N.normalizeCode('abcdef'), '');
-  assert.equal(N.normalizeCode('ABCD0'), '', 'a zero is not a letter O');
+  assert.equal(N.normalizeCode(' ab-cd 23-45 '), 'ABCD2345');
+  assert.equal(N.normalizeCode('abcdefg'), '');
+  assert.equal(N.normalizeCode('abcdefghj'), '');
+  assert.equal(N.normalizeCode('ABCDEFG0'), '', 'a zero is not a letter O');
+  assert.equal(N.normalizeCode('ABCDE'), '', 'a five-character code of the older versions is not one');
   assert.equal(N.normalizeCode(''), '');
+  assert.equal(N.formatCode('ABCD2345'), 'ABCD-2345');
+  const shown = N.formatCode(N.makeCode());
+  assert.equal(N.normalizeCode(shown), shown.replace('-', ''), 'what is shown can be typed back');
   assert.equal(new Set(Array.from({ length: 200 }, () => N.makeCode())).size > 190, true);
 });
 

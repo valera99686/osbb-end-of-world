@@ -6,7 +6,8 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const bytes = (...parts: (ArrayLike<number> | number)[]): Uint8Array => {
+type Bytes = Uint8Array<ArrayBuffer>;
+const bytes = (...parts: (ArrayLike<number> | number)[]): Bytes => {
   const flat: number[] = [];
   for (const p of parts)
     if (typeof p === 'number') flat.push(p);
@@ -31,16 +32,16 @@ function length(n: number): number[] {
 const packet = (first: number, body: Uint8Array) =>
   bytes(first, length(body.length), body);
 
-export function connectPacket(clientId: string, keepAlive = 30): Uint8Array {
+export function connectPacket(clientId: string, keepAlive = 30): Bytes {
   return packet(
     0x10,
     bytes(text('MQTT'), 4, 0x02, keepAlive >> 8, keepAlive & 255, text(clientId)),
   );
 }
-export function subscribePacket(id: number, topic: string): Uint8Array {
+export function subscribePacket(id: number, topic: string): Bytes {
   return packet(0x82, bytes(id >> 8, id & 255, text(topic), 0));
 }
-export function publishPacket(topic: string, payload: string): Uint8Array {
+export function publishPacket(topic: string, payload: string): Bytes {
   return packet(0x30, bytes(text(topic), encoder.encode(payload)));
 }
 export const PING = bytes(0xc0, 0);

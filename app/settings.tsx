@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { dateKey } from '@/lib/game/modes';
 import { CVD_LABELS, type Cvd } from '@/lib/game/cvd';
+import { NICK_MAX } from '@/lib/game/chat';
 import {
   exportSave,
   type Meta,
@@ -118,6 +119,33 @@ function Volume({
     </label>
   );
 }
+// The name this player goes by in a room. Empty means the hero's own name,
+// which is shown greyed out in its place.
+export function NickField({
+  value,
+  hero,
+  onChange,
+}: {
+  value: string;
+  hero: string;
+  onChange: (nick: string) => void;
+}) {
+  return (
+    <label className="settings-field nick-field">
+      <b>Нік у грі по мережі</b>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={hero}
+        maxLength={NICK_MAX}
+        autoComplete="off"
+        spellCheck={false}
+        enterKeyHint="done"
+      />
+    </label>
+  );
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -126,6 +154,7 @@ export function SettingsDialog({
   native,
   locked,
   hasProfileBackup,
+  heroName,
   onChange,
   onImport,
   onProfileAction,
@@ -138,6 +167,8 @@ export function SettingsDialog({
   // Mid-battle the profile cannot be swapped out from under the engine.
   locked: boolean;
   hasProfileBackup: boolean;
+  // Shown in the nick field while it is empty.
+  heroName: string;
   onChange: (settings: Settings) => void;
   onImport: (code: string) => string | null;
   onProfileAction: (action: 'reset' | 'restore') => void;
@@ -232,6 +263,18 @@ export function SettingsDialog({
               Звук вимкнено кнопкою на верхній панелі.
             </p>
           )}
+        </section>
+        <section className="settings-section">
+          <h3>Гра по мережі</h3>
+          <NickField
+            value={s.nick}
+            hero={heroName}
+            onChange={(nick) => set({ nick })}
+          />
+          <p className="settings-note">
+            Так тебе бачать друзі в кімнаті й у чаті. Порожньо — ім’я героя.
+            Новий нік з’явиться в друзів з наступного входу в кімнату.
+          </p>
         </section>
         <section className="settings-section">
           <h3>Бій</h3>

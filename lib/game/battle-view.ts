@@ -56,6 +56,7 @@ import {
 } from './arena';
 import { drawEnemy, drawEnemyGhost } from './enemy-art';
 import { MECH_TYPE } from './leader-mech';
+import { metKey } from './gallery';
 import {
   drawHelper,
   drawLeaderMechanic,
@@ -702,6 +703,15 @@ function draw(this: Battle) {
       if (see < 1) {
         c.save();
         c.globalAlpha = see;
+      }
+      if (!actor.dying) {
+        const key = metKey(
+          e.type,
+          this.run.chapter,
+          this.run.bossVariants[this.run.chapter],
+          this.minibossVariant,
+        );
+        if (key) this.met.add(key);
       }
       drawEnemy(
         c,

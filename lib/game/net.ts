@@ -12,7 +12,7 @@ import type { Battle } from './engine';
 
 // Both ends must run the same build: the simulation is only repeatable inside
 // one version of the code, so a mismatch is refused at the door.
-export const NET_PROTOCOL = 10;
+export const NET_PROTOCOL = 11;
 // How a fight is shared: both ends simulate it and trade inputs ('sync'), or
 // the host alone simulates and streams it to the guest ('host').
 export type ShareMode = 'sync' | 'host';
@@ -281,16 +281,21 @@ export function makeToken(): string {
   else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.random() * 256;
   return Array.from(bytes, (b) => b.toString(36).padStart(2, '0')).join('');
 }
-// A room is named by five letters and digits that are hard to mix up on a
-// phone (no O/0, I/1): about 33 million of them.
+// A room is named by eight letters and digits that are hard to mix up on a
+// phone (no O/0, I/1): about 1.1 trillion of them. The code is also the secret
+// of the sealed relay (lib/game/relay-crypto.ts), so it is not made shorter.
 export const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-export const ROOM_LENGTH = 5;
-export function makeCode(rand: () => number = Math.random): string {
-  let code = '';
-  for (let i = 0; i < ROOM_LENGTH; i++)
-    code += ROOM_ALPHABET[Math.floor(rand() * ROOM_ALPHABET.length)];
-  return code;
+export const ROOM_LENGTH = 8;
+// From the system's secure source: who can guess the next code can walk into
+// the room. The alphabet has 32 symbols, so the low five bits of a byte pick
+// one of them and none is likelier than another.
+export function makeCode(): string {
+  const picks = crypto.getRandomValues(new Uint8Array(ROOM_LENGTH));
+  return Array.from(picks, (b) => ROOM_ALPHABET[b & 31]).join('');
 }
+// A code as it is shown and read out: two groups of four.
+export const formatCode = (code: string) =>
+  `${code.slice(0, 4)}-${code.slice(4)}`;
 // What a person typed, as a code: upper case, no spaces or dashes; '' if it
 // cannot be a code.
 export function normalizeCode(text: string): string {
@@ -317,16 +322,30 @@ const pack = (step: number, f: Frame): number[] => [
   Math.round(f.y * 100),
   (f.dash ? 1 : 0) | (f.pulse ? 2 : 0) | (f.away ? 4 : 0),
 ];
-const unpack = (row: number[]): [number, Frame] => [
-  row[0],
-  {
-    x: (row[1] || 0) / 100,
-    y: (row[2] || 0) / 100,
-    dash: !!(row[3] & 1),
-    pulse: !!(row[3] & 2),
-    ...(row[3] & 4 ? { away: true } : {}),
-  },
-];
+// A stick axis of a row from the wire: a number between -100 and 100, else 0
+// (a stranger's row may hold NaN, Infinity, text or an object).
+const axis = (v: unknown): number =>
+  (typeof v === 'number' && Number.isFinite(v)
+    ? Math.max(-100, Math.min(100, v)) / 100
+    : 0) || 0;
+// The most rows one message may carry and how far ahead of the running step a
+// row may be: an honest end is never more than a few steps ahead.
+const MAX_ROWS = 600;
+const MAX_AHEAD = 3600;
+const unpack = (row: number[]): [number, Frame] => {
+  const flags =
+    typeof row[3] === 'number' && Number.isFinite(row[3]) ? row[3] | 0 : 0;
+  return [
+    row[0],
+    {
+      x: axis(row[1]),
+      y: axis(row[2]),
+      dash: !!(flags & 1),
+      pulse: !!(flags & 2),
+      ...(flags & 4 ? { away: true } : {}),
+    },
+  ];
+};
 
 // How a seat's frames come to this end: it is this end's own player, a guest
 // that sends them (relayed to the others by the host), a guest on a slow link
@@ -489,10 +508,12 @@ export class Lockstep {
         (this.host && this.kinds[seat] !== 'peer')
       )
         return;
+      if (!Array.isArray(m.f)) return;
       const rows: number[][] = [];
-      for (const row of m.f) {
+      for (const row of m.f.slice(0, MAX_ROWS)) {
+        if (!Array.isArray(row) || !Number.isInteger(row[0])) continue;
         const [step, frame] = unpack(row);
-        if (step >= this.step) {
+        if (step >= this.step && step <= this.step + MAX_AHEAD) {
           this.pool[seat].set(step, frame);
           rows.push(row);
         }
